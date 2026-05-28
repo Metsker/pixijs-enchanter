@@ -198,8 +198,8 @@ export const en: Record<string, string> = {
   'enchant.treasure-hunter.desc': '+25% gold drops and +25% item drop chance.',
   'enchant.crystal-affinity.name': 'Crystal Affinity',
   'enchant.crystal-affinity.desc': '+50% crystals refunded from Disenchant / Destroy.',
-  'enchant.avatar-of-element.name': 'Avatar of [Element]',
-  'enchant.avatar-of-element.desc': 'Convert 50% of physical damage to one rolled element.',
+  'enchant.avatar-of-element.name': 'Avatar of {element}',
+  'enchant.avatar-of-element.desc': 'Convert 50% of physical damage to {element}.',
   'enchant.prism.name': 'Prism',
   'enchant.prism.desc': 'Convert 50% of physical damage to a random non-physical element, re-rolled per attack.',
 

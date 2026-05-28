@@ -20,9 +20,34 @@ export function eligibleEnchants(pool: EnchantPool, layer: EnchantLayer): Enchan
   );
 }
 
+// Non-physical element pool for convert-physical-rolled (Avatar of
+// [Element]). Includes the four conversion-eligible types; physical
+// is excluded since the effect converts FROM physical.
+const ROLLED_ELEMENTS = ['fire', 'cold', 'lightning', 'chaos'] as const;
+
 export function pickRandomEnchant(pool: EnchantPool, layer: EnchantLayer): Enchantment {
   const choices = eligibleEnchants(pool, layer);
-  return choices[Math.floor(Math.random() * choices.length)];
+  const base = choices[Math.floor(Math.random() * choices.length)];
+  return materializeRolled(base);
+}
+
+// Some enchants carry a per-instance rolled parameter that must be
+// frozen at gen time (Avatar of [Element] rolls one of four non-
+// physical types). Without this clone, every Avatar share would
+// point at the catalogue's placeholder toType. Clone defensively
+// only when needed.
+function materializeRolled(enchant: Enchantment): Enchantment {
+  let mutated = false;
+  const nextEffects = enchant.effects.map((eff) => {
+    if (eff.kind === 'convert-physical-rolled') {
+      const rolled = ROLLED_ELEMENTS[Math.floor(Math.random() * ROLLED_ELEMENTS.length)];
+      mutated = true;
+      return { ...eff, toType: rolled };
+    }
+    return eff;
+  });
+  if (!mutated) return enchant;
+  return { ...enchant, effects: nextEffects };
 }
 
 const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];

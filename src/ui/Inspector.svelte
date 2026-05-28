@@ -56,6 +56,7 @@
     type Item,
     type StackLayer,
   } from '../domain/item';
+  import { enchantDescription, enchantName } from '../domain/enchant-display';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
@@ -379,7 +380,7 @@
               <span class="cell-emoji">{filled && enchant ? enchant.emoji : '·'}</span>
               <span class="cell-name">
                 {#if filled && enchant}
-                  {t(enchant.nameKey)}
+                  {enchantName(enchant)}
                 {:else}
                   {t('inspector.empty', { layer: layerLabel(layer) })}
                 {/if}
@@ -544,13 +545,13 @@
             <div class="hint-header">
               <span class="emoji">{enchant.emoji}</span>
               <div>
-                <div class="hint-name">{t(enchant.nameKey)}</div>
+                <div class="hint-name">{enchantName(enchant)}</div>
                 <div class="hint-meta">
                   {layerLabel(layer)} · {enchant.pools.map((p) => t(`enchant.pool.${p}`)).join(' / ')}
                 </div>
               </div>
             </div>
-            <div class="hint-desc">{t(enchant.descriptionKey)}</div>
+            <div class="hint-desc">{enchantDescription(enchant)}</div>
           {:else}
             <div class="hint-empty">
               {t('inspector.hint.emptyCell', { layer: layerLabel(layer) })}

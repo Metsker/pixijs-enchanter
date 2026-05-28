@@ -98,7 +98,10 @@ export function startFightWith(enemies: EnemyDef[]): void {
   const def = get(playerProfile).defence;
   fight.update((state) => ({
     ...state,
-    player: { ...state.player, maxHp: def.maxHp, hp: def.maxHp },
+    // Reset HP AND clear any lingering statuses (Slime poison ticking
+    // forward from a previous fight would otherwise drain you on
+    // entry to the next floor).
+    player: { ...state.player, maxHp: def.maxHp, hp: def.maxHp, statuses: undefined },
     enemies: fighters,
     targetId: fighters[0]?.id ?? null,
     targetLock: undefined,
