@@ -42,7 +42,7 @@
       <ItemSelect />
     {:else if $run.screen === 'map' || $run.screen === 'run-complete'}
       <Map />
-    {:else if $run.screen === 'fight'}
+    {:else if $run.screen === 'fight' || $run.screen === 'run-lost'}
       <Battlefield />
     {:else if $run.screen === 'shop'}
       <ShopRoom />

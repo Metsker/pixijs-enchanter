@@ -113,9 +113,15 @@ fight.subscribe((state) => {
   if (r.screen === 'fight' && state.inFight && prevEnemyCount > 0 && state.enemies.length === 0) {
     run.update((s) => ({ ...s, fightWon: true }));
   }
-  // Run-lost: player HP just crossed to 0 mid-fight.
+  // Run-lost: player HP just crossed to 0 mid-fight. The overlay
+  // waits ~800ms so the Battlefield's player-death animation can
+  // play out before "Defeated." covers the corpse.
   if (r.screen === 'fight' && state.inFight && prevPlayerHp > 0 && state.player.hp <= 0) {
-    run.update((s) => ({ ...s, screen: 'run-lost' }));
+    setTimeout(() => {
+      if (get(run).screen === 'fight') {
+        run.update((s) => ({ ...s, screen: 'run-lost' }));
+      }
+    }, 800);
   }
   prevEnemyCount = state.enemies.length;
   prevPlayerHp = state.player.hp;

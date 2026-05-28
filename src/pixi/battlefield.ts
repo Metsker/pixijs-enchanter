@@ -155,6 +155,10 @@ export class Battlefield {
   private onTick = (ticker: Ticker): void => {
     const state = get(fight);
     if (!state.inFight || state.enemies.length === 0) return;
+    // Pause all combat (player attacks, enemy attacks, regen) the
+    // moment the player hits 0 HP so the death animation plays
+    // uninterrupted by trailing enemy swings.
+    if (state.player.hp <= 0) return;
 
     const dt = ticker.deltaMS / 1000;
 
@@ -437,6 +441,36 @@ export class Battlefield {
     });
   }
 
+  // Player death plays a slower, more dramatic version of the enemy
+  // death: the body topples sideways, scales down, and fades to a
+  // ghost of itself - it stays on-screen so the run-lost overlay can
+  // appear over the corpse. The view is NOT destroyed; component
+  // unmount on New run handles cleanup.
+  private playPlayerDeath(view: FighterView): void {
+    if (view.container.destroyed) return;
+    view.container.eventMode = 'none';
+
+    gsap.killTweensOf(view.container);
+    gsap.killTweensOf(view.emojiText);
+    gsap.killTweensOf(view.emojiText.scale);
+    view.emojiText.x = 0;
+    view.emojiText.rotation = 0;
+    view.emojiText.scale.set(1, 1);
+
+    gsap.to(view.container, {
+      alpha: 0.35,
+      rotation: -Math.PI / 3,
+      duration: 0.7,
+      ease: 'power2.in',
+    });
+    gsap.to(view.container.scale, {
+      x: 0.7,
+      y: 0.7,
+      duration: 0.7,
+      ease: 'power2.in',
+    });
+  }
+
   private playDeath(view: FighterView): void {
     if (view.container.destroyed) return;
     view.container.eventMode = 'none';
@@ -522,8 +556,9 @@ export class Battlefield {
       view.fighter = next;
       this.drawHpBar(view);
 
-      if (prevHp > 0 && next.hp <= 0 && next.kind === 'enemy') {
-        this.playDeath(view);
+      if (prevHp > 0 && next.hp <= 0) {
+        if (next.kind === 'enemy') this.playDeath(view);
+        else this.playPlayerDeath(view);
       }
     }
     this.drawTargetRing(state);
