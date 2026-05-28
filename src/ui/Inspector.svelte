@@ -16,6 +16,7 @@
   import { topbar } from '../state/topbar';
   import { buyItem, canBuyItem } from '../state/shop';
   import { removeRewardItem } from '../state/rewards';
+  import { canPickItem, pickItem } from '../state/item-offer';
   import {
     ADD_ROLL_COST,
     canAddRoll,
@@ -155,7 +156,13 @@
   const ctaLabel = $derived.by(() => {
     const s = $inspector;
     if (!s) return '';
-    if (s.source === 'backpack' || s.source === 'rewards') return t('inspector.equip');
+    if (
+      s.source === 'backpack' ||
+      s.source === 'rewards' ||
+      s.source === 'item-offer'
+    ) {
+      return t('inspector.equip');
+    }
     if (s.source === 'inventory') return t('inspector.unequip');
     return t('inspector.buy', { price: s.price });
   });
@@ -180,6 +187,9 @@
     }
     if (s.source === 'rewards') {
       if (!hasEmptyLegalSlot(s.item)) return t('inspector.cta.noEmptySlot');
+    }
+    if (s.source === 'item-offer') {
+      if (!canPickItem(s.index)) return t('inspector.cta.noEmptySlot');
     }
     return null;
   });
@@ -227,6 +237,11 @@
           inspector.set({ source: 'inventory', slotId: landedSlot, item: newItem });
         }
       }
+    } else if (subject.source === 'item-offer') {
+      // pickItem handles equip + offer-slot blank + closes the
+      // Inspector if it was still pointed at this slot. The shop
+      // pattern's "Taken" tile then renders in the room view.
+      pickItem(subject.index);
     } else {
       buyItem(subject.index);
     }
@@ -251,7 +266,7 @@
     transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
     use:clickOutside={{
       onOutside: closeInspector,
-      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim'],
+      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim', '.item-room'],
     }}
   >
     <header class="header">

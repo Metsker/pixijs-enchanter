@@ -7,9 +7,10 @@ import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetTopbar } from './topbar';
 import { closeInspector } from './inspector';
+import { closeItemOffer, openItemOffer } from './item-offer';
 
 export type Screen =
-  | 'weapon-select'
+  | 'item-select'
   | 'map'
   | 'fight'
   | 'shop'
@@ -32,10 +33,7 @@ function makeInitial(): RunState {
     map: generateMap(),
     lastCompletedRoomId: null,
     currentRoomId: null,
-    // Every run opens on the weapon-pick screen - the player picks one
-    // of three T1 weapons before the map appears, so they always start
-    // with a kit instead of an empty Inventory.
-    screen: 'weapon-select',
+    screen: 'map',
     fightWon: false,
   };
 }
@@ -45,13 +43,8 @@ export const run = writable<RunState>(makeInitial());
 function screenFor(kind: RoomKind): Screen {
   if (kind === 'common' || kind === 'elite' || kind === 'boss') return 'fight';
   if (kind === 'shop') return 'shop';
+  if (kind === 'item-select') return 'item-select';
   return 'rest';
-}
-
-// Called by WeaponSelect once the player has picked one of the three
-// starter weapons; equips it and drops the player onto the map.
-export function leaveWeaponSelect(): void {
-  run.update((s) => ({ ...s, screen: 'map' }));
 }
 
 export function enterRoom(roomId: string): void {
@@ -73,6 +66,9 @@ export function enterRoom(roomId: string): void {
   if (screen === 'shop') {
     openShopForFloor(node.floor);
   }
+  if (screen === 'item-select' && node.offerItems) {
+    openItemOffer(node.offerItems);
+  }
 }
 
 export function completeRoom(): void {
@@ -82,6 +78,7 @@ export function completeRoom(): void {
 
   endFight();
   closeShop();
+  closeItemOffer();
 
   run.update((s) => ({
     ...s,
@@ -102,6 +99,7 @@ export function startNewRun(): void {
   resetTopbar();
   closeInspector();
   closeShop();
+  closeItemOffer();
   run.set(makeInitial());
 }
 

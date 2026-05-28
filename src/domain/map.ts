@@ -1,7 +1,9 @@
 import type { EnemyDef } from './enemy';
 import { COMMONS, ELITES, LICH, MINOTAUR, SKELETON, GOBLIN, SLIME } from './enemy-catalogue';
+import type { Item } from './item';
+import { randomWeapon } from './random';
 
-export type RoomKind = 'common' | 'elite' | 'shop' | 'rest' | 'boss';
+export type RoomKind = 'item-select' | 'common' | 'elite' | 'shop' | 'rest' | 'boss';
 
 export interface MapNode {
   id: string;
@@ -13,6 +15,11 @@ export interface MapNode {
   // - Elite: 1 elite, possibly with 0-1 common escort (Minotaur always 1-2).
   // - Boss: Lich.
   enemies?: EnemyDef[];
+  // Pre-rolled items for an item-select room. Like enemies, these are
+  // fixed at map generation so the run is deterministic per seed. The
+  // floor-1 starter uses 3 T1 weapons; later acts can drop in their
+  // own roll (e.g. T3 armor after a boss) by setting this field.
+  offerItems?: Item[];
   // ids of nodes on the next floor that this node connects to.
   children: string[];
 }
@@ -163,7 +170,15 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     const parents = floor > 1 ? byFloor[floor - 2] : [];
     for (const node of floorNodes) {
       if (floor === 1) {
-        node.kind = 'common';
+        // Forced starter room: the player picks 1 of 3 random T1
+        // weapons here before any fight. Item-select rooms can be
+        // reused later with different offerItems.
+        node.kind = 'item-select';
+        node.offerItems = [
+          randomWeapon(1, 'starter'),
+          randomWeapon(1, 'starter'),
+          randomWeapon(1, 'starter'),
+        ];
       } else if (floor === FLOORS) {
         node.kind = 'boss';
       } else if (floor === FLOORS - 1) {

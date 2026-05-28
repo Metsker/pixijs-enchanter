@@ -8,6 +8,7 @@
   const NODE_R = 26;
 
   const ROOM_EMOJI: Record<RoomKind, string> = {
+    'item-select': '📦',
     common: '⚔️',
     elite: '💀',
     shop: '🪙',

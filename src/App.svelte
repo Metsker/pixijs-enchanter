@@ -9,7 +9,7 @@
   import ShopRoom from './ui/ShopRoom.svelte';
   import RestRoom from './ui/RestRoom.svelte';
   import RoomOverlay from './ui/RoomOverlay.svelte';
-  import WeaponSelect from './ui/WeaponSelect.svelte';
+  import ItemSelect from './ui/ItemSelect.svelte';
   import { toggleBackpack } from './state/ui';
   import { run } from './state/run';
 
@@ -38,8 +38,8 @@
   <TopBar />
   <main class="play-area">
     <InventoryColumn />
-    {#if $run.screen === 'weapon-select'}
-      <WeaponSelect />
+    {#if $run.screen === 'item-select'}
+      <ItemSelect />
     {:else if $run.screen === 'map' || $run.screen === 'run-complete'}
       <Map />
     {:else if $run.screen === 'fight'}
