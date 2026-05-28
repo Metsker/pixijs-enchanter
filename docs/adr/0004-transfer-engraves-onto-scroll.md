@@ -1,0 +1,20 @@
+# Transfer engraves onto a scroll, not directly onto a destination Item
+
+The original spec (and `CONTEXT.md` before this revision) defined **Transfer** as a single Rest action that took two Items: it salvaged one enchant from a *source* and wrote it onto a *destination* in the same gesture, destroying the source. We rebuilt Transfer as a two-step pipeline: the Rest action now writes the salvaged enchant onto an **Empty scroll** (turning it into a **Loaded scroll**) and consumes the source; a *later* `Add: Apply scroll` action lands that Loaded scroll onto whatever target the player eventually chooses. Source-destruction and target-augmentation are no longer the same click.
+
+The motivation is that the original shape forced the player to commit to a destination in the same heartbeat they sacrificed the source, with no opportunity to re-think between "yes, I want this enchant" and "yes, this is the Item I want it on." A mis-click on the destination would fork-spear both Items - the source was already gone before the player saw the result on the destination. The decoupled design treats the salvaged enchant as a first-class object (the Loaded scroll) the player carries in the Top bar until they're ready to spend it. It also unifies Add's mechanism: there are now two ways to fill the new slot (`Roll` for a random pool enchant, `Apply scroll` for a carried named enchant), and `Apply scroll` handles both Transfer-loaded and boss-dropped Unique scrolls under one button. Reversing this would require collapsing Loaded scrolls back into the immediate-write model, which would invalidate the Top-bar tile UI, the scroll picker, and the entity-level distinction between Empty / Loaded / Unique scrolls that `CONTEXT.md` now relies on.
+
+## Considered options
+
+- **Single-step Transfer with destination-pick inside the Workbench** - rejected: the user explicitly resolved Transfer to write to the scroll, not to a destination item. The during-grilling proposal of expanding the Workbench into two item grids (source + destination) was made moot by the redesign.
+- **Single-step Transfer with destination-pick by clicking through the modal** - rejected for the same reason; also broke the modal-captures-input contract that the Workbench needs for arm-then-click multi-step actions.
+- **Single-step Transfer with a filtered destination picker (legal-only)** - rejected for the same reason. Filtered pickers do appear elsewhere (the `Apply scroll` picker filters to legal scrolls), but Transfer's destination is now a *later* decision, not a same-step pick.
+
+## Consequences
+
+- A new entity exists in the glossary: the **Scroll** family with three states (Empty / Loaded / Unique). `CONTEXT.md` treats Loaded and Unique as variants of the same carrier, with a distinct icon distinguishing them visually.
+- The Top bar gains named tiles for Loaded scrolls (in addition to Unique scrolls). Each tile shows the carried enchant on hover.
+- `Add: Apply scroll` is the only mechanism that consumes either kind of Loaded scroll. The `Unique-apply` action that was previously distinct from `Roll` is folded into `Apply scroll` - Unique scrolls are simply the only scrolls whose carried enchant fits the tier-7 Unique slot's layer.
+- The legality check that used to live inside Transfer ("destination must have room for an enchant of that layer") now lives inside `Apply scroll`. Transfer itself has no legality check on the destination because there is no destination at Transfer time.
+- The `Apply scroll` picker filters to scrolls whose carried enchant matches the picked Item's pool and next-slot layer. If no held scroll fits, `Apply scroll` is hidden (per the "hide unavailable" rule); the player can still inspect held scrolls by hovering their Top-bar tiles.
+- Transfer cannot produce a Unique-carrying scroll. A Unique enchant only lives on a tier-7 Item's Unique slot, and Transferring it would require destroying that tier-7 Item - a player-hostile path that no real player would walk. So in practice, Loaded scrolls carry Weapons / Armor / Jewelry-pool enchants; Unique-carrying scrolls only originate from boss drops or Shop purchases.
