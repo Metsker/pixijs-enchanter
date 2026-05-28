@@ -4,6 +4,7 @@
   import InventoryColumn from './ui/InventoryColumn.svelte';
   import Battlefield from './ui/Battlefield.svelte';
   import Backpack from './ui/Backpack.svelte';
+  import Inspector from './ui/Inspector.svelte';
   import { toggleBackpack } from './state/ui';
 
   onMount(() => {
@@ -34,6 +35,7 @@
     <Battlefield />
   </main>
   <Backpack />
+  <Inspector />
 </div>
 
 <style>

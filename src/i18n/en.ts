@@ -18,7 +18,35 @@ export const en: Record<string, string> = {
   'backpack.title': 'Backpack',
   'backpack.sort': 'Sort',
   'backpack.close': 'Close backpack',
-  'backpack.hint': 'Drag a tile to reorder. Press B to close.',
+  'backpack.hint': 'Drag a tile to reorder. Click to inspect. Press B to close.',
+
+  'inspector.title': 'Inspector',
+  'inspector.close': 'Close inspector',
+  'inspector.tier': 'Tier {tier}',
+  'inspector.equip': 'Equip',
+  'inspector.unequip': 'Unequip',
+  'inspector.empty': 'Empty {layer} slot',
+  'inspector.layer.main': 'Main',
+  'inspector.layer.utility': 'Utility',
+  'inspector.layer.unique': 'Unique',
+  'inspector.cta.noEmptySlot': 'No empty legal slot - displacement picker coming later',
+  'inspector.cta.backpackFull': 'Backpack is full',
+  'inspector.hint.prompt': 'Hover an enchant cell to inspect.',
+  'inspector.hint.vsEquipped': 'vs equipped:',
+  'inspector.hint.empty': '(empty)',
+  'inspector.hint.emptyCell': 'Empty {layer} slot. Add (Roll) at Rest would fill this for crystals.',
+
+  'item.type.weapon': 'Weapon',
+  'item.type.shield': 'Shield',
+  'item.type.armor': 'Armor',
+  'item.type.ring': 'Ring',
+  'item.type.amulet': 'Amulet',
+
+  'enchant.pool.weapons': 'Weapons',
+  'enchant.pool.armor': 'Armor',
+  'enchant.pool.jewelry': 'Jewelry',
+  'enchant.pool.unique': 'Unique',
+
 
   // Weapons - Main
   'enchant.sharpness.name': 'Sharpness',

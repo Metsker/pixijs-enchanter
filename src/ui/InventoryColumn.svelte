@@ -1,16 +1,43 @@
 <script lang="ts">
   import { equipped } from '../state/inventory';
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
+  import { itemEmoji, tierOf } from '../domain/item';
+  import { inspectItem } from '../state/inspector';
   import { t } from '../i18n';
+
+  const TIER_COLORS: Record<number, string> = {
+    1: '#9ca3af',
+    2: '#22c55e',
+    3: '#3b82f6',
+    4: '#a855f7',
+    5: '#f97316',
+    6: '#ef4444',
+    7: '#fbbf24',
+  };
 </script>
 
 <aside class="inventory" aria-label="Inventory">
   {#each EQUIPMENT_SLOT_ORDER as slotId (slotId)}
     {@const slot = EQUIPMENT_SLOTS[slotId]}
     {@const item = $equipped[slotId]}
-    <div class="slot" class:filled={item !== null} title={t(slot.nameKey)}>
-      <span class="emoji">{slot.emoji}</span>
-    </div>
+    {#if item}
+      <button
+        type="button"
+        class="slot filled"
+        title={t(slot.nameKey)}
+        data-inspector-source="inventory"
+        onclick={() => inspectItem({ source: 'inventory', slotId, item })}
+      >
+        <span class="emoji">{itemEmoji(item)}</span>
+        <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
+          T{tierOf(item)}
+        </span>
+      </button>
+    {:else}
+      <div class="slot" title={t(slot.nameKey)}>
+        <span class="emoji">{slot.emoji}</span>
+      </div>
+    {/if}
   {/each}
 </aside>
 
@@ -28,6 +55,7 @@
   }
 
   .slot {
+    position: relative;
     flex: 1 1 0;
     min-height: 56px;
     border: 1px solid #2a2a34;
@@ -37,17 +65,42 @@
     align-items: center;
     justify-content: center;
     opacity: 0.4;
-    transition: opacity 100ms ease, border-color 100ms ease;
+    transition: opacity 100ms ease, border-color 100ms ease, background-color 100ms ease;
   }
 
   .slot.filled {
+    appearance: none;
+    cursor: pointer;
+    color: inherit;
     opacity: 1;
     border-color: #3a3a48;
+    padding: 0;
+  }
+  .slot.filled:hover {
+    background: #20202a;
+    border-color: #ffcc44;
+  }
+  .slot.filled:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
   }
 
   .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
     font-size: 1.6rem;
     line-height: 1;
+  }
+
+  .tier {
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    font-size: 0.6rem;
+    line-height: 1;
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--tier-color, #666);
+    color: var(--tier-color, #999);
+    background: rgba(0, 0, 0, 0.4);
   }
 </style>

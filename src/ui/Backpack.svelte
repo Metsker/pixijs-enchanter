@@ -14,14 +14,21 @@
     7: '#fbbf24',
   };
 
+  import { inspectItem } from '../state/inspector';
+
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
   let ghostPos = $state<{ x: number; y: number } | null>(null);
+  let pointerStart = { x: 0, y: 0 };
+  let didDrag = false;
+  const DRAG_THRESHOLD_SQ = 25; // ~5px
 
   function onPointerDown(e: PointerEvent, index: number): void {
     if ($backpack[index] === null) return;
     dragging = index;
     ghostPos = { x: e.clientX, y: e.clientY };
+    pointerStart = { x: e.clientX, y: e.clientY };
+    didDrag = false;
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -33,6 +40,9 @@
 
   function onPointerMove(e: PointerEvent): void {
     if (dragging === null) return;
+    const dx = e.clientX - pointerStart.x;
+    const dy = e.clientY - pointerStart.y;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD_SQ) didDrag = true;
     ghostPos = { x: e.clientX, y: e.clientY };
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cell = el?.closest<HTMLElement>('[data-cell-index]');
@@ -40,12 +50,23 @@
   }
 
   function onPointerUp(): void {
-    if (dragging !== null && dragOver !== null && dragging !== dragOver) {
-      moveItem(dragging, dragOver);
+    if (dragging !== null) {
+      if (didDrag) {
+        if (dragOver !== null && dragging !== dragOver) {
+          moveItem(dragging, dragOver);
+        }
+      } else {
+        // No drag - treat as a tile click: open the Inspector.
+        const item = $backpack[dragging];
+        if (item) {
+          inspectItem({ source: 'backpack', index: dragging, item });
+        }
+      }
     }
     dragging = null;
     dragOver = null;
     ghostPos = null;
+    didDrag = false;
   }
 </script>
 
@@ -76,6 +97,7 @@
           class:dragging={dragging === i}
           class:over={dragOver === i && dragging !== null && dragging !== i}
           data-cell-index={i}
+          data-inspector-source="backpack"
           onpointerdown={(e) => onPointerDown(e, i)}
           onpointermove={onPointerMove}
           onpointerup={onPointerUp}

@@ -1,5 +1,5 @@
-import type { Enchantment } from './enchant';
-import { EQUIPMENT_SLOTS } from './equipment';
+import type { Enchantment, EnchantLayer } from './enchant';
+import { EQUIPMENT_SLOTS, type EquipmentSlotId } from './equipment';
 
 export type ItemType = 'weapon' | 'shield' | 'armor' | 'ring' | 'amulet';
 
@@ -15,6 +15,15 @@ export interface Item {
   // Slot 1 sits at the base; later slots alternate main / utility.
   // Tier 7 adds a Unique-slot enchant - separate from this list; modelled later.
   enchants: Enchantment[];
+}
+
+// Enchant-stack alternation per CONTEXT.md § Enchant stack:
+// slot 1 = main, 2 = utility, 3 = main, ..., 6 = utility, 7 = unique (tier 7).
+export type StackLayer = EnchantLayer | 'unique';
+export const STACK_HEIGHT = 6;
+export function stackLayerAt(slotIndex1Based: number): StackLayer {
+  if (slotIndex1Based === 7) return 'unique';
+  return slotIndex1Based % 2 === 1 ? 'main' : 'utility';
 }
 
 export function tierOf(item: Item): number {
@@ -33,5 +42,23 @@ export function itemEmoji(item: Item): string {
       return EQUIPMENT_SLOTS.ring1.emoji;
     case 'amulet':
       return EQUIPMENT_SLOTS.amulet.emoji;
+  }
+}
+
+// Which equipment slots can this item be equipped into?
+// Weapons go to weapon or offhand; shields only to offhand; rings to either
+// ring slot; armor to its specific sub-slot; amulets to amulet.
+export function legalEquipmentSlots(item: Item): EquipmentSlotId[] {
+  switch (item.itemType) {
+    case 'weapon':
+      return ['weapon', 'offhand'];
+    case 'shield':
+      return ['offhand'];
+    case 'armor':
+      return item.armorSlot ? [item.armorSlot] : ['helm', 'chest', 'gloves', 'boots'];
+    case 'ring':
+      return ['ring1', 'ring2'];
+    case 'amulet':
+      return ['amulet'];
   }
 }
