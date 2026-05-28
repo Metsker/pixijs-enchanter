@@ -56,8 +56,10 @@
     z-index: 96;
     flex: 0 0 auto;
     width: 80px;
-    display: flex;
-    flex-direction: column;
+    /* Grid with 9 equal rows so all slots always fit the available height
+       regardless of viewport - prevents overflow on landscape mobile. */
+    display: grid;
+    grid-template-rows: repeat(9, 1fr);
     gap: 8px;
     padding: 12px 8px;
     background: #1c1c24;
@@ -67,8 +69,7 @@
 
   .slot {
     position: relative;
-    flex: 1 1 0;
-    min-height: 56px;
+    min-height: 0;
     border: 1px solid #2a2a34;
     border-radius: 8px;
     background: #14141a;
@@ -104,6 +105,25 @@
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
     font-size: 1.6rem;
     line-height: 1;
+  }
+
+  /* Short landscape viewports: nine slots have to fit in less vertical
+     space, so shrink padding / gap / emoji size. The grid layout above
+     auto-divides the column height into 9 rows, so we don't need a
+     min-height override - just trim the chrome. */
+  @media (max-height: 500px) {
+    .inventory {
+      width: 64px;
+      padding: 6px 4px;
+      gap: 4px;
+    }
+    .emoji {
+      font-size: 1.3rem;
+    }
+    .tier {
+      font-size: 0.65rem;
+      padding: 0 3px;
+    }
   }
 
   .tier {

@@ -193,8 +193,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 480px;
-    max-width: calc(100vw - 32px);
+    width: min(480px, 90vw);
     max-height: calc(100dvh - 96px);
     background: #1c1c24;
     border: 1px solid #3a3a48;
@@ -205,6 +204,21 @@
     flex-direction: column;
     user-select: none;
     touch-action: none;
+  }
+
+  /* On short landscape viewports the grid cells can squeeze; cap the
+     panel height and let the grid scroll vertically if all 5 rows don't
+     fit. */
+  @media (max-height: 500px) {
+    .backpack {
+      max-height: calc(100dvh - 72px);
+    }
+    .grid {
+      gap: 4px;
+      padding: 8px;
+      overflow-y: auto;
+      min-height: 0;
+    }
   }
 
   .toolbar {

@@ -462,6 +462,17 @@
     width: 560px;
   }
 
+  /* Landscape-mobile / narrow viewports: clamp Inspector width so the
+     Battlefield isn't reduced to a sliver behind it. */
+  @media (max-width: 900px) {
+    .inspector {
+      width: min(360px, 50vw);
+    }
+    .inspector.wide {
+      width: min(560px, 70vw);
+    }
+  }
+
   .header {
     display: flex;
     align-items: center;

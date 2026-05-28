@@ -53,6 +53,18 @@
     user-select: none;
   }
 
+  /* Tighter spacing on landscape-mobile so all counters + progress + the
+     backpack toggle stay on one row without horizontal scrolling. */
+  @media (max-width: 900px) {
+    .topbar {
+      gap: 0.75rem;
+      padding: 0 0.5rem;
+    }
+    .counters {
+      gap: 0.75rem;
+    }
+  }
+
   .counters {
     display: flex;
     align-items: center;
