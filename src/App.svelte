@@ -1,7 +1,30 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import TopBar from './ui/TopBar.svelte';
   import InventoryColumn from './ui/InventoryColumn.svelte';
   import Battlefield from './ui/Battlefield.svelte';
+  import Backpack from './ui/Backpack.svelte';
+  import { toggleBackpack } from './state/ui';
+
+  onMount(() => {
+    function isEditable(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditable(e.target)) return;
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        toggleBackpack();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 </script>
 
 <div class="app">
@@ -10,6 +33,7 @@
     <InventoryColumn />
     <Battlefield />
   </main>
+  <Backpack />
 </div>
 
 <style>

@@ -14,4 +14,9 @@ export const en: Record<string, string> = {
   'inventory.slot.boots': 'Boots',
   'inventory.slot.ring': 'Ring',
   'inventory.slot.amulet': 'Amulet',
+
+  'backpack.title': 'Backpack',
+  'backpack.sort': 'Sort',
+  'backpack.close': 'Close backpack',
+  'backpack.hint': 'Drag a tile to reorder. Press B to close.',
 };
