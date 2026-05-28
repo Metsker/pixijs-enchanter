@@ -93,6 +93,11 @@ export class Battlefield {
   // Single global window - the strongest burst overrides.
   private adrenalineUntil = 0;
   private adrenalineBonus = 0;
+  // Razor Wit / on-dodge-damage-buff: dodge sets the window; while
+  // active landDamage adds bonus to the player's damage. Single
+  // global window; strongest buff wins.
+  private dodgeBuffUntil = 0;
+  private dodgeBuffBonus = 0;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -338,6 +343,11 @@ export class Battlefield {
         }
       }
     }
+    // Razor Wit: while the post-dodge window is active, every hit
+    // gets a flat damage boost.
+    if (performance.now() / 1000 < this.dodgeBuffUntil) {
+      bonusFraction += this.dodgeBuffBonus;
+    }
     dmg = (dmg + flatBonus) * (1 + bonusFraction);
 
     // Shocked targets take takeDamageMul more damage from every
@@ -489,22 +499,56 @@ export class Battlefield {
       tl.to(enemyView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
     }
 
+    const enchants = get(playerEnchants);
+
     // Player dodge: if the player dodges, no damage, no thorns - just
     // a "Miss" float over the player. The enemy's lunge still plays
-    // so the attempt still reads on-screen.
+    // so the attempt still reads on-screen. On a dodge we also fire
+    // Counter Attack (deal % of player damage to attacker) and arm
+    // the Razor Wit on-dodge damage buff window.
     if (this.defence.dodge > 0 && Math.random() < this.defence.dodge) {
       this.spawnFloatNumber(playerView, 'Dodge', '#aaaaaa', 28);
+      for (const enchant of enchants) {
+        for (const eff of enchant.effects) {
+          if (eff.kind === 'counter-attack' && enemyView && !enemyView.container.destroyed) {
+            const reflect = Math.max(1, Math.round(this.attack.damage * eff.fraction));
+            this.spawnDamageNumber(enemyView, reflect);
+            this.playHitFlash(enemyView);
+            applyDamage(enemy.id, reflect);
+          }
+          if (eff.kind === 'on-dodge-damage-buff' && eff.bonusFraction > this.dodgeBuffBonus) {
+            this.dodgeBuffBonus = eff.bonusFraction;
+            this.dodgeBuffUntil = performance.now() / 1000 + eff.durationSec;
+          }
+        }
+      }
       return;
     }
 
-    // Flat damage reduction from Fortitude etc. Shock on the player
-    // amplifies the incoming hit before DR is applied. Resists / big-
-    // hit / low-hp modifiers will plug in here in a follow-up depth
-    // pass.
+    // Flat damage reduction. Shock on the player amplifies first; then
+    // Defiance adds conditional DR while low-HP; then Resilient halves
+    // single hits above its threshold.
     const playerShockMul = state.player.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
     let incoming = Math.round(damage * playerShockMul);
-    if (this.defence.damageReduction > 0) {
-      incoming = Math.max(1, Math.round(incoming * (1 - this.defence.damageReduction)));
+    let dr = this.defence.damageReduction;
+    const playerHpFrac =
+      state.player.maxHp > 0 ? state.player.hp / state.player.maxHp : 1;
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'damage-reduction-low-hp' && playerHpFrac <= eff.threshold) {
+          dr += eff.amount;
+        }
+      }
+    }
+    if (dr > 0) {
+      incoming = Math.max(1, Math.round(incoming * (1 - Math.min(0.95, dr))));
+    }
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'big-hit-reduction' && incoming > eff.threshold) {
+          incoming = Math.max(1, Math.round(incoming * (1 - eff.reductionFraction)));
+        }
+      }
     }
 
     this.spawnDamageNumber(playerView, incoming);
@@ -521,14 +565,22 @@ export class Battlefield {
       this.spawnFloatNumber(playerView, sd.emoji, sd.color, 28);
     }
 
-    // Armor aura-on-hit (Burn Aura, Frost Aura, etc.): each rolls
-    // independently and inflicts its status on the attacking enemy.
+    // Armor aura-on-hit (Burn Aura, Frost Aura, etc.) + Reactive
+    // Curse: each rolls independently and inflicts its status on the
+    // attacking enemy. Reactive Curse picks a random status type.
     if (enemyView && !enemyView.container.destroyed) {
-      for (const enchant of get(playerEnchants)) {
+      for (const enchant of enchants) {
         for (const eff of enchant.effects) {
           if (eff.kind === 'aura-on-hit' && Math.random() < eff.chance) {
             applyStatusToEnemy(enemy.id, eff.status);
             const sd = STATUS_DEFS[eff.status];
+            this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
+          }
+          if (eff.kind === 'reactive-status' && Math.random() < eff.chance) {
+            const all = Object.keys(STATUS_DEFS) as StatusType[];
+            const pick = all[Math.floor(Math.random() * all.length)];
+            applyStatusToEnemy(enemy.id, pick);
+            const sd = STATUS_DEFS[pick];
             this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
           }
         }
@@ -740,6 +792,8 @@ export class Battlefield {
       this.regenAccum = 0;
       this.adrenalineUntil = 0;
       this.adrenalineBonus = 0;
+      this.dodgeBuffUntil = 0;
+      this.dodgeBuffBonus = 0;
     }
     this.prevInFight = state.inFight;
 
