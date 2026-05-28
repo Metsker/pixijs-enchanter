@@ -6,6 +6,7 @@ import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
 import { equipItemDirect, hasEmptyLegalSlot } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
+import { sfx } from '../audio/sfx';
 
 export const shopStock = writable<ShopStock | null>(null);
 
@@ -47,6 +48,7 @@ export function buyItem(shopIndex: number): boolean {
 
   if (!spendGold(slot.price)) return false;
   addItem(slot.item);
+  sfx.buy();
 
   shopStock.update((s) => {
     if (!s) return s;
@@ -90,6 +92,7 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
     addGold(slot.price);
     return null;
   }
+  sfx.buy();
 
   shopStock.update((s) => {
     if (!s) return s;

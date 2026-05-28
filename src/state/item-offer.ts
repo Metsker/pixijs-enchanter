@@ -2,6 +2,7 @@ import { get, writable } from 'svelte/store';
 import type { Item } from '../domain/item';
 import { equipItemDirect, hasEmptyLegalSlot } from './inventory';
 import { closeInspector, inspector } from './inspector';
+import { sfx } from '../audio/sfx';
 
 // A pick-1-or-more item-select room. The starter "Armory" room uses
 // three T1 weapons; later rooms can reuse the same component for
@@ -40,6 +41,7 @@ export function pickItem(index: number): string | null {
 
   const landed = equipItemDirect(item);
   if (landed === null) return null;
+  sfx.click();
 
   itemOffer.update((s) => {
     if (!s) return s;

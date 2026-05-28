@@ -5,6 +5,7 @@ export const en: Record<string, string> = {
   'topbar.seals': 'Seals',
   'topbar.actFloor': 'Act {act} · Floor {floor}',
   'topbar.toggleBackpack': 'Toggle backpack',
+  'topbar.toggleMute': 'Toggle sound',
 
   'inventory.slot.weapon': 'Weapon',
   'inventory.slot.offhand': 'Offhand',

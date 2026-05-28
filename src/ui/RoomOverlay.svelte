@@ -7,7 +7,30 @@
   } from '../state/rewards';
   import { inspector, inspectItem, closeInspector } from '../state/inspector';
   import { itemEmoji, tierOf, type Item } from '../domain/item';
+  import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
+
+  // Fire the victory / defeat fanfare once whenever the overlay
+  // first appears for a given run state. lastSounded tracks the
+  // screen string so re-renders of the same state don't replay.
+  let lastSounded: string | null = null;
+  $effect(() => {
+    const cue =
+      $run.screen === 'run-lost'
+        ? 'defeat'
+        : $run.screen === 'run-complete'
+        ? 'victory'
+        : $run.fightWon
+        ? 'fight-victory'
+        : null;
+    if (cue && cue !== lastSounded) {
+      lastSounded = cue;
+      if (cue === 'defeat') sfx.defeat();
+      else sfx.victory();
+    } else if (!cue) {
+      lastSounded = null;
+    }
+  });
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',

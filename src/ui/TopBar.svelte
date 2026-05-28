@@ -4,6 +4,7 @@
   import { get } from 'svelte/store';
   import { topbar } from '../state/topbar';
   import { backpackOpen, toggleBackpack } from '../state/ui';
+  import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
   import { t } from '../i18n';
 
   // Gold ticks up smoothly when claimed from the victory chest (and on
@@ -18,9 +19,11 @@
   $effect(() => {
     const target = $topbar.gold;
     if (target === prevGoldTarget) return;
+    const increased = target > prevGoldTarget;
     prevGoldTarget = target;
     if (popTimer) clearTimeout(popTimer);
     goldPop = true;
+    if (increased) sfx.coin();
     popTimer = setTimeout(() => {
       goldPop = false;
       popTimer = null;
@@ -52,6 +55,17 @@
   <div class="progress">
     {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
   </div>
+
+  <button
+    type="button"
+    class="backpack-toggle"
+    aria-label={t('topbar.toggleMute')}
+    aria-pressed={$audioPrefs.muted}
+    onclick={toggleMute}
+    title={t('topbar.toggleMute')}
+  >
+    <span class="emoji">{$audioPrefs.muted ? '🔇' : '🔊'}</span>
+  </button>
 
   <button
     type="button"

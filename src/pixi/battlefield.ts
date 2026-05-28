@@ -28,6 +28,7 @@ import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS } from '../domain/status';
+import { playStatusSfx, sfx } from '../audio/sfx';
 
 const EMOJI_FONT_STACK = [
   'Noto Color Emoji',
@@ -312,6 +313,7 @@ export class Battlefield {
     if (!view || view.container.destroyed) return;
 
     this.playAttackSwing(view);
+    sfx.swing();
 
     // Enemy dodge: the catalogue defines a per-enemy dodge chance;
     // when it procs the swing animations still play (swing + slash)
@@ -321,6 +323,7 @@ export class Battlefield {
     if (enemyDodge > 0 && Math.random() < enemyDodge) {
       this.spawnFloatNumber(view, 'Miss', '#aaaaaa', 28);
       this.spawnSlash(view);
+      sfx.dodge();
       return;
     }
 
@@ -437,8 +440,10 @@ export class Battlefield {
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
+      sfx.crit();
     } else {
       this.spawnDamageNumber(view, damage);
+      sfx.hit();
     }
     this.playHitFlash(view);
     if (!isExtraStrike) this.playHitReact(view);
@@ -466,6 +471,7 @@ export class Battlefield {
           applyStatusToEnemy(target.id, eff.status);
           const def = STATUS_DEFS[eff.status];
           this.spawnFloatNumber(view, def.emoji, def.color, 28);
+          playStatusSfx(eff.status);
         }
       }
     }
@@ -480,6 +486,7 @@ export class Battlefield {
         const playerView = this.views.get(state.player.id);
         if (playerView && !playerView.container.destroyed) {
           this.spawnFloatNumber(playerView, `+${heal}`, '#7fe57f', 28);
+          sfx.heal();
         }
       }
     }
@@ -616,6 +623,7 @@ export class Battlefield {
     // the Razor Wit on-dodge damage buff window.
     if (this.defence.dodge > 0 && Math.random() < this.defence.dodge) {
       this.spawnFloatNumber(playerView, 'Dodge', '#aaaaaa', 28);
+      sfx.dodge();
       for (const enchant of enchants) {
         for (const eff of enchant.effects) {
           if (eff.kind === 'counter-attack' && enemyView && !enemyView.container.destroyed) {
@@ -698,6 +706,7 @@ export class Battlefield {
     this.playHitReact(playerView);
     this.spawnSlash(playerView);
     applyDamageToPlayer(incoming);
+    sfx.hit();
 
     // Enemy-applied status (e.g. Slime's poison): roll a flat 30%
     // chance per hit, respecting player's Hex Ward / Eternal Vigil.
@@ -906,7 +915,12 @@ export class Battlefield {
     view.container.eventMode = 'none';
 
     const id = view.fighter.id;
-    if (view.fighter.kind === 'enemy') killEnemy(id);
+    if (view.fighter.kind === 'enemy') {
+      sfx.death();
+      killEnemy(id);
+    } else {
+      sfx.playerDeath();
+    }
 
     // Stop any in-flight hit-react / enemy-lunge tweens so the death
     // animation takes over cleanly.
