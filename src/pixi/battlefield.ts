@@ -67,6 +67,9 @@ interface FighterView {
   // toward fighter.hp / fighter.maxHp so the bar slides instead of
   // snapping when damage / heal lands.
   displayedHpFrac: number;
+  // Thin attack-cooldown progress bar below the HP bar. Filled as
+  // the cooldown drains toward 0 (gold for player, red for enemies).
+  cooldownBar: Graphics;
 }
 
 export class Battlefield {
@@ -190,10 +193,11 @@ export class Battlefield {
 
     const hpBg = new Graphics();
     const hpFill = new Graphics();
+    const cooldownBar = new Graphics();
     const statusRow = new Container();
     statusRow.eventMode = 'none';
 
-    container.addChild(emojiText, hpBg, hpFill, statusRow);
+    container.addChild(emojiText, hpBg, hpFill, cooldownBar, statusRow);
 
     if (fighter.kind === 'enemy') {
       container.eventMode = 'static';
@@ -212,6 +216,7 @@ export class Battlefield {
       statusRow,
       statusIcons: new Map(),
       displayedHpFrac: fighter.maxHp > 0 ? fighter.hp / fighter.maxHp : 0,
+      cooldownBar,
     };
   }
 
@@ -277,6 +282,26 @@ export class Battlefield {
         }
       }
       this.delayedPlayerDamage = this.delayedPlayerDamage.filter((e) => e.remainingSec > 0);
+    }
+
+    // Cooldown bars: player gold, enemies red. Filled as the cooldown
+    // drains toward 0. Player bar reads from this.cooldown; enemies
+    // pull from the per-id map.
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      const interval = Math.max(0.01, this.attack.interval);
+      const progress = Math.max(0, Math.min(1, 1 - this.cooldown / interval));
+      this.drawCooldownBar(playerView, progress, 0xffcc44);
+    }
+    for (const enemy of state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const def = ENEMY_CATALOGUE[enemy.name];
+      if (!def) continue;
+      const cd = this.enemyCooldowns.get(enemy.id) ?? def.interval;
+      const interval = Math.max(0.01, def.interval);
+      const progress = Math.max(0, Math.min(1, 1 - cd / interval));
+      const ev = this.views.get(enemy.id);
+      if (ev && !ev.container.destroyed) this.drawCooldownBar(ev, progress, 0xff5252);
     }
 
     // HP-bar ease + camera shake decay run every frame regardless of
@@ -1163,6 +1188,20 @@ export class Battlefield {
       view.hpFill
         .roundRect(x, y, HP_BAR_WIDTH * ratio, HP_BAR_HEIGHT, 3)
         .fill(view.fighter.kind === 'player' ? 0x55cc66 : 0xcc4444);
+    }
+  }
+
+  // Thin attack-cooldown bar slotted just below the HP bar. Same
+  // width, 4px tall. Fills from left to right as the cooldown drains
+  // toward zero; on the next swing it snaps back to 0 width.
+  private drawCooldownBar(view: FighterView, progress: number, color: number): void {
+    const x = -HP_BAR_WIDTH / 2;
+    const y = -view.emojiText.height - 22;
+    const h = 4;
+    view.cooldownBar.clear();
+    view.cooldownBar.roundRect(x, y, HP_BAR_WIDTH, h, 2).fill(0x1a1a22);
+    if (progress > 0) {
+      view.cooldownBar.roundRect(x, y, HP_BAR_WIDTH * progress, h, 2).fill(color);
     }
   }
 
