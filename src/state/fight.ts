@@ -21,6 +21,11 @@ export interface FightState {
   // True while the Battlefield is actively running combat (i.e. the player
   // is inside a fight room). Map / Shop / Rest screens leave it false.
   inFight: boolean;
+  // Taunt lock: while set, setTarget refuses to point anywhere
+  // other than the taunter (and Battlefield paints the target ring
+  // red as feedback). Cleared when the timer expires or the taunter
+  // dies.
+  targetLock?: { enemyId: string; remainingSec: number };
 }
 
 const initialPlayer: Fighter = {
@@ -96,6 +101,7 @@ export function startFightWith(enemies: EnemyDef[]): void {
     player: { ...state.player, maxHp: def.maxHp, hp: def.maxHp },
     enemies: fighters,
     targetId: fighters[0]?.id ?? null,
+    targetLock: undefined,
     inFight: true,
   }));
 }
@@ -105,6 +111,7 @@ export function endFight(): void {
     ...state,
     enemies: [],
     targetId: null,
+    targetLock: undefined,
     inFight: false,
   }));
 }
@@ -112,7 +119,36 @@ export function endFight(): void {
 export function setTarget(id: string): void {
   fight.update((state) => {
     if (!state.enemies.some((e) => e.id === id)) return state;
+    if (state.targetLock) {
+      const locker = state.enemies.find((e) => e.id === state.targetLock!.enemyId);
+      if (locker && locker.hp > 0) return state; // taunt suppresses override
+    }
     return { ...state, targetId: id };
+  });
+}
+
+// Force the target onto `enemyId` for `durationSec`. Used by
+// Battlefield when a Minotaur taunt procs. While the lock is held,
+// setTarget refuses to retarget away from the taunter.
+export function applyTauntLock(enemyId: string, durationSec: number): void {
+  fight.update((state) => ({
+    ...state,
+    targetId: enemyId,
+    targetLock: { enemyId, remainingSec: durationSec },
+  }));
+}
+
+// Tick the taunt lock down each frame. Auto-clears when the timer
+// expires OR the taunter dies.
+export function tickTargetLock(dt: number): void {
+  fight.update((state) => {
+    if (!state.targetLock) return state;
+    const remainingSec = state.targetLock.remainingSec - dt;
+    const taunter = state.enemies.find((e) => e.id === state.targetLock!.enemyId);
+    if (remainingSec <= 0 || !taunter || taunter.hp <= 0) {
+      return { ...state, targetLock: undefined };
+    }
+    return { ...state, targetLock: { ...state.targetLock, remainingSec } };
   });
 }
 

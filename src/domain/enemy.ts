@@ -18,4 +18,9 @@ export interface EnemyDef {
   // Optional flavour: status the enemy applies on hit (Slime poisons, Lich
   // poisons, Pyroclasm-style enemies could burn, etc.).
   appliesStatus?: StatusType;
+  // Taunt schedule: every intervalSec the enemy yanks the player's
+  // target onto itself and locks it there for durationSec (click-
+  // override suppressed during the lock). Minotaur's signature
+  // mechanic per docs/enemies.md.
+  taunt?: { intervalSec: number; durationSec: number };
 }

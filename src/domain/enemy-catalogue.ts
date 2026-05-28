@@ -86,6 +86,7 @@ export const MINOTAUR: EnemyDef = {
   dodge: 0,
   loc: 'grounded',
   kind: 'elite',
+  taunt: { intervalSec: 6, durationSec: 3 },
 };
 
 export const LICH: EnemyDef = {

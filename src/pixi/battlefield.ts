@@ -16,9 +16,11 @@ import {
   applyDamageToPlayer,
   applyStatusToEnemy,
   applyStatusToPlayer,
+  applyTauntLock,
   healPlayer,
   killEnemy,
   tickStatuses,
+  tickTargetLock,
   type FightState,
 } from '../state/fight';
 import { playerEnchants, playerProfile } from '../state/player-profile';
@@ -120,6 +122,11 @@ export class Battlefield {
   // Camera shake: scratch offset applied to stage position. Kicked
   // by big moments (crit, kill, player hit) and decays each tick.
   private shakeIntensity = 0;
+  // Per-enemy taunt cooldowns (seconds). Each enemy with a taunt
+  // entry in the catalogue counts down from intervalSec; on 0 it
+  // yanks the player's target onto itself and locks it for
+  // durationSec via applyTauntLock.
+  private tauntCooldowns = new Map<string, number>();
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -337,6 +344,39 @@ export class Battlefield {
         if (!live.has(id)) this.enemyCooldowns.delete(id);
       }
     }
+
+    // Taunt schedule: each enemy that has a taunt entry counts down
+    // from intervalSec; on trigger, lock the player's target onto
+    // the taunter for durationSec via applyTauntLock + show a 🎯
+    // float above the taunter.
+    for (const enemy of state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const def = ENEMY_CATALOGUE[enemy.name];
+      const taunt = def?.taunt;
+      if (!taunt) continue;
+      const current = this.tauntCooldowns.get(enemy.id) ?? taunt.intervalSec;
+      const next = current - dt;
+      if (next <= 0) {
+        applyTauntLock(enemy.id, taunt.durationSec);
+        const view = this.views.get(enemy.id);
+        if (view && !view.container.destroyed) {
+          this.spawnFloatNumber(view, '🎯 Taunt', '#ff5252', 26);
+        }
+        this.tauntCooldowns.set(enemy.id, taunt.intervalSec);
+      } else {
+        this.tauntCooldowns.set(enemy.id, next);
+      }
+    }
+    if (this.tauntCooldowns.size > state.enemies.length) {
+      const live = new Set(state.enemies.map((e) => e.id));
+      for (const id of this.tauntCooldowns.keys()) {
+        if (!live.has(id)) this.tauntCooldowns.delete(id);
+      }
+    }
+
+    // Age the taunt lock so it expires after durationSec (or when
+    // the taunter dies).
+    tickTargetLock(dt);
   };
 
 
@@ -1017,6 +1057,7 @@ export class Battlefield {
       this.lichcrownUntil = 0;
       this.delayedPlayerDamage.length = 0;
       this.shakeIntensity = 0;
+      this.tauntCooldowns.clear();
     }
     this.prevInFight = state.inFight;
 
@@ -1185,10 +1226,14 @@ export class Battlefield {
 
     // Anchor to the view's home position so attack-swing lunges and
     // knockbacks slide the enemy off the ring instead of dragging the
-    // ring around with them.
+    // ring around with them. A taunt lock on this enemy paints the
+    // ring red to telegraph that click-override is suppressed.
+    const locked =
+      !!state.targetLock && state.targetLock.enemyId === state.targetId;
+    const color = locked ? 0xff5252 : 0xffcc44;
     this.targetRing
       .ellipse(view.homeX, view.homeY + 6, 62, 14)
-      .stroke({ color: 0xffcc44, width: 3, alpha: 0.9 });
+      .stroke({ color, width: 3, alpha: 0.9 });
   }
 
   private refreshProfile(): void {
