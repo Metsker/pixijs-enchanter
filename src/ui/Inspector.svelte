@@ -591,7 +591,7 @@
       {/if}
     </div>
 
-    {#if !inRest}
+    {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'rewards' || subject.source === 'item-offer'}
       <footer class="footer">
         <button
           type="button"
