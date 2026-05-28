@@ -124,7 +124,9 @@ export const sfx = {
     tone({ freq: 720, sweepTo: 280, dur: 0.07, type: 'sine', gain: 0.18 });
   },
   hit(): void {
-    tone({ freq: 200, sweepTo: 70, dur: 0.13, type: 'square', gain: 0.35 });
+    // Triangle instead of square, lower gain, slightly slower attack
+    // - same low-thump shape but no longer dominates the mix.
+    tone({ freq: 200, sweepTo: 70, dur: 0.13, type: 'triangle', gain: 0.18, attack: 0.01 });
   },
   crit(): void {
     tone({ freq: 820, sweepTo: 240, dur: 0.22, type: 'sawtooth', gain: 0.4 });
@@ -142,11 +144,12 @@ export const sfx = {
     tone({ freq: 900, sweepTo: 1400, dur: 0.08, type: 'sine', gain: 0.22 });
   },
   death(): void {
-    tone({ freq: 220, sweepTo: 40, dur: 0.55, type: 'sawtooth', gain: 0.35 });
+    // Triangle fall with a slower attack so the wail is mellower.
+    tone({ freq: 220, sweepTo: 40, dur: 0.55, type: 'triangle', gain: 0.18, attack: 0.03 });
   },
   playerDeath(): void {
-    tone({ freq: 180, sweepTo: 35, dur: 0.9, type: 'sawtooth', gain: 0.45 });
-    tone({ freq: 90, sweepTo: 20, dur: 0.9, type: 'sine', gain: 0.3, delay: 0.05 });
+    tone({ freq: 180, sweepTo: 35, dur: 0.9, type: 'triangle', gain: 0.22, attack: 0.04 });
+    tone({ freq: 90, sweepTo: 20, dur: 0.9, type: 'sine', gain: 0.16, attack: 0.04, delay: 0.05 });
   },
   coin(): void {
     tone({ freq: 1320, dur: 0.07, type: 'triangle', gain: 0.3 });
