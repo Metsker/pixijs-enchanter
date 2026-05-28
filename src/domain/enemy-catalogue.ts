@@ -67,7 +67,7 @@ export const OGRE: EnemyDef = {
   hp: 3000,
   damage: 450,
   damageType: 'physical',
-  interval: 6.0,
+  interval: 8.0,
   resist: 0.10,
   dodge: 0,
   loc: 'grounded',
