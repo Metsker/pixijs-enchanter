@@ -30,7 +30,8 @@
     7: '#fbbf24',
   };
 
-  import { inspector, inspectItem } from '../state/inspector';
+  import { get } from 'svelte/store';
+  import { closeInspector, inspector, inspectItem } from '../state/inspector';
 
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
@@ -73,7 +74,25 @@
     if (dragging !== null) {
       if (didDrag) {
         if (dragOver !== null && dragging !== dragOver) {
-          moveItem(dragging, dragOver);
+          const from = dragging;
+          const to = dragOver;
+          moveItem(from, to);
+          // Inspector follows the swap: if it pointed at one of the
+          // swapped tiles, flip its index to where its item now lives.
+          // Otherwise the inspecting border stays on the wrong tile.
+          const ins = get(inspector);
+          if (ins?.source === 'backpack') {
+            const slots = get(backpack);
+            if (ins.index === from) {
+              const moved = slots[to];
+              if (moved) inspector.set({ source: 'backpack', index: to, item: moved });
+              else closeInspector();
+            } else if (ins.index === to) {
+              const moved = slots[from];
+              if (moved) inspector.set({ source: 'backpack', index: from, item: moved });
+              else closeInspector();
+            }
+          }
         }
       } else {
         // No drag - treat as a tile click: open the Inspector.
