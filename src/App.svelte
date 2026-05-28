@@ -13,6 +13,12 @@
   import { toggleBackpack } from './state/ui';
   import { run } from './state/run';
   import { sfx } from './audio/sfx';
+  import { loadSave, startAutoSave } from './state/save';
+
+  // Load any prior run before the subscribers attach so the first
+  // save (debounced 600ms after mount) just rewrites the same state.
+  loadSave();
+  startAutoSave();
 
   onMount(() => {
     function isEditable(target: EventTarget | null): boolean {
