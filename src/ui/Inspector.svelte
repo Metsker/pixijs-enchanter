@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { closeInspector, inspector } from '../state/inspector';
   import { equipFromBackpack, equipped, unequipToBackpack } from '../state/inventory';
   import { backpack } from '../state/backpack';
@@ -198,6 +200,7 @@
     class="inspector"
     class:wide={compare !== null || inRest}
     aria-label={t('inspector.title')}
+    transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
     use:clickOutside={{
       onOutside: closeInspector,
       ignoreSelectors: ['[data-inspector-source]'],
