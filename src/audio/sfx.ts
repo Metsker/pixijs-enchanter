@@ -173,9 +173,11 @@ export const sfx = {
     tone({ freq: 1320, dur: 0.32, type: 'triangle', gain: 0.32, delay: 0.32 });
   },
   defeat(): void {
-    tone({ freq: 440, dur: 0.22, type: 'sawtooth', gain: 0.3 });
-    tone({ freq: 330, dur: 0.32, type: 'sawtooth', gain: 0.3, delay: 0.2 });
-    tone({ freq: 220, dur: 0.5, type: 'sawtooth', gain: 0.3, delay: 0.5 });
+    // Soften the lose fanfare: triangle instead of sawtooth, lower
+    // gain, slower attack on each note.
+    tone({ freq: 440, dur: 0.22, type: 'triangle', gain: 0.14, attack: 0.02 });
+    tone({ freq: 330, dur: 0.32, type: 'triangle', gain: 0.14, attack: 0.02, delay: 0.2 });
+    tone({ freq: 220, dur: 0.5, type: 'triangle', gain: 0.14, attack: 0.02, delay: 0.5 });
   },
   burn(): void {
     tone({ freq: 380, sweepTo: 280, dur: 0.18, type: 'sawtooth', gain: 0.18 });

@@ -272,7 +272,7 @@ export class Battlefield {
 
     // HP-bar ease + camera shake decay run every frame regardless of
     // who's attacking - they're pure-visual.
-    const hpLerp = 1 - Math.exp(-dt * 10);
+    const hpLerp = 1 - Math.exp(-dt * 25);
     for (const view of this.views.values()) {
       const target = view.fighter.maxHp > 0 ? view.fighter.hp / view.fighter.maxHp : 0;
       const delta = target - view.displayedHpFrac;
