@@ -130,7 +130,7 @@
             <div
               class="cell"
               class:filled
-              class:hovered={hovered?.slot === slotIndex && hovered?.item === item}
+              class:hovered={hovered?.slot === slotIndex && hovered?.item.id === item.id}
               onmouseenter={() => (hovered = { slot: slotIndex, item })}
               onmouseleave={() => (hovered = null)}
             >
