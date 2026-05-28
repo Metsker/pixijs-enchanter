@@ -150,6 +150,7 @@ export class Battlefield {
     this.spawnDamageNumber(view, this.profile.damage);
     this.playHitFlash(view);
     this.playHitReact(view);
+    this.spawnSlash(view);
     applyDamage(state.targetId, this.profile.damage);
   }
 
@@ -186,31 +187,73 @@ export class Battlefield {
     });
   }
 
-  // Physical recoil to telegraph the impact: squash + rotation wobble,
-  // then an elastic spring back. Targets the emoji Text so the HP bar
-  // (also a child of view.container) stays still.
+  // Horizontal knockback to telegraph the hit: the emoji jolts a few
+  // pixels away from the player, then springs back with an elastic
+  // ease. Operates on view.emojiText.x so the HP bar (a sibling
+  // Graphics in view.container) doesn't move with it.
   private playHitReact(view: FighterView): void {
     if (view.container.destroyed) return;
-    gsap.killTweensOf(view.emojiText, 'rotation');
-    gsap.killTweensOf(view.emojiText.scale);
-    view.emojiText.rotation = 0;
-    view.emojiText.scale.set(1, 1);
+    const playerView = this.views.get(get(fight).player.id);
+    if (!playerView) return;
+    const dx = view.container.x > playerView.container.x ? 14 : -14;
 
+    gsap.killTweensOf(view.emojiText, 'x');
+    view.emojiText.x = 0;
     const tl = gsap.timeline();
-    tl.to(view.emojiText, { rotation: 0.14, duration: 0.06, ease: 'power2.out' }, 0);
-    tl.to(view.emojiText.scale, { x: 1.18, y: 0.85, duration: 0.06, ease: 'power2.out' }, 0);
-    tl.to(view.emojiText, { rotation: 0, duration: 0.32, ease: 'elastic.out(1, 0.4)' });
-    tl.to(view.emojiText.scale, { x: 1, y: 1, duration: 0.32, ease: 'elastic.out(1, 0.4)' }, '<');
+    tl.to(view.emojiText, { x: dx, duration: 0.08, ease: 'power2.out' });
+    tl.to(view.emojiText, { x: 0, duration: 0.3, ease: 'elastic.out(1, 0.5)' });
+  }
+
+  // Diagonal slash mark drawn over the target: scales in from a small
+  // size, then fades out. Reads as a quick sword swing landing.
+  private spawnSlash(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const cx = view.container.x;
+    const cy = view.container.y - view.emojiText.height * 0.5;
+    const size = view.emojiText.height * 0.5;
+
+    const slash = new Graphics();
+    slash.eventMode = 'none';
+    // Outer glow + crisp inner line, both centred around (0,0) so the
+    // scale tween radiates from the slash's middle.
+    slash.moveTo(-size, size * 0.6).lineTo(size, -size * 0.6).stroke({
+      color: 0xffeebb,
+      width: 8,
+      cap: 'round',
+      alpha: 0.9,
+    });
+    slash.moveTo(-size, size * 0.6).lineTo(size, -size * 0.6).stroke({
+      color: 0xffffff,
+      width: 2,
+      cap: 'round',
+      alpha: 1,
+    });
+
+    slash.x = cx;
+    slash.y = cy;
+    slash.rotation = -0.18;
+    slash.scale.set(0.45);
+    slash.alpha = 0;
+    this.app.stage.addChild(slash);
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        if (!slash.destroyed) slash.destroy();
+      },
+    });
+    tl.to(slash, { alpha: 1, duration: 0.04 }, 0);
+    tl.to(slash.scale, { x: 1.25, y: 1.25, duration: 0.14, ease: 'power2.out' }, 0);
+    tl.to(slash, { alpha: 0, duration: 0.22, ease: 'power2.in' }, 0.15);
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
     const text = new Text({
-      text: amount.toString(),
+      text: `-${amount}`,
       style: new TextStyle({
         fontFamily: UI_FONT_STACK,
         fontSize: 32,
         fontWeight: 'bold',
-        fill: '#ffd866',
+        fill: '#ff5252',
         stroke: { color: 0x000000, width: 4 },
       }),
     });
@@ -240,10 +283,11 @@ export class Battlefield {
     const id = view.fighter.id;
     removeEnemy(id);
 
-    // Stop any in-flight hit-react / rotation tweens so the death animation
-    // takes over cleanly.
-    gsap.killTweensOf(view.emojiText, 'rotation');
+    // Stop any in-flight hit-react tweens so the death animation takes
+    // over cleanly.
+    gsap.killTweensOf(view.emojiText);
     gsap.killTweensOf(view.emojiText.scale);
+    view.emojiText.x = 0;
     view.emojiText.rotation = 0;
     view.emojiText.scale.set(1, 1);
 
