@@ -83,6 +83,15 @@
   <Backpack />
   <Inspector />
   <RoomOverlay />
+  <a
+    class="version"
+    href="https://github.com/Metsker/pixijs-enchanter/commit/{__COMMIT__}"
+    target="_blank"
+    rel="noopener"
+    title="View commit on GitHub"
+  >
+    {__COMMIT__}
+  </a>
 </div>
 
 <style>
@@ -103,5 +112,24 @@
     flex: 1;
     display: flex;
     min-height: 0;
+  }
+
+  .version {
+    position: fixed;
+    right: 6px;
+    bottom: 4px;
+    z-index: 200;
+    font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #555;
+    text-decoration: none;
+    background: rgba(10, 10, 14, 0.6);
+    padding: 1px 6px;
+    border-radius: 4px;
+    pointer-events: auto;
+    user-select: none;
+  }
+  .version:hover {
+    color: #ffcc44;
   }
 </style>
