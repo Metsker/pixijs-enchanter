@@ -40,7 +40,9 @@
       'button, .node.reachable, .item-tile:not(.sold):not(.taken), .cell.clickable, [data-cell-index]';
     const onClick = (e: MouseEvent) => {
       const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
+      // Element (not HTMLElement) so SVG children of map nodes
+      // bubble through to a .closest match on the parent <g>.
+      if (!(target instanceof Element)) return;
       const el = target.closest(CLICK_SELECTOR);
       if (!el) return;
       if (el.tagName === 'BUTTON' && (el as HTMLButtonElement).disabled) return;
