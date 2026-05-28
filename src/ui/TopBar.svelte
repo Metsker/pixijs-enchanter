@@ -5,7 +5,33 @@
   import { topbar } from '../state/topbar';
   import { backpackOpen, toggleBackpack } from '../state/ui';
   import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
+  import { clearSave } from '../state/save';
+  import { startNewRun } from '../state/run';
   import { t } from '../i18n';
+
+  // Restart uses a two-click confirm so a stray tap doesn't wipe a
+  // run mid-play. First click arms the button (icon flips to ⚠️ and
+  // hover text changes); a second click within 3s commits, otherwise
+  // the armed state auto-clears.
+  let confirmingRestart = $state(false);
+  let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function onRestartClick(): void {
+    if (confirmingRestart) {
+      confirmingRestart = false;
+      if (confirmTimer) clearTimeout(confirmTimer);
+      confirmTimer = null;
+      clearSave();
+      startNewRun();
+      return;
+    }
+    confirmingRestart = true;
+    if (confirmTimer) clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => {
+      confirmingRestart = false;
+      confirmTimer = null;
+    }, 3000);
+  }
 
   // Gold ticks up smoothly when claimed from the victory chest (and on
   // any other change too). Round on render so the counter shows whole
@@ -55,6 +81,17 @@
   <div class="progress">
     {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
   </div>
+
+  <button
+    type="button"
+    class="backpack-toggle"
+    class:armed={confirmingRestart}
+    aria-label={confirmingRestart ? t('topbar.confirmRestart') : t('topbar.restart')}
+    title={confirmingRestart ? t('topbar.confirmRestart') : t('topbar.restart')}
+    onclick={onRestartClick}
+  >
+    <span class="emoji">{confirmingRestart ? '⚠️' : '🔄'}</span>
+  </button>
 
   <button
     type="button"
@@ -186,6 +223,11 @@
   .backpack-toggle.active {
     background: #3a3a48;
     border-color: #ffcc44;
+  }
+
+  .backpack-toggle.armed {
+    background: #4a2424;
+    border-color: #ef4444;
   }
 
   .backpack-toggle:focus-visible {

@@ -6,6 +6,8 @@ export const en: Record<string, string> = {
   'topbar.actFloor': 'Act {act} · Floor {floor}',
   'topbar.toggleBackpack': 'Toggle backpack',
   'topbar.toggleMute': 'Toggle sound',
+  'topbar.restart': 'Restart run',
+  'topbar.confirmRestart': 'Click again to confirm restart',
 
   'inventory.slot.weapon': 'Weapon',
   'inventory.slot.offhand': 'Offhand',
