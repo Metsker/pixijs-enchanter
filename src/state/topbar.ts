@@ -34,6 +34,11 @@ export function refundCrystals(amount: number): void {
   topbar.update((s) => ({ ...s, crystals: s.crystals + amount }));
 }
 
+export function addGold(amount: number): void {
+  if (amount <= 0) return;
+  topbar.update((s) => ({ ...s, gold: s.gold + amount }));
+}
+
 export function spendSeals(amount: number): boolean {
   let ok = false;
   topbar.update((s) => {

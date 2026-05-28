@@ -14,7 +14,7 @@ import {
   setTarget,
   applyDamage,
   applyDamageToPlayer,
-  removeEnemy,
+  killEnemy,
   type FightState,
 } from '../state/fight';
 import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
@@ -347,7 +347,7 @@ export class Battlefield {
     view.container.eventMode = 'none';
 
     const id = view.fighter.id;
-    removeEnemy(id);
+    killEnemy(id);
 
     // Stop any in-flight hit-react / enemy-lunge tweens so the death
     // animation takes over cleanly.

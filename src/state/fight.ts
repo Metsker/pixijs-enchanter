@@ -1,7 +1,10 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { Fighter } from '../domain/fighter';
 import type { EnemyDef } from '../domain/enemy';
-import { LICH, SKELETON } from '../domain/enemy-catalogue';
+import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
+import { randomItem } from '../domain/random';
+import { addItem } from './backpack';
+import { addGold } from './topbar';
 
 // Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
 // HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
@@ -146,4 +149,44 @@ export function removeEnemy(id: string): void {
     }
     return { ...state, enemies, targetId };
   });
+}
+
+// === Loot ============================================================
+// Drops are tuned to the enemy's catalogue kind. Numbers are placeholders
+// until economy work lands; tier rolls deliberately stay low so the
+// player can stack but not snowball.
+interface DropTable {
+  goldMin: number;
+  goldMax: number;
+  itemChance: number;
+  tierMin: number;
+  tierMax: number;
+}
+
+const DROP_TABLES: Record<'common' | 'elite' | 'boss', DropTable> = {
+  common: { goldMin: 20, goldMax: 40, itemChance: 0.5, tierMin: 1, tierMax: 2 },
+  elite: { goldMin: 80, goldMax: 150, itemChance: 1.0, tierMin: 2, tierMax: 3 },
+  boss: { goldMin: 300, goldMax: 500, itemChance: 1.0, tierMin: 4, tierMax: 5 },
+};
+
+function rollInt(lo: number, hi: number): number {
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+// Kill an enemy: roll loot, credit gold + item, then remove from the
+// fight. Skeleton adds spawned by the Lich count as commons for drops
+// (the catalogue entry says so).
+export function killEnemy(id: string): void {
+  const enemy = get(fight).enemies.find((e) => e.id === id);
+  if (enemy) {
+    const def = ENEMY_CATALOGUE[enemy.name];
+    const kind = (def?.kind ?? 'common') as 'common' | 'elite' | 'boss';
+    const table = DROP_TABLES[kind];
+    addGold(rollInt(table.goldMin, table.goldMax));
+    if (Math.random() < table.itemChance) {
+      const tier = rollInt(table.tierMin, table.tierMax);
+      addItem(randomItem(tier, 'loot'));
+    }
+  }
+  removeEnemy(id);
 }

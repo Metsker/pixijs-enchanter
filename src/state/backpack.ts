@@ -1,49 +1,10 @@
 import { writable } from 'svelte/store';
 import type { Item } from '../domain/item';
-import {
-  SHARPNESS,
-  PYROCLASM,
-  SMITE,
-  SWIFT,
-  PRECISION,
-  VITALITY,
-  DODGE,
-  THORNS,
-  REGENERATION,
-  TREASURE_HUNTER,
-} from '../domain/enchant-catalogue';
 
 export const BACKPACK_CAPACITY = 20;
 
-// Starter items obey the m/u alternation per slot index: slot 1 = main,
-// slot 2 = utility, slot 3 = main, ... A Main enchant only fits a main
-// slot; a Utility enchant only fits a utility slot (CONTEXT.md § Enchantment
-// layer: "Layer is strict; pool is flexible").
-const starterItems: Item[] = [
-  // Weapon T2:  M,U
-  { id: 'wpn-1', itemType: 'weapon', enchants: [SHARPNESS, SWIFT] },
-  // Weapon T3:  M,U,M
-  { id: 'wpn-2', itemType: 'weapon', enchants: [PYROCLASM, PRECISION, SMITE] },
-  // Shield T1:  M
-  { id: 'shd-1', itemType: 'shield', enchants: [VITALITY] },
-  // Helm T2:    M,U
-  { id: 'amr-helm', itemType: 'armor', armorSlot: 'helm', enchants: [VITALITY, THORNS] },
-  // Chest T3:   M,U,M
-  { id: 'amr-chest', itemType: 'armor', armorSlot: 'chest', enchants: [VITALITY, THORNS, DODGE] },
-  // Boots T1:   M
-  { id: 'amr-boots', itemType: 'armor', armorSlot: 'boots', enchants: [DODGE] },
-  // Ring T2:    M,U
-  { id: 'ring-1', itemType: 'ring', enchants: [REGENERATION, PRECISION] },
-  // Amulet T1:  M
-  { id: 'amu-1', itemType: 'amulet', enchants: [TREASURE_HUNTER] },
-];
-
 function makeInitial(): (Item | null)[] {
-  const slots: (Item | null)[] = Array.from({ length: BACKPACK_CAPACITY }, () => null);
-  for (let i = 0; i < starterItems.length && i < slots.length; i++) {
-    slots[i] = starterItems[i];
-  }
-  return slots;
+  return Array.from({ length: BACKPACK_CAPACITY }, () => null);
 }
 
 export const backpack = writable<(Item | null)[]>(makeInitial());

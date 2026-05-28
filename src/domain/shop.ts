@@ -1,10 +1,8 @@
 // Shop stock generation per docs/shop.md. Numbers from the doc's placeholder
 // pricing table; tier distribution biased by floor depth.
 
-import type { ArmorSlot, Item, ItemType } from './item';
-import type { EnchantLayer } from './enchant';
-import { itemPoolFor, pickRandomEnchant } from './random';
-import { stackLayerAt } from './item';
+import type { Item } from './item';
+import { randomItem } from './random';
 
 export interface ShopItemSlot {
   item: Item;
@@ -27,15 +25,8 @@ const TIER_PRICE_RANGE: Record<number, [number, number]> = {
   6: [5000, 7000],
 };
 
-const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
-const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
-
 function rand(lo: number, hi: number): number {
   return lo + Math.random() * (hi - lo);
-}
-
-function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function rollTier(floor: number): number {
@@ -58,27 +49,10 @@ function rollPrice(tier: number): number {
   return Math.floor(rand(range[0], range[1]));
 }
 
-let shopItemCounter = 0;
-function nextShopItemId(): string {
-  shopItemCounter += 1;
-  return `shop-${Date.now()}-${shopItemCounter}`;
-}
-
-function randomItem(tier: number): Item {
-  const itemType = pick(ALL_ITEM_TYPES);
-  const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
-  const pool = itemPoolFor(itemType);
-  const enchants = Array.from({ length: tier }, (_, i) => {
-    const layer = stackLayerAt(i + 1) as EnchantLayer;
-    return pickRandomEnchant(pool, layer);
-  });
-  return { id: nextShopItemId(), itemType, armorSlot, enchants };
-}
-
 export function generateShopStock(floor: number): ShopStock {
   const items: (ShopItemSlot | null)[] = Array.from({ length: 6 }, () => {
     const tier = rollTier(floor);
-    return { item: randomItem(tier), price: rollPrice(tier) };
+    return { item: randomItem(tier, 'shop'), price: rollPrice(tier) };
   });
 
   return {
