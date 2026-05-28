@@ -183,7 +183,9 @@ function withStatus(f: Fighter, status: StatusType): Fighter {
       ...f.statuses,
       [status]: {
         remainingSec: def.durationSec,
-        accumulatedDmg: existing?.accumulatedDmg ?? 0,
+        // Preserve the existing countdown on a refresh so re-stacking
+        // doesn't reset the next tick out by a full interval.
+        nextTickIn: existing?.nextTickIn ?? def.tickIntervalSec,
       },
     },
   };
@@ -237,16 +239,21 @@ function tickFighterStatuses(f: Fighter, dt: number, events: DoTEvent[]): Fighte
       mutated = true;
       continue;
     }
-    let acc = inst.accumulatedDmg + def.dmgPerSec * dt;
-    if (acc >= 1) {
-      const damage = Math.min(hp, Math.floor(acc));
-      acc -= damage;
-      hp -= damage;
-      events.push({ targetId: f.id, status: key, amount: damage });
-      mutated = true;
+    let nextTickIn = inst.nextTickIn - dt;
+    // DoTs fire one discrete chunk every tickIntervalSec rather than
+    // dripping per frame - poison hits for 70 once per second, burn
+    // for 60 every 0.5s, etc. Catch up if dt overshot (unlikely at
+    // 60fps but cheap to handle).
+    if (def.dmgPerSec > 0 && def.tickIntervalSec > 0) {
+      while (nextTickIn <= 0 && hp > 0) {
+        const damage = Math.min(hp, Math.round(def.dmgPerSec * def.tickIntervalSec));
+        hp -= damage;
+        events.push({ targetId: f.id, status: key, amount: damage });
+        nextTickIn += def.tickIntervalSec;
+      }
     }
-    next[key] = { remainingSec, accumulatedDmg: acc };
-    if (remainingSec !== inst.remainingSec) mutated = true;
+    next[key] = { remainingSec, nextTickIn };
+    mutated = true;
   }
   if (!mutated && hp === f.hp) return f;
   return { ...f, hp, statuses: next };

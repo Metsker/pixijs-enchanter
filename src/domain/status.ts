@@ -10,7 +10,13 @@ export interface StatusDef {
   color: string; // hex CSS color for DoT damage numbers + status icons
   damageType: DamageType;
   durationSec: number;
-  dmgPerSec: number; // 0 = no DoT
+  // dmgPerSec is the per-second rate. tickIntervalSec controls how
+  // often it actually lands - so burn at 120 dps / 0.5s tick lands
+  // 60 damage twice per second, while poison at 70 dps / 1.0s tick
+  // lands 70 once per second. Average dps stays interpretable; per-
+  // tick numbers feel impactful instead of dripping.
+  dmgPerSec: number; // 0 = no DoT, tickIntervalSec is then ignored
+  tickIntervalSec: number;
   attackIntervalMul?: number; // freeze: e.g. 1.5x slower swings
   takeDamageMul?: number; // shock: e.g. 1.25x more damage taken
 }
@@ -22,6 +28,7 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
     damageType: 'fire',
     durationSec: 3,
     dmgPerSec: 120,
+    tickIntervalSec: 0.5,
   },
   bleed: {
     emoji: '🩸',
@@ -29,6 +36,7 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
     damageType: 'physical',
     durationSec: 4,
     dmgPerSec: 90,
+    tickIntervalSec: 1,
   },
   poison: {
     emoji: '☠️',
@@ -36,6 +44,7 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
     damageType: 'chaos',
     durationSec: 5,
     dmgPerSec: 70,
+    tickIntervalSec: 1,
   },
   freeze: {
     emoji: '❄️',
@@ -43,6 +52,7 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
     damageType: 'cold',
     durationSec: 2,
     dmgPerSec: 0,
+    tickIntervalSec: 0,
     attackIntervalMul: 1.6,
   },
   shock: {
@@ -51,15 +61,16 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
     damageType: 'lightning',
     durationSec: 3,
     dmgPerSec: 0,
+    tickIntervalSec: 0,
     takeDamageMul: 1.3,
   },
 };
 
-// Per-fighter state of one active status. accumulatedDmg lets us
-// drip sub-1-hp DoT damage at 60fps without losing precision.
+// Per-fighter state of one active status. nextTickIn counts down
+// to the next discrete DoT application; ignored for non-DoT statuses.
 export interface StatusInstance {
   remainingSec: number;
-  accumulatedDmg: number;
+  nextTickIn: number;
 }
 
 // Returned by tickStatuses so the Battlefield can paint a coloured
