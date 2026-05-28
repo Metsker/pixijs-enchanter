@@ -4,7 +4,8 @@ import { generateShopStock } from '../domain/shop';
 import { backpack, addItem } from './backpack';
 import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
-import { canEquipDirect, equipItemDirect } from './inventory';
+import { canEquipDirect, displacementPick, equipItemDirect, equipped } from './inventory';
+import { legalEquipmentSlots } from '../domain/item';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { sfx } from '../audio/sfx';
 
@@ -84,8 +85,47 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
   if (!slot) return null;
   if (!canBuyAndEquipItem(shopIndex).ok) return null;
 
+  const item = slot.item;
+  const legal = legalEquipmentSlots(item);
+  const currentEquipped = get(equipped);
+  const occupied = legal.filter((s) => currentEquipped[s] !== null);
+
+  // Picker path: multiple legal slots are all occupied (rings,
+  // dual weapons). Defer the gold spend / shop-slot clear until
+  // the player picks a slot, so a cancel leaves both sides intact.
+  const clearShopSlot = (): void => {
+    shopStock.update((s) => {
+      if (!s) return s;
+      const items = s.items.slice();
+      items[shopIndex] = null;
+      return { ...s, items };
+    });
+  };
+  const closeIfInspectingThis = (): void => {
+    const ins = get(inspector);
+    if (ins?.source === 'shop' && ins.index === shopIndex) closeInspector();
+  };
+
+  if (legal.length > 1 && occupied.length === legal.length) {
+    displacementPick.set({
+      item,
+      legalSlots: occupied,
+      placeDisplaced: (displaced) => {
+        // All side-effects fire only on resolve. Gold was confirmed
+        // sufficient at canBuyAndEquipItem time and can't move
+        // during the pick (no fight is running in shops).
+        spendGold(slot.price);
+        addItem(displaced);
+        clearShopSlot();
+        sfx.buy();
+      },
+    });
+    closeIfInspectingThis();
+    return null;
+  }
+
   if (!spendGold(slot.price)) return null;
-  const landed = equipItemDirect(slot.item);
+  const landed = equipItemDirect(item);
   if (landed === null) {
     // Safety refund if equip fell through after our pre-check
     // somehow (shouldn't happen).
@@ -93,18 +133,8 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
     return null;
   }
   sfx.buy();
-
-  shopStock.update((s) => {
-    if (!s) return s;
-    const items = s.items.slice();
-    items[shopIndex] = null;
-    return { ...s, items };
-  });
-
-  // Inspector follows the item to its new home so the user sees
-  // the Equip/Unequip CTA on the now-equipped item.
-  const ins = get(inspector);
-  if (ins?.source === 'shop' && ins.index === shopIndex) closeInspector();
+  clearShopSlot();
+  closeIfInspectingThis();
   return landed;
 }
 
