@@ -36,13 +36,14 @@ export const REROLL_LAYER_SEAL_COST = 1;
 export const REROLL_LAYER_CRYSTAL_COST = 30;
 export const REMOVE_SELECTED_SEAL_COST = 1;
 export const REMOVE_SELECTED_CRYSTAL_COST = 15;
-export const DISENCHANT_REFUND_PER_SLOT = 15;
-// Destroy refunds more per slot than Disenchant - it's the only action that
-// actually removes the item (frees the inventory / backpack slot and clears
-// sealed slots). Slot-by-slot Disenchant leaves a T0 husk behind.
-export const DESTROY_REFUND_PER_SLOT = 25;
-// A non-empty husk Destroy bonus: destroying a T0 husk still pays this baseline
-// so emptying-then-destroying isn't strictly worse than destroying outright.
+// Disenchant and Destroy refund the same per-slot amount so the
+// player can choose between "rip the top off, keep the item" and
+// "trash the whole thing in one click" purely on convenience -
+// neither path strictly pays more. Destroy adds a small base bonus
+// for the husk frame itself; Disenchant has no equivalent because
+// the husk it leaves can still be re-enchanted later.
+export const DISENCHANT_REFUND_PER_SLOT = 20;
+export const DESTROY_REFUND_PER_SLOT = 20;
 export const DESTROY_BASE_REFUND = 5;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
