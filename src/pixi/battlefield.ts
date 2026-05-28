@@ -394,6 +394,49 @@ export class Battlefield {
       }
     }
 
+    // Splash (Sweeping Edge): a fraction of the landed damage hits
+    // every other alive enemy. The grounded-only flag skips flying
+    // enemies like Harpy.
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind !== 'splash-add') continue;
+        const splash = Math.max(1, Math.round(damage * eff.fraction));
+        for (const other of state.enemies) {
+          if (other.id === target.id || other.hp <= 0) continue;
+          if (eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying') {
+            continue;
+          }
+          const otherView = this.views.get(other.id);
+          if (!otherView || otherView.container.destroyed) continue;
+          this.spawnFloatNumber(otherView, `-${splash}`, '#cbd5ff', 26);
+          this.playHitFlash(otherView);
+          applyDamage(other.id, splash);
+        }
+      }
+    }
+
+    // Chain (Conduction): a flat-damage bolt jumps from the target
+    // to up to N nearest OTHER alive enemies, ranked by horizontal
+    // distance from the target's home position.
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind !== 'chain-add') continue;
+        const targetHomeX = this.views.get(target.id)?.homeX ?? 0;
+        const candidates = state.enemies
+          .filter((e) => e.id !== target.id && e.hp > 0)
+          .map((e) => ({ e, dx: Math.abs((this.views.get(e.id)?.homeX ?? 0) - targetHomeX) }))
+          .sort((a, b) => a.dx - b.dx)
+          .slice(0, eff.targets);
+        for (const { e } of candidates) {
+          const ev = this.views.get(e.id);
+          if (!ev || ev.container.destroyed) continue;
+          this.spawnFloatNumber(ev, `⚡-${eff.damage}`, '#ffd84a', 26);
+          this.playHitFlash(ev);
+          applyDamage(e.id, eff.damage);
+        }
+      }
+    }
+
     // Adrenaline / speed-burst-on-kill: if this hit dropped the
     // target to 0 HP, arm the post-kill speed window. Strongest
     // burst wins (longest remaining time stays).
