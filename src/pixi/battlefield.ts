@@ -287,7 +287,9 @@ export class Battlefield {
       }
     }
     if (this.shakeIntensity > 0) {
-      this.shakeIntensity = Math.max(0, this.shakeIntensity - dt * 60);
+      // Decay reaches 0 in ~0.3s regardless of starting intensity so
+      // the shake feels punchy instead of dragging.
+      this.shakeIntensity = Math.max(0, this.shakeIntensity - dt * 100);
       const mag = this.shakeIntensity;
       this.app.stage.x = (Math.random() - 0.5) * mag * 2;
       this.app.stage.y = (Math.random() - 0.5) * mag * 2;
@@ -489,12 +491,13 @@ export class Battlefield {
     const killed = !!afterApply && afterApply.hp <= 0;
     if (killed) {
       sfx.kill();
-      this.shakeKick(11);
+      this.shakeKick(28);
     } else if (isCrit) {
       sfx.crit();
-      this.shakeKick(6);
+      this.shakeKick(16);
     } else {
       sfx.hit();
+      this.shakeKick(6);
     }
 
     // Knockback: per-enchant roll, on proc push the target's next
@@ -754,7 +757,7 @@ export class Battlefield {
     this.spawnSlash(playerView);
     applyDamageToPlayer(incoming);
     sfx.hit();
-    this.shakeKick(5);
+    this.shakeKick(14);
 
     // Enemy-applied status (e.g. Slime's poison): roll a flat 30%
     // chance per hit, respecting player's Hex Ward / Eternal Vigil.
@@ -968,7 +971,7 @@ export class Battlefield {
       killEnemy(id);
     } else {
       sfx.playerDeath();
-      this.shakeKick(20);
+      this.shakeKick(40);
     }
 
     // Stop any in-flight hit-react / enemy-lunge tweens so the death
