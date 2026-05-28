@@ -218,16 +218,20 @@
     line-height: 1;
   }
   .item-tile .tier {
-    font-size: 0.7rem;
-    padding: 1px 5px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 1px 6px;
     border-radius: 4px;
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.3);
+    font-variant-numeric: lining-nums;
   }
   .item-tile .price {
-    font-size: 0.85rem;
+    font-size: 1.1rem;
+    font-weight: 600;
     color: #ffd866;
+    font-variant-numeric: lining-nums tabular-nums;
   }
   .sold-label {
     color: #555;
@@ -280,7 +284,9 @@
     color: #788;
   }
   .consumable .price {
-    font-size: 0.85rem;
+    font-size: 1rem;
+    font-weight: 600;
     color: #ffd866;
+    font-variant-numeric: lining-nums tabular-nums;
   }
 </style>

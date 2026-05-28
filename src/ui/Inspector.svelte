@@ -487,12 +487,14 @@
   }
   .tier {
     align-self: flex-start;
-    font-size: 0.7rem;
-    padding: 2px 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 2px 7px;
     border-radius: 4px;
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.3);
+    font-variant-numeric: lining-nums;
   }
   .close {
     appearance: none;
@@ -668,14 +670,16 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    font-size: 0.72rem;
+    font-size: 0.85rem;
     color: #aab;
+    font-variant-numeric: lining-nums tabular-nums;
   }
   .cost-pill {
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid #2a2a34;
     border-radius: 4px;
-    padding: 1px 5px;
+    padding: 1px 6px;
+    font-weight: 600;
   }
   .cost-pill.refund {
     color: #88dd88;

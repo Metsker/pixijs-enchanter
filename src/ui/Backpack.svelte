@@ -296,14 +296,16 @@
     position: absolute;
     top: 4px;
     right: 4px;
-    font-size: 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
     line-height: 1;
-    padding: 2px 4px;
+    padding: 2px 5px;
     border-radius: 4px;
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.4);
     pointer-events: none;
+    font-variant-numeric: lining-nums;
   }
 
   .hint {

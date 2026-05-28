@@ -110,12 +110,14 @@
     position: absolute;
     top: 3px;
     right: 4px;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
     line-height: 1;
-    padding: 1px 4px;
+    padding: 1px 5px;
     border-radius: 4px;
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.4);
+    font-variant-numeric: lining-nums;
   }
 </style>

@@ -73,15 +73,17 @@
   }
 
   .value {
-    font-size: 1rem;
+    font-size: 1.3rem;
+    font-weight: 600;
     color: #ddd;
+    font-variant-numeric: lining-nums tabular-nums;
   }
 
   .progress {
     margin-left: auto;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     color: #9aa;
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: lining-nums tabular-nums;
   }
 
   .backpack-toggle {
