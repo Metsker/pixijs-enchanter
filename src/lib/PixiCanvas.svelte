@@ -11,7 +11,7 @@
   const HEIGHT = 160;
 
   onMount(async () => {
-    await document.fonts.load('48px "Noto Color Emoji"');
+    await document.fonts.load(`48px "Noto Color Emoji"`, text);
 
     app = new Application();
     await app.init({
