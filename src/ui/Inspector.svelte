@@ -2,6 +2,7 @@
   import { closeInspector, inspector } from '../state/inspector';
   import { equipFromBackpack, equipped, unequipToBackpack } from '../state/inventory';
   import { backpack } from '../state/backpack';
+  import { fight } from '../state/fight';
   import {
     itemEmoji,
     legalEquipmentSlots,
@@ -53,13 +54,14 @@
     return null;
   }
 
-  function ctaLabel(): string {
+  const ctaLabel = $derived.by(() => {
     if (!$inspector) return '';
     return $inspector.source === 'backpack' ? t('inspector.equip') : t('inspector.unequip');
-  }
+  });
 
-  function ctaDisabledReason(): string | null {
+  const ctaDisabledReason = $derived.by((): string | null => {
     if (!$inspector) return null;
+    if ($fight.inFight) return t('inspector.cta.duringCombat');
     if ($inspector.source === 'backpack') {
       const legal = legalEquipmentSlots($inspector.item);
       const hasEmptyLegal = legal.some((slotId) => $equipped[slotId] === null);
@@ -69,7 +71,7 @@
       if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
     }
     return null;
-  }
+  });
 
   function handleCta(): void {
     const subject = $inspector;
@@ -191,11 +193,11 @@
       <button
         type="button"
         class="cta"
-        disabled={ctaDisabledReason() !== null}
-        title={ctaDisabledReason() ?? ''}
+        disabled={ctaDisabledReason !== null}
+        title={ctaDisabledReason ?? ''}
         onclick={handleCta}
       >
-        {ctaLabel()}
+        {ctaLabel}
       </button>
     </footer>
   </aside>

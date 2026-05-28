@@ -5,7 +5,12 @@
   import Battlefield from './ui/Battlefield.svelte';
   import Backpack from './ui/Backpack.svelte';
   import Inspector from './ui/Inspector.svelte';
+  import Map from './ui/Map.svelte';
+  import ShopRoom from './ui/ShopRoom.svelte';
+  import RestRoom from './ui/RestRoom.svelte';
+  import RoomOverlay from './ui/RoomOverlay.svelte';
   import { toggleBackpack } from './state/ui';
+  import { run } from './state/run';
 
   onMount(() => {
     function isEditable(target: EventTarget | null): boolean {
@@ -32,10 +37,19 @@
   <TopBar />
   <main class="play-area">
     <InventoryColumn />
-    <Battlefield />
+    {#if $run.screen === 'map' || $run.screen === 'run-complete'}
+      <Map />
+    {:else if $run.screen === 'fight'}
+      <Battlefield />
+    {:else if $run.screen === 'shop'}
+      <ShopRoom />
+    {:else if $run.screen === 'rest'}
+      <RestRoom />
+    {/if}
   </main>
   <Backpack />
   <Inspector />
+  <RoomOverlay />
 </div>
 
 <style>

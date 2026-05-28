@@ -1,30 +1,65 @@
 import { writable } from 'svelte/store';
 import type { Fighter } from '../domain/fighter';
+import type { EnemyDef } from '../domain/enemy';
 
 export interface FightState {
   player: Fighter;
   enemies: Fighter[];
   targetId: string | null;
+  // True while the Battlefield is actively running combat (i.e. the player
+  // is inside a fight room). Map / Shop / Rest screens leave it false.
+  inFight: boolean;
 }
 
+const initialPlayer: Fighter = {
+  id: 'player',
+  kind: 'player',
+  name: 'Player',
+  emoji: '\u{1F9DD}',
+  hp: 1000,
+  maxHp: 1000,
+};
+
 const initial: FightState = {
-  player: {
-    id: 'player',
-    kind: 'player',
-    name: 'Player',
-    emoji: '\u{1F9DD}',
-    hp: 1000,
-    maxHp: 1000,
-  },
-  enemies: [
-    { id: 'skeleton-1', kind: 'enemy', name: 'Skeleton', emoji: '\u{1F480}', hp: 800, maxHp: 800 },
-    { id: 'goblin-1', kind: 'enemy', name: 'Goblin', emoji: '\u{1F479}', hp: 400, maxHp: 400 },
-    { id: 'slime-1', kind: 'enemy', name: 'Slime', emoji: '\u{1F7E2}', hp: 1200, maxHp: 1200 },
-  ],
-  targetId: 'skeleton-1',
+  player: initialPlayer,
+  enemies: [],
+  targetId: null,
+  inFight: false,
 };
 
 export const fight = writable<FightState>(initial);
+
+let enemyCounter = 0;
+function nextInstanceId(prefix: string): string {
+  enemyCounter += 1;
+  return `${prefix}#${enemyCounter}`;
+}
+
+export function startFightWith(enemies: EnemyDef[]): void {
+  const fighters: Fighter[] = enemies.map((e) => ({
+    id: nextInstanceId(e.id),
+    kind: 'enemy',
+    name: e.id,
+    emoji: e.emoji,
+    hp: e.hp,
+    maxHp: e.hp,
+  }));
+  fight.update((state) => ({
+    ...state,
+    enemies: fighters,
+    targetId: fighters[0]?.id ?? null,
+    inFight: true,
+  }));
+}
+
+export function endFight(): void {
+  fight.update((state) => ({
+    ...state,
+    enemies: [],
+    targetId: null,
+    inFight: false,
+  }));
+}
 
 export function setTarget(id: string): void {
   fight.update((state) => {

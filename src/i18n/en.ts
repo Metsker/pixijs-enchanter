@@ -31,6 +31,7 @@ export const en: Record<string, string> = {
   'inspector.layer.unique': 'Unique',
   'inspector.cta.noEmptySlot': 'No empty legal slot - displacement picker coming later',
   'inspector.cta.backpackFull': 'Backpack is full',
+  'inspector.cta.duringCombat': 'Unavailable during combat',
   'inspector.hint.prompt': 'Hover an enchant cell to inspect.',
   'inspector.hint.emptyCell': 'Empty {layer} slot. Add (Roll) at Rest would fill this for crystals.',
   'inspector.stack.inspected': 'Inspecting',
@@ -46,6 +47,28 @@ export const en: Record<string, string> = {
   'enchant.pool.armor': 'Armor',
   'enchant.pool.jewelry': 'Jewelry',
   'enchant.pool.unique': 'Unique',
+
+  'map.title': 'Map',
+  'map.kind.common': 'Common',
+  'map.kind.elite': 'Elite',
+  'map.kind.shop': 'Shop',
+  'map.kind.rest': 'Rest',
+  'map.kind.boss': 'Boss',
+  'room.continue': 'Continue',
+  'room.leave': 'Leave',
+  'room.victory': 'Victory!',
+  'room.runComplete': 'Run complete!',
+  'room.newRun': 'New run',
+  'shop.placeholder': 'Shop coming in a later step.',
+  'rest.placeholder': 'Rest coming in a later step.',
+
+  'enemy.skeleton': 'Skeleton',
+  'enemy.goblin': 'Goblin',
+  'enemy.slime': 'Slime',
+  'enemy.harpy': 'Harpy',
+  'enemy.ogre': 'Ogre',
+  'enemy.minotaur': 'Minotaur',
+  'enemy.lich': 'Lich',
 
 
   // Weapons - Main

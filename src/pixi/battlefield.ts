@@ -113,7 +113,7 @@ export class Battlefield {
 
   private onTick = (ticker: Ticker): void => {
     const state = get(fight);
-    if (state.enemies.length === 0) return;
+    if (!state.inFight || state.enemies.length === 0) return;
 
     this.cooldown -= ticker.deltaMS / 1000;
     if (this.cooldown <= 0) {
@@ -189,6 +189,21 @@ export class Battlefield {
       [state.player.id, state.player],
       ...state.enemies.map((e) => [e.id, e] as const),
     ]);
+
+    // Spawn views for any state fighters that don't yet have one (new fight
+    // room entered).
+    let added = false;
+    for (const fighter of [state.player, ...state.enemies]) {
+      if (this.views.has(fighter.id)) continue;
+      const view = this.makeView(fighter);
+      this.views.set(fighter.id, view);
+      this.app.stage.addChild(view.container);
+      added = true;
+    }
+    if (added) {
+      this.cooldown = this.profile.interval;
+      this.layout(state);
+    }
 
     for (const view of this.views.values()) {
       const next = byId.get(view.fighter.id);
