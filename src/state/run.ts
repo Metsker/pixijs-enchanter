@@ -2,6 +2,7 @@ import { get, writable } from 'svelte/store';
 import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/map';
 import { endFight, fight, startFightWith } from './fight';
 import { closeShop, openShopForFloor } from './shop';
+import { resetPendingRewards } from './rewards';
 
 export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete' | 'run-lost';
 
@@ -73,6 +74,7 @@ export function completeRoom(): void {
 
 export function startNewRun(): void {
   endFight();
+  resetPendingRewards();
   run.set(makeInitial());
 }
 

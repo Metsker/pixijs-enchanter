@@ -3,12 +3,19 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
-  import { equipFromBackpack, equipped, unequipToBackpack } from '../state/inventory';
+  import {
+    equipFromBackpack,
+    equipItemDirect,
+    equipped,
+    hasEmptyLegalSlot,
+    unequipToBackpack,
+  } from '../state/inventory';
   import { backpack } from '../state/backpack';
   import { fight } from '../state/fight';
   import { run } from '../state/run';
   import { topbar } from '../state/topbar';
   import { buyItem, canBuyItem } from '../state/shop';
+  import { removeRewardItem } from '../state/rewards';
   import {
     ADD_ROLL_COST,
     canAddRoll,
@@ -127,6 +134,7 @@
     return null;
   }
 
+
   function onCellClick(slot: number, item: Item): void {
     if (selectedSlot === slot && selectedItemId === item.id) {
       selectedSlot = null;
@@ -147,7 +155,7 @@
   const ctaLabel = $derived.by(() => {
     const s = $inspector;
     if (!s) return '';
-    if (s.source === 'backpack') return t('inspector.equip');
+    if (s.source === 'backpack' || s.source === 'rewards') return t('inspector.equip');
     if (s.source === 'inventory') return t('inspector.unequip');
     return t('inspector.buy', { price: s.price });
   });
@@ -169,6 +177,9 @@
       const r = canBuyItem(s.index);
       if (!r.ok && r.reasonKey) return t(r.reasonKey);
       if (!r.ok) return '';
+    }
+    if (s.source === 'rewards') {
+      if (!hasEmptyLegalSlot(s.item)) return t('inspector.cta.noEmptySlot');
     }
     return null;
   });
@@ -206,6 +217,15 @@
             .querySelector<HTMLElement>(`.backpack [data-cell-index="${landedIndex}"]`)
             ?.focus();
         });
+      }
+    } else if (subject.source === 'rewards') {
+      const landedSlot = equipItemDirect(subject.item);
+      if (landedSlot !== null) {
+        removeRewardItem(subject.item.id);
+        const newItem = get(equipped)[landedSlot];
+        if (newItem) {
+          inspector.set({ source: 'inventory', slotId: landedSlot, item: newItem });
+        }
       }
     } else {
       buyItem(subject.index);

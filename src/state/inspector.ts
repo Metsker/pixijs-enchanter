@@ -5,7 +5,8 @@ import type { EquipmentSlotId } from '../domain/equipment';
 export type InspectorSubject =
   | { source: 'inventory'; slotId: EquipmentSlotId; item: Item }
   | { source: 'backpack'; index: number; item: Item }
-  | { source: 'shop'; index: number; item: Item; price: number };
+  | { source: 'shop'; index: number; item: Item; price: number }
+  | { source: 'rewards'; item: Item };
 
 export const inspector = writable<InspectorSubject | null>(null);
 

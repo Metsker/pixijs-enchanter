@@ -1,14 +1,25 @@
 <script lang="ts">
+  import { tweened } from 'svelte/motion';
+  import { cubicOut } from 'svelte/easing';
+  import { get } from 'svelte/store';
   import { topbar } from '../state/topbar';
   import { backpackOpen, toggleBackpack } from '../state/ui';
   import { t } from '../i18n';
+
+  // Gold ticks up smoothly when claimed from the victory chest (and on
+  // any other change too). Round on render so the counter shows whole
+  // coins throughout the tween.
+  const goldDisplay = tweened(get(topbar).gold, { duration: 800, easing: cubicOut });
+  $effect(() => {
+    goldDisplay.set($topbar.gold);
+  });
 </script>
 
 <header class="topbar">
   <div class="counters">
     <div class="counter" title={t('topbar.gold')}>
       <span class="emoji">🪙</span>
-      <span class="value">{$topbar.gold}</span>
+      <span class="value">{Math.round($goldDisplay)}</span>
     </div>
     <div class="counter" title={t('topbar.crystals')}>
       <span class="emoji">💎</span>

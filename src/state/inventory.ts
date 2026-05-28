@@ -22,22 +22,39 @@ export const equipped = writable<EquippedItems>(initial);
 export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null {
   const item = get(backpack)[backpackIndex];
   if (!item) return null;
+  return equipIntoFirstEmpty(item, () => removeItem(backpackIndex));
+}
 
+// Equip an item that doesn't live in the Backpack yet (e.g. straight from
+// the victory chest). Returns the slot id on success, or null if every
+// legal slot is occupied.
+export function equipItemDirect(item: Item): EquipmentSlotId | null {
+  return equipIntoFirstEmpty(item, () => undefined);
+}
+
+function equipIntoFirstEmpty(
+  item: Item,
+  onSuccess: () => void,
+): EquipmentSlotId | null {
   const legal = new Set(legalEquipmentSlots(item));
   const currentEquipped = get(equipped);
-
   for (const slotId of EQUIPMENT_SLOT_ORDER) {
     if (!legal.has(slotId)) continue;
     if (currentEquipped[slotId] !== null) continue;
-
-    // Remove from backpack first, then equip - both updates run synchronously
-    // so subscribers see a consistent post-state.
-    removeItem(backpackIndex);
+    onSuccess();
     equipped.update((eq) => ({ ...eq, [slotId]: item }));
     return slotId;
   }
-
   return null;
+}
+
+export function hasEmptyLegalSlot(item: Item): boolean {
+  const legal = new Set(legalEquipmentSlots(item));
+  const currentEquipped = get(equipped);
+  for (const slotId of EQUIPMENT_SLOT_ORDER) {
+    if (legal.has(slotId) && currentEquipped[slotId] === null) return true;
+  }
+  return false;
 }
 
 // Apply a mutator to the item in `slotId`. Pass `null` from the mutator to

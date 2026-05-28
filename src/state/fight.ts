@@ -3,8 +3,7 @@ import type { Fighter } from '../domain/fighter';
 import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
 import { randomItem } from '../domain/random';
-import { addItem } from './backpack';
-import { addGold } from './topbar';
+import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
 
 // Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
 // HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
@@ -58,6 +57,9 @@ function makeFighters(defs: EnemyDef[]): Fighter[] {
 
 export function startFightWith(enemies: EnemyDef[]): void {
   const fighters = makeFighters(enemies);
+  // Loot from a previous fight that the player never claimed is gone -
+  // a fresh fight always starts with an empty chest.
+  resetPendingRewards();
   fight.update((state) => ({
     ...state,
     // Reset player HP at the start of every fight. The spec is "HP carries
@@ -173,19 +175,19 @@ function rollInt(lo: number, hi: number): number {
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
 
-// Kill an enemy: roll loot, credit gold + item, then remove from the
-// fight. Skeleton adds spawned by the Lich count as commons for drops
-// (the catalogue entry says so).
+// Kill an enemy: roll loot into the pending-rewards chest (the player
+// claims it from the victory overlay), then remove the enemy from the
+// fight. Skeleton adds spawned by the Lich count as commons.
 export function killEnemy(id: string): void {
   const enemy = get(fight).enemies.find((e) => e.id === id);
   if (enemy) {
     const def = ENEMY_CATALOGUE[enemy.name];
     const kind = (def?.kind ?? 'common') as 'common' | 'elite' | 'boss';
     const table = DROP_TABLES[kind];
-    addGold(rollInt(table.goldMin, table.goldMax));
+    addRewardGold(rollInt(table.goldMin, table.goldMax));
     if (Math.random() < table.itemChance) {
       const tier = rollInt(table.tierMin, table.tierMax);
-      addItem(randomItem(tier, 'loot'));
+      addRewardItem(randomItem(tier, 'loot'));
     }
   }
   removeEnemy(id);
