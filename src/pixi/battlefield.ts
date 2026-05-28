@@ -1,6 +1,9 @@
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle, type Ticker } from 'pixi.js';
 import { get } from 'svelte/store';
-import { fight, setTarget, type FightState } from '../state/fight';
+import gsap from 'gsap';
+import { fight, setTarget, applyDamage, removeEnemy, type FightState } from '../state/fight';
+import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
+import type { Enchantment } from '../domain/enchant';
 import type { Fighter } from '../domain/fighter';
 
 const EMOJI_FONT_STACK = [
@@ -10,9 +13,26 @@ const EMOJI_FONT_STACK = [
   'sans-serif',
 ];
 
+const UI_FONT_STACK = ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'];
+
 const EMOJI_SIZE = 96;
 const HP_BAR_WIDTH = 120;
 const HP_BAR_HEIGHT = 10;
+const DEATH_DURATION = 0.3;
+const DAMAGE_NUMBER_DURATION = 0.8;
+
+// Step 3 placeholder: one Sharpness enchant on a single weapon item.
+// Step 5+ replaces this with a real Inventory store.
+const HARDCODED_INVENTORY: Enchantment[] = [
+  {
+    id: 'sharpness',
+    name: 'Sharpness',
+    emoji: '⚔️',
+    pool: 'weapons',
+    layer: 'main',
+    effect: { kind: 'damage-add', amount: 300, type: 'physical' },
+  },
+];
 
 interface FighterView {
   fighter: Fighter;
@@ -28,6 +48,8 @@ export class Battlefield {
   private targetRing!: Graphics;
   private unsubscribe?: () => void;
   private resizeListener?: () => void;
+  private profile!: AttackProfile;
+  private cooldown = 0;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -50,10 +72,15 @@ export class Battlefield {
 
     this.buildViews(initial);
 
+    this.profile = resolveProfile(HARDCODED_INVENTORY);
+    this.cooldown = this.profile.interval;
+
     this.unsubscribe = fight.subscribe((state) => this.sync(state));
 
     this.resizeListener = () => this.layout(get(fight));
     this.app.renderer.on('resize', this.resizeListener);
+
+    this.app.ticker.add(this.onTick);
   }
 
   private buildViews(state: FightState): void {
@@ -92,15 +119,96 @@ export class Battlefield {
     return { fighter, container, emojiText, hpBg, hpFill };
   }
 
+  private onTick = (ticker: Ticker): void => {
+    const state = get(fight);
+    if (state.enemies.length === 0) return;
+
+    this.cooldown -= ticker.deltaMS / 1000;
+    if (this.cooldown <= 0) {
+      this.fireAttack(state);
+      this.cooldown = this.profile.interval;
+    }
+  };
+
+  private fireAttack(state: FightState): void {
+    if (!state.targetId) return;
+    const target = state.enemies.find((e) => e.id === state.targetId);
+    if (!target || target.hp <= 0) return;
+
+    const view = this.views.get(state.targetId);
+    if (!view || view.container.destroyed) return;
+
+    this.spawnDamageNumber(view, this.profile.damage);
+    applyDamage(state.targetId, this.profile.damage);
+  }
+
+  private spawnDamageNumber(view: FighterView, amount: number): void {
+    const text = new Text({
+      text: amount.toString(),
+      style: new TextStyle({
+        fontFamily: UI_FONT_STACK,
+        fontSize: 32,
+        fontWeight: 'bold',
+        fill: '#ffd866',
+        stroke: { color: 0x000000, width: 4 },
+      }),
+    });
+    text.anchor.set(0.5, 1);
+    text.eventMode = 'none';
+    text.x = view.container.x + (Math.random() - 0.5) * 40;
+    text.y = view.container.y - view.emojiText.height - 24;
+    this.app.stage.addChild(text);
+
+    gsap.to(text, {
+      y: text.y - 70,
+      alpha: 0,
+      duration: DAMAGE_NUMBER_DURATION,
+      ease: 'power2.out',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  private playDeath(view: FighterView): void {
+    if (view.container.destroyed) return;
+    view.container.eventMode = 'none';
+
+    const id = view.fighter.id;
+    removeEnemy(id);
+
+    gsap.to(view.container.scale, {
+      x: 0,
+      y: 0,
+      duration: DEATH_DURATION,
+      ease: 'back.in(2)',
+    });
+    gsap.to(view.container, {
+      alpha: 0,
+      duration: DEATH_DURATION,
+      ease: 'power2.in',
+      onComplete: () => {
+        this.views.delete(id);
+        if (!view.container.destroyed) view.container.destroy({ children: true });
+      },
+    });
+  }
+
   private sync(state: FightState): void {
-    const fightersById = new Map<string, Fighter>([
+    const byId = new Map<string, Fighter>([
       [state.player.id, state.player],
       ...state.enemies.map((e) => [e.id, e] as const),
     ]);
+
     for (const view of this.views.values()) {
-      const next = fightersById.get(view.fighter.id);
-      if (next) view.fighter = next;
+      const next = byId.get(view.fighter.id);
+      if (!next) continue;
+
+      const prevHp = view.fighter.hp;
+      view.fighter = next;
       this.drawHpBar(view);
+
+      if (prevHp > 0 && next.hp <= 0 && next.kind === 'enemy') {
+        this.playDeath(view);
+      }
     }
     this.drawTargetRing(state);
   }
@@ -140,18 +248,13 @@ export class Battlefield {
     const x = -HP_BAR_WIDTH / 2;
     const y = -view.emojiText.height - HP_BAR_HEIGHT - 12;
 
-    view.hpBg
-      .clear()
-      .roundRect(x, y, HP_BAR_WIDTH, HP_BAR_HEIGHT, 3)
-      .fill(0x2a2a34);
+    view.hpBg.clear().roundRect(x, y, HP_BAR_WIDTH, HP_BAR_HEIGHT, 3).fill(0x2a2a34);
 
+    view.hpFill.clear();
     if (ratio > 0) {
       view.hpFill
-        .clear()
         .roundRect(x, y, HP_BAR_WIDTH * ratio, HP_BAR_HEIGHT, 3)
         .fill(view.fighter.kind === 'player' ? 0x55cc66 : 0xcc4444);
-    } else {
-      view.hpFill.clear();
     }
   }
 
@@ -159,7 +262,7 @@ export class Battlefield {
     this.targetRing.clear();
     if (!state.targetId) return;
     const view = this.views.get(state.targetId);
-    if (!view) return;
+    if (!view || view.container.destroyed) return;
 
     this.targetRing
       .ellipse(view.container.x, view.container.y + 6, 62, 14)
@@ -167,8 +270,13 @@ export class Battlefield {
   }
 
   destroy(): void {
+    this.app.ticker.remove(this.onTick);
     this.unsubscribe?.();
     if (this.resizeListener) this.app.renderer.off('resize', this.resizeListener);
+    for (const view of this.views.values()) {
+      gsap.killTweensOf(view.container);
+      gsap.killTweensOf(view.container.scale);
+    }
     this.app.destroy(true, { children: true, texture: true });
     this.views.clear();
   }

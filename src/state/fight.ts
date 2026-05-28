@@ -32,3 +32,24 @@ export function setTarget(id: string): void {
     return { ...state, targetId: id };
   });
 }
+
+export function applyDamage(targetId: string, amount: number): void {
+  fight.update((state) => ({
+    ...state,
+    enemies: state.enemies.map((e) =>
+      e.id === targetId ? { ...e, hp: Math.max(0, e.hp - amount) } : e,
+    ),
+  }));
+}
+
+export function removeEnemy(id: string): void {
+  fight.update((state) => {
+    const enemies = state.enemies.filter((e) => e.id !== id);
+    let targetId = state.targetId;
+    if (targetId === id) {
+      targetId =
+        enemies.length > 0 ? enemies[Math.floor(Math.random() * enemies.length)].id : null;
+    }
+    return { ...state, enemies, targetId };
+  });
+}
