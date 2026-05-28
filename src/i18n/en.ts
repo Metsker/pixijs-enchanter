@@ -97,7 +97,7 @@ export const en: Record<string, string> = {
   'workbench.action.rerollUtilities': 'Reroll Utilities',
   'workbench.action.transfer': 'Transfer',
   'workbench.action.disenchantTop': 'Disenchant',
-  'workbench.action.removeSelected': 'Remove selected',
+  'workbench.action.removeSelected': 'Disenchant selected',
   'workbench.action.lockSelected': 'Lock selected',
   'workbench.action.destroy': 'Destroy',
   'workbench.add.maxed': 'Already at tier 6 - use a Unique scroll to reach tier 7',

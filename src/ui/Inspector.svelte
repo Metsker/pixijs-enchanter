@@ -84,7 +84,14 @@
   // Which action button is currently hovered, so we can preview the slot(s)
   // it will affect on the enchant stack (per docs/ux.md § Workbench:
   // "Hovering a button previews its target").
-  type PreviewAction = 'enchant' | 'disenchant' | 'rerollAll' | null;
+  type PreviewAction =
+    | 'enchant'
+    | 'disenchant'
+    | 'rerollAll'
+    | 'rerollMains'
+    | 'rerollUtils'
+    | 'destroy'
+    | null;
   let hoveredAction = $state<PreviewAction>(null);
 
   function previewSlots(forItem: Item): number[] {
@@ -99,10 +106,21 @@
       }
       return [];
     }
-    // rerollAll: every filled, unsealed slot
+    if (hoveredAction === 'destroy') {
+      // Destroy removes everything, sealed or not.
+      const slots: number[] = [];
+      for (let s = 1; s <= forItem.enchants.length; s++) slots.push(s);
+      return slots;
+    }
+    // rerollAll / rerollMains / rerollUtils: every filled, unsealed
+    // slot whose layer matches the action's filter.
     const slots: number[] = [];
     for (let s = 1; s <= forItem.enchants.length; s++) {
-      if (!isSealed(forItem, s)) slots.push(s);
+      if (isSealed(forItem, s)) continue;
+      const layer = stackLayerAt(s);
+      if (hoveredAction === 'rerollMains' && layer !== 'main') continue;
+      if (hoveredAction === 'rerollUtils' && layer !== 'utility') continue;
+      slots.push(s);
     }
     return slots;
   }
@@ -443,6 +461,8 @@
           disabled={!canRerollLayer(item, 'main') ||
             !ownsResources(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST)}
           onclick={doRerollMains}
+          onmouseenter={() => (hoveredAction = 'rerollMains')}
+          onmouseleave={() => (hoveredAction = null)}
         >
           <span class="action-label">{t('workbench.action.rerollMains')}</span>
           {@render costLine(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST, 0)}
@@ -453,6 +473,8 @@
           disabled={!canRerollLayer(item, 'utility') ||
             !ownsResources(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST)}
           onclick={doRerollUtilities}
+          onmouseenter={() => (hoveredAction = 'rerollUtils')}
+          onmouseleave={() => (hoveredAction = null)}
         >
           <span class="action-label">{t('workbench.action.rerollUtilities')}</span>
           {@render costLine(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST, 0)}
@@ -484,7 +506,13 @@
           {@render costLine(REMOVE_SELECTED_CRYSTAL_COST, REMOVE_SELECTED_SEAL_COST, 0)}
         </button>
 
-        <button type="button" class="action destroy" onclick={doDestroy}>
+        <button
+          type="button"
+          class="action destroy"
+          onclick={doDestroy}
+          onmouseenter={() => (hoveredAction = 'destroy')}
+          onmouseleave={() => (hoveredAction = null)}
+        >
           <span class="action-label">{t('workbench.action.destroy')}</span>
           {@render costLine(0, 0, destroyRefund(item))}
         </button>
