@@ -90,10 +90,12 @@ export function enterRoom(roomId: string): void {
     openItemOffer(node.offerItems);
   }
 
-  // Auto-inspect the player's best equipped item on room entry
-  // (skip item-select rooms - the offer choices need to stay
-  // centre-stage).
-  if (screen !== 'item-select') {
+  // Auto-inspect the player's best equipped item only on Rest
+  // entry - the Workbench is where the player actually tinkers
+  // with gear, so an open Inspector saves a click. Fight / shop /
+  // item-select keep the Inspector closed so they don't pre-
+  // commandeer the screen.
+  if (screen === 'rest') {
     inspectHighestTierEquipped();
   }
 }
