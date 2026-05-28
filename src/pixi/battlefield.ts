@@ -161,21 +161,22 @@ export class Battlefield {
     tl.to(playerView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
   }
 
-  // Brief red tint on the target via a ColorMatrixFilter whose alpha
-  // fades from 1 to 0 over ~200ms. Filter is removed on completion so
-  // it doesn't accumulate.
+  // Brief red tint on the target's emoji via a ColorMatrixFilter whose
+  // alpha fades from 1 to 0 over ~200ms. Applied to the emoji Text only
+  // so the HP bar stays its normal colour. Filter is removed on
+  // completion so they don't accumulate.
   private playHitFlash(view: FighterView): void {
     if (view.container.destroyed) return;
     const cm = new ColorMatrixFilter();
     cm.tint(0xff3030, false);
     cm.alpha = 1;
-    view.container.filters = [cm];
+    view.emojiText.filters = [cm];
     gsap.to(cm, {
       alpha: 0,
       duration: 0.2,
       ease: 'power2.out',
       onComplete: () => {
-        if (!view.container.destroyed) view.container.filters = [];
+        if (!view.container.destroyed) view.emojiText.filters = [];
       },
     });
   }
