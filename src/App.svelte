@@ -88,9 +88,9 @@
     href="https://github.com/Metsker/pixijs-enchanter/commit/{__COMMIT__}"
     target="_blank"
     rel="noopener"
-    title="View commit on GitHub"
+    title="View commit {__COMMIT__} on GitHub"
   >
-    {__COMMIT__}
+    {__VERSION__}
   </a>
 </div>
 

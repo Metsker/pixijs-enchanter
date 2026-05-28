@@ -17,12 +17,12 @@ export interface ShopStock {
 }
 
 const TIER_PRICE_RANGE: Record<number, [number, number]> = {
-  1: [80, 150],
-  2: [200, 350],
-  3: [500, 800],
-  4: [1200, 1800],
-  5: [2500, 3500],
-  6: [5000, 7000],
+  1: [40, 80],
+  2: [100, 180],
+  3: [240, 400],
+  4: [600, 900],
+  5: [1200, 1700],
+  6: [2400, 3400],
 };
 
 function rand(lo: number, hi: number): number {
@@ -57,12 +57,12 @@ export function generateShopStock(floor: number): ShopStock {
 
   return {
     items,
-    emptyScrolls: { remaining: 3, unitPrice: 150 },
-    seals: { remaining: 3 + (Math.random() < 0.5 ? 0 : 1), unitPrice: 250 },
+    emptyScrolls: { remaining: 3, unitPrice: 75 },
+    seals: { remaining: 3 + (Math.random() < 0.5 ? 0 : 1), unitPrice: 125 },
     crystals: {
       remaining: 50 + Math.floor(Math.random() * 51), // 50..100
       perPackSize: 10,
-      pricePerCrystal: 5,
+      pricePerCrystal: 3,
     },
   };
 }
