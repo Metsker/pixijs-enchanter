@@ -27,10 +27,28 @@ export function pickRandomEnchant(pool: EnchantPool, layer: EnchantLayer): Encha
 
 const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
 const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
-// Cosmetic-only weapon icon pool. Sword/dagger/axe/spear/hammer/bow -
-// every weapon rolls one at generation time so the loot loop has
-// visual variety. None of these affect combat math.
-const WEAPON_ICONS = ['⚔️', '🗡️', '🪓', '🔱', '🔨', '🏹'];
+
+// Cosmetic-only icon pools, keyed by itemType (or armorSlot for armor
+// since helm/chest/gloves/boots each get their own pool). Every item
+// rolls one icon at generation time. Strictly visual - all items of
+// the same type share the same combat math regardless of icon. Add
+// new icons by appending to the relevant pool.
+const ICON_POOLS: Record<string, string[]> = {
+  weapon: ['⚔️', '🗡️', '🪓', '🔱', '🔨', '🏹'],
+  shield: ['🛡️', '📖'],
+  helm: ['🪖', '👑', '🎩', '🎓'],
+  chest: ['🦺', '👕', '🧥', '👘'],
+  gloves: ['🧤', '🥊'],
+  boots: ['🥾', '👞', '👟', '🥿', '👢'],
+  ring: ['💍'],
+  amulet: ['📿', '🧿', '🔮'],
+};
+
+function iconFor(itemType: ItemType, armorSlot?: ArmorSlot): string | undefined {
+  const key = itemType === 'armor' && armorSlot ? armorSlot : itemType;
+  const pool = ICON_POOLS[key];
+  return pool && pool.length > 0 ? pick(pool) : undefined;
+}
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -58,6 +76,6 @@ function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
     const layer = stackLayerAt(i + 1) as EnchantLayer;
     return pickRandomEnchant(pool, layer);
   });
-  const icon = itemType === 'weapon' ? pick(WEAPON_ICONS) : undefined;
+  const icon = iconFor(itemType, armorSlot);
   return { id: nextItemId(idPrefix), itemType, armorSlot, enchants, icon };
 }
