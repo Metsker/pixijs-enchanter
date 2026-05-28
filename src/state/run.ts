@@ -114,14 +114,15 @@ fight.subscribe((state) => {
     run.update((s) => ({ ...s, fightWon: true }));
   }
   // Run-lost: player HP just crossed to 0 mid-fight. The overlay
-  // waits ~800ms so the Battlefield's player-death animation can
-  // play out before "Defeated." covers the corpse.
+  // waits ~400ms so the Battlefield's death animation (DEATH_DURATION
+  // = 0.3s, same one enemies use) can play out before "Defeated."
+  // covers the screen.
   if (r.screen === 'fight' && state.inFight && prevPlayerHp > 0 && state.player.hp <= 0) {
     setTimeout(() => {
       if (get(run).screen === 'fight') {
         run.update((s) => ({ ...s, screen: 'run-lost' }));
       }
-    }, 800);
+    }, 400);
   }
   prevEnemyCount = state.enemies.length;
   prevPlayerHp = state.player.hp;

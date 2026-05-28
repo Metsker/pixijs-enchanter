@@ -441,42 +441,17 @@ export class Battlefield {
     });
   }
 
-  // Player death plays a slower, more dramatic version of the enemy
-  // death: the body topples sideways, scales down, and fades to a
-  // ghost of itself - it stays on-screen so the run-lost overlay can
-  // appear over the corpse. The view is NOT destroyed; component
-  // unmount on New run handles cleanup.
-  private playPlayerDeath(view: FighterView): void {
-    if (view.container.destroyed) return;
-    view.container.eventMode = 'none';
-
-    gsap.killTweensOf(view.container);
-    gsap.killTweensOf(view.emojiText);
-    gsap.killTweensOf(view.emojiText.scale);
-    view.emojiText.x = 0;
-    view.emojiText.rotation = 0;
-    view.emojiText.scale.set(1, 1);
-
-    gsap.to(view.container, {
-      alpha: 0.35,
-      rotation: -Math.PI / 3,
-      duration: 0.7,
-      ease: 'power2.in',
-    });
-    gsap.to(view.container.scale, {
-      x: 0.7,
-      y: 0.7,
-      duration: 0.7,
-      ease: 'power2.in',
-    });
-  }
-
+  // Same death visual for player and enemies: scale to 0 + fade out
+  // with a back-in ease. Enemies are removed from fight state via
+  // killEnemy (rolls loot, frees the slot). The player has no such
+  // bookkeeping - run.ts handles the run-lost transition on its own
+  // ~timer~ matching DEATH_DURATION.
   private playDeath(view: FighterView): void {
     if (view.container.destroyed) return;
     view.container.eventMode = 'none';
 
     const id = view.fighter.id;
-    killEnemy(id);
+    if (view.fighter.kind === 'enemy') killEnemy(id);
 
     // Stop any in-flight hit-react / enemy-lunge tweens so the death
     // animation takes over cleanly.
@@ -557,8 +532,7 @@ export class Battlefield {
       this.drawHpBar(view);
 
       if (prevHp > 0 && next.hp <= 0) {
-        if (next.kind === 'enemy') this.playDeath(view);
-        else this.playPlayerDeath(view);
+        this.playDeath(view);
       }
     }
     this.drawTargetRing(state);
