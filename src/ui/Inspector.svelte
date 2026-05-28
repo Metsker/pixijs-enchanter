@@ -5,6 +5,7 @@
   import { fight } from '../state/fight';
   import { run } from '../state/run';
   import { topbar } from '../state/topbar';
+  import { buyItem, canBuyItem } from '../state/shop';
   import {
     ADD_ROLL_COST,
     canAddRoll,
@@ -114,7 +115,7 @@
 
   function comparisonItem(): Item | null {
     const subject = $inspector;
-    if (!subject || subject.source !== 'backpack' || inRest) return null;
+    if (!subject || subject.source === 'inventory' || inRest) return null;
     const legal = legalEquipmentSlots(subject.item);
     for (const slotId of legal) {
       const eq = $equipped[slotId];
@@ -141,20 +142,30 @@
 
   // === Equip / Unequip CTA (non-Rest only) =========================
   const ctaLabel = $derived.by(() => {
-    if (!$inspector) return '';
-    return $inspector.source === 'backpack' ? t('inspector.equip') : t('inspector.unequip');
+    const s = $inspector;
+    if (!s) return '';
+    if (s.source === 'backpack') return t('inspector.equip');
+    if (s.source === 'inventory') return t('inspector.unequip');
+    return t('inspector.buy', { price: s.price });
   });
 
   const ctaDisabledReason = $derived.by((): string | null => {
-    if (!$inspector) return null;
-    if ($fight.inFight) return t('inspector.cta.duringCombat');
-    if ($inspector.source === 'backpack') {
-      const legal = legalEquipmentSlots($inspector.item);
+    const s = $inspector;
+    if (!s) return null;
+    if (s.source === 'backpack') {
+      if ($fight.inFight) return t('inspector.cta.duringCombat');
+      const legal = legalEquipmentSlots(s.item);
       const hasEmptyLegal = legal.some((slotId) => $equipped[slotId] === null);
       if (!hasEmptyLegal) return t('inspector.cta.noEmptySlot');
     }
-    if ($inspector.source === 'inventory') {
+    if (s.source === 'inventory') {
+      if ($fight.inFight) return t('inspector.cta.duringCombat');
       if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
+    }
+    if (s.source === 'shop') {
+      const r = canBuyItem(s.index);
+      if (!r.ok && r.reasonKey) return t(r.reasonKey);
+      if (!r.ok) return '';
     }
     return null;
   });
@@ -164,8 +175,10 @@
     if (!subject) return;
     if (subject.source === 'backpack') {
       if (equipFromBackpack(subject.index) !== null) closeInspector();
-    } else {
+    } else if (subject.source === 'inventory') {
       if (unequipToBackpack(subject.slotId)) closeInspector();
+    } else {
+      buyItem(subject.index);
     }
   }
 

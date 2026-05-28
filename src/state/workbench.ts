@@ -29,9 +29,16 @@ export const DESTROY_REFUND_PER_SLOT = 25;
 export const DESTROY_BASE_REFUND = 5;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
-  const next = subject.source === 'backpack'
-    ? updateItemAt(subject.index, mutate)
-    : updateEquippedAt(subject.slotId, mutate);
+  let next: Item | null;
+  if (subject.source === 'backpack') {
+    next = updateItemAt(subject.index, mutate);
+  } else if (subject.source === 'inventory') {
+    next = updateEquippedAt(subject.slotId, mutate);
+  } else {
+    // Shop subjects aren't mutated through the workbench (Rest actions only
+    // run in Rest rooms; shop items live in Shop rooms). Defensive no-op.
+    return null;
+  }
   if (next === null) {
     inspector.set(null);
   } else {

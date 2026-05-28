@@ -1,6 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/map';
 import { endFight, fight, startFightWith } from './fight';
+import { closeShop, openShopForFloor } from './shop';
 
 export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete';
 
@@ -48,6 +49,9 @@ export function enterRoom(roomId: string): void {
   if (screen === 'fight' && node.enemies) {
     startFightWith(node.enemies);
   }
+  if (screen === 'shop') {
+    openShopForFloor(node.floor);
+  }
 }
 
 export function completeRoom(): void {
@@ -56,6 +60,7 @@ export function completeRoom(): void {
   const wasBoss = nodeById(state.map, state.currentRoomId)?.kind === 'boss';
 
   endFight();
+  closeShop();
 
   run.update((s) => ({
     ...s,
