@@ -84,7 +84,7 @@ export const en: Record<string, string> = {
   'shop.cta.notEnoughGold': 'Not enough gold',
   'shop.cta.backpackFull': 'Backpack is full',
   'rest.placeholder': 'Rest coming in a later step.',
-  'rest.tagline': 'Click an item in your Inventory or Backpack to open the Workbench.',
+  'rest.tagline': 'Select an item in your Inventory or Backpack to open the Workbench.',
 
   'workbench.title': 'Workbench',
   'workbench.close': 'Close workbench',
