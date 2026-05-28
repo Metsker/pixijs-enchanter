@@ -91,6 +91,10 @@
   /* Cormorant runs a touch light at small sizes - bump to 500 default
      and lean on 600/700 for emphasis instead of bold. */
   font-weight: 500;
+  /* Bigger root size than the browser default 16px - the serif body font
+     reads small unless you give it room, and every rem-sized label,
+     button, and badge scales with this. */
+  font-size: 18px;
   color-scheme: dark;
   /* No text-input UI in the game; suppress the text caret everywhere so
      it can't appear next to glyphs or focused emoji elements. */
