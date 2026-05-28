@@ -14,12 +14,13 @@ import {
   setTarget,
   applyDamage,
   applyDamageToPlayer,
+  healPlayer,
   killEnemy,
   type FightState,
 } from '../state/fight';
-import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
-import type { Enchantment } from '../domain/enchant';
-import { SHARPNESS } from '../domain/enchant-catalogue';
+import { playerProfile } from '../state/player-profile';
+import type { AttackProfile } from '../domain/attack-profile';
+import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 
@@ -37,10 +38,6 @@ const HP_BAR_WIDTH = 120;
 const HP_BAR_HEIGHT = 10;
 const DEATH_DURATION = 0.3;
 const DAMAGE_NUMBER_DURATION = 0.8;
-
-// Step 3 placeholder: one Sharpness enchant on a single weapon item.
-// A later step replaces this with the real equipped-inventory store.
-const HARDCODED_INVENTORY: Enchantment[] = [SHARPNESS];
 
 interface FighterView {
   fighter: Fighter;
@@ -61,12 +58,25 @@ export class Battlefield {
   private targetRing!: Graphics;
   private unsubscribe?: () => void;
   private resizeListener?: () => void;
-  private profile!: AttackProfile;
+  // Snapshot of the player's attack + defence profile taken at fight
+  // start (and refreshed on equipped changes between fights). Equip is
+  // blocked mid-combat so the snapshot is stable for the duration of
+  // any one fight. Combat hooks (fireAttack, fireEnemyAttack, regen
+  // tick) all read from these two fields so adding a new enchant
+  // effect kind means editing the resolver, never the battlefield.
+  private attack!: AttackProfile;
+  private defence!: DefenceProfile;
   private cooldown = 0;
+  // Regen drip below 1 hp/tick accumulates here until it rounds up to
+  // a whole hit point we can actually apply.
+  private regenAccum = 0;
   private damageNumbers = new Set<Text>();
   // Per-enemy attack cooldowns (seconds), keyed by Fighter id. Each tick
   // we decrement and fire an attack-on-player when the cooldown hits 0.
   private enemyCooldowns = new Map<string, number>();
+  // Tracks the previous sync's inFight flag so we can detect the
+  // false → true transition and re-snapshot the player profile.
+  private prevInFight = false;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -91,8 +101,8 @@ export class Battlefield {
 
     this.buildViews(initial);
 
-    this.profile = resolveProfile(HARDCODED_INVENTORY);
-    this.cooldown = this.profile.interval;
+    this.refreshProfile();
+    this.cooldown = this.attack.interval;
 
     this.unsubscribe = fight.subscribe((state) => this.sync(state));
 
@@ -152,7 +162,18 @@ export class Battlefield {
     this.cooldown -= dt;
     if (this.cooldown <= 0) {
       this.fireAttack(state);
-      this.cooldown = this.profile.interval;
+      this.cooldown = this.attack.interval;
+    }
+
+    // Regeneration: drip player HP back over time (sub-1 hp/tick
+    // accumulates so 50hp/sec at 60fps still ticks correctly).
+    if (this.defence.hpRegenPerSec > 0 && state.player.hp > 0 && state.player.hp < state.player.maxHp) {
+      this.regenAccum += this.defence.hpRegenPerSec * dt;
+      if (this.regenAccum >= 1) {
+        const heal = Math.floor(this.regenAccum);
+        this.regenAccum -= heal;
+        healPlayer(heal);
+      }
     }
 
     // Per-enemy attacks: each enemy fires on its own catalogue-defined
@@ -189,11 +210,48 @@ export class Battlefield {
     if (!view || view.container.destroyed) return;
 
     this.playAttackSwing(view);
-    this.spawnDamageNumber(view, this.profile.damage);
+
+    // Enemy dodge: the catalogue defines a per-enemy dodge chance;
+    // when it procs the swing animations still play (swing + slash)
+    // but no damage lands and we float "Miss" instead.
+    const enemyDef = ENEMY_CATALOGUE[target.name];
+    const enemyDodge = enemyDef?.dodge ?? 0;
+    if (enemyDodge > 0 && Math.random() < enemyDodge) {
+      this.spawnFloatNumber(view, 'Miss', '#aaaaaa', 28);
+      this.spawnSlash(view);
+      return;
+    }
+
+    // Crit roll: multiplies damage by critMultiplier. Crits get a
+    // bigger / yellower damage number to telegraph the impact.
+    const isCrit = this.attack.critChance > 0 && Math.random() < this.attack.critChance;
+    const damage = Math.round(
+      isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage,
+    );
+
+    if (isCrit) {
+      this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
+    } else {
+      this.spawnDamageNumber(view, damage);
+    }
     this.playHitFlash(view);
     this.playHitReact(view);
     this.spawnSlash(view);
-    applyDamage(state.targetId, this.profile.damage);
+    applyDamage(state.targetId, damage);
+
+    // Vampiric / Lifedrain: heal the player by a fraction of damage
+    // dealt. Numbers float green above the player so the heal is
+    // visible in the chaos.
+    if (this.attack.lifesteal > 0 && state.player.hp > 0) {
+      const heal = Math.round(damage * this.attack.lifesteal);
+      if (heal > 0) {
+        healPlayer(heal);
+        const playerView = this.views.get(state.player.id);
+        if (playerView && !playerView.container.destroyed) {
+          this.spawnFloatNumber(playerView, `+${heal}`, '#7fe57f', 28);
+        }
+      }
+    }
   }
 
   // Symmetric to fireAttack: an enemy lands a hit on the Player. Applies
@@ -220,11 +278,36 @@ export class Battlefield {
       tl.to(enemyView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
     }
 
-    this.spawnDamageNumber(playerView, damage);
+    // Player dodge: if the player dodges, no damage, no thorns - just
+    // a "Miss" float over the player. The enemy's lunge still plays
+    // so the attempt still reads on-screen.
+    if (this.defence.dodge > 0 && Math.random() < this.defence.dodge) {
+      this.spawnFloatNumber(playerView, 'Dodge', '#aaaaaa', 28);
+      return;
+    }
+
+    // Flat damage reduction from Fortitude etc. Resists / status /
+    // big-hit / low-hp modifiers will plug in here in a follow-up
+    // depth pass.
+    let incoming = damage;
+    if (this.defence.damageReduction > 0) {
+      incoming = Math.max(1, Math.round(incoming * (1 - this.defence.damageReduction)));
+    }
+
+    this.spawnDamageNumber(playerView, incoming);
     this.playHitFlash(playerView);
     this.playHitReact(playerView);
     this.spawnSlash(playerView);
-    applyDamageToPlayer(damage);
+    applyDamageToPlayer(incoming);
+
+    // Thorns: flat reflect to the attacker. The attacker's hit flash
+    // + damage number play so the player sees the reflect land.
+    if (this.defence.thornsFlat > 0 && enemyView && !enemyView.container.destroyed) {
+      const reflect = this.defence.thornsFlat;
+      this.spawnDamageNumber(enemyView, reflect);
+      this.playHitFlash(enemyView);
+      applyDamage(enemy.id, reflect);
+    }
   }
 
   // Quick lunge of the Player container toward the target, then snap back.
@@ -318,13 +401,20 @@ export class Battlefield {
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
+    this.spawnFloatNumber(view, `-${amount}`, '#ff5252', 32);
+  }
+
+  // Generic floating number / label above a fighter view. Used for
+  // damage, crits, dodges ("Miss"), and lifesteal heals. Same upward
+  // drift + fade-out animation regardless of payload.
+  private spawnFloatNumber(view: FighterView, label: string, color: string, fontSize: number): void {
     const text = new Text({
-      text: `-${amount}`,
+      text: label,
       style: new TextStyle({
         fontFamily: UI_FONT_STACK,
-        fontSize: 32,
+        fontSize,
         fontWeight: 'bold',
-        fill: '#ff5252',
+        fill: color,
         stroke: { color: 0x000000, width: 4 },
       }),
     });
@@ -381,6 +471,15 @@ export class Battlefield {
   }
 
   private sync(state: FightState): void {
+    // Resnap player profile + reset cooldowns at every fresh fight start
+    // so equipment changes in the prior Map / Rest screen apply now.
+    if (state.inFight && !this.prevInFight) {
+      this.refreshProfile();
+      this.cooldown = this.attack.interval;
+      this.regenAccum = 0;
+    }
+    this.prevInFight = state.inFight;
+
     const byId = new Map<string, Fighter>([
       [state.player.id, state.player],
       ...state.enemies.map((e) => [e.id, e] as const),
@@ -493,6 +592,12 @@ export class Battlefield {
     this.targetRing
       .ellipse(view.homeX, view.homeY + 6, 62, 14)
       .stroke({ color: 0xffcc44, width: 3, alpha: 0.9 });
+  }
+
+  private refreshProfile(): void {
+    const p = get(playerProfile);
+    this.attack = p.attack;
+    this.defence = p.defence;
   }
 
   destroy(): void {

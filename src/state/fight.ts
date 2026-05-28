@@ -4,6 +4,7 @@ import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
 import { randomItem } from '../domain/random';
 import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
+import { playerProfile } from './player-profile';
 
 // Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
 // HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
@@ -60,13 +61,13 @@ export function startFightWith(enemies: EnemyDef[]): void {
   // Loot from a previous fight that the player never claimed is gone -
   // a fresh fight always starts with an empty chest.
   resetPendingRewards();
+  // Snapshot the player's defence profile from currently-equipped
+  // enchants and rebuild player maxHp / hp from it. Equip changes are
+  // blocked during combat, so this snapshot is stable for the fight.
+  const def = get(playerProfile).defence;
   fight.update((state) => ({
     ...state,
-    // Reset player HP at the start of every fight. The spec is "HP carries
-    // between rooms, Rest heals" - that's intended for later when dodge /
-    // resist / regen enchants actually work; for now, full HP per fight
-    // keeps unbalanced encounters from immediately snowballing.
-    player: { ...state.player, hp: state.player.maxHp },
+    player: { ...state.player, maxHp: def.maxHp, hp: def.maxHp },
     enemies: fighters,
     targetId: fighters[0]?.id ?? null,
     inFight: true,
@@ -93,6 +94,19 @@ export function applyDamageToPlayer(amount: number): void {
   fight.update((state) => ({
     ...state,
     player: { ...state.player, hp: Math.max(0, state.player.hp - amount) },
+  }));
+}
+
+// Heal the player by `amount`, clamped to current maxHp. Used for both
+// continuous Regeneration and on-hit Vampiric / Lifedrain effects.
+export function healPlayer(amount: number): void {
+  if (amount <= 0) return;
+  fight.update((state) => ({
+    ...state,
+    player: {
+      ...state.player,
+      hp: Math.min(state.player.maxHp, state.player.hp + amount),
+    },
   }));
 }
 
