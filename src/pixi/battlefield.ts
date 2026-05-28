@@ -19,6 +19,7 @@ import {
   applyTauntLock,
   healPlayer,
   killEnemy,
+  setPlayerMaxHp,
   tickStatuses,
   tickTargetLock,
   type FightState,
@@ -77,6 +78,7 @@ export class Battlefield {
   private views = new Map<string, FighterView>();
   private targetRing!: Graphics;
   private unsubscribe?: () => void;
+  private unsubProfile?: () => void;
   private resizeListener?: () => void;
   // Snapshot of the player's attack + defence profile taken at fight
   // start (and refreshed on equipped changes between fights). Equip is
@@ -158,6 +160,18 @@ export class Battlefield {
     this.cooldown = this.attack.interval;
 
     this.unsubscribe = fight.subscribe((state) => this.sync(state));
+    // Live-refresh combat profile whenever equipped gear changes,
+    // including mid-fight (the player is allowed to swap items in
+    // combat). Updates maxHp / hp clamp via setPlayerMaxHp so a
+    // Vitality unequip can't leave the player above their cap.
+    this.unsubProfile = playerProfile.subscribe((p) => {
+      this.attack = p.attack;
+      this.defence = p.defence;
+      const live = get(fight);
+      if (live.inFight && live.player.maxHp !== p.defence.maxHp) {
+        setPlayerMaxHp(p.defence.maxHp);
+      }
+    });
 
     this.resizeListener = () => this.layout(get(fight));
     this.app.renderer.on('resize', this.resizeListener);
@@ -1295,6 +1309,7 @@ export class Battlefield {
   destroy(): void {
     this.app.ticker.remove(this.onTick);
     this.unsubscribe?.();
+    this.unsubProfile?.();
     if (this.resizeListener) this.app.renderer.off('resize', this.resizeListener);
     // Nuke every in-flight GSAP tween before destroying the Pixi objects
     // they reference: hit-flash filters, attack swings, knockbacks,

@@ -219,12 +219,10 @@
     if (!s) return null;
     if (pickActive) return t('inspector.pickSlotHint');
     if (s.source === 'backpack') {
-      if ($fight.inFight) return t('inspector.cta.duringCombat');
       // Equip-from-backpack always works via swap-in-place when no
-      // empty legal slot is free; only block during combat.
+      // empty legal slot is free.
     }
     if (s.source === 'inventory') {
-      if ($fight.inFight) return t('inspector.cta.duringCombat');
       if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
     }
     if (s.source === 'shop') {

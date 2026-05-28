@@ -155,6 +155,21 @@ export function tickTargetLock(dt: number): void {
   });
 }
 
+// Update the player's maxHp (e.g. after equipping / unequipping a
+// Vitality enchant mid-fight). Current hp is clamped to the new
+// max so a Vitality drop can't leave the player floating above
+// their cap.
+export function setPlayerMaxHp(maxHp: number): void {
+  fight.update((state) => ({
+    ...state,
+    player: {
+      ...state.player,
+      maxHp,
+      hp: Math.min(state.player.hp, maxHp),
+    },
+  }));
+}
+
 export function applyDamageToPlayer(amount: number): void {
   fight.update((state) => ({
     ...state,
