@@ -20,7 +20,10 @@ export const REROLL_ALL_COST = 50;
 export const LOCK_SELECTED_SEAL_COST = 1;
 export const LOCK_SELECTED_CRYSTAL_COST = 10;
 export const DISENCHANT_REFUND_PER_SLOT = 15;
-export const DESTROY_REFUND_PER_SLOT = 15;
+// Destroy refunds a bit more per slot than slot-by-slot Disenchant, so
+// scrapping a finished item is meaningfully better than tediously popping
+// each enchant individually.
+export const DESTROY_REFUND_PER_SLOT = 20;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
   const next = subject.source === 'backpack'
@@ -96,7 +99,9 @@ export function doLockSelected(slot: number): void {
 
 // === Disenchant top =================================================
 export function canDisenchantTop(item: Item): boolean {
-  if (item.enchants.length === 0 || item.enchants.length === 7) return false;
+  if (item.enchants.length === 7) return false;
+  // T0 (empty husk) - allow Disenchant to remove the item entirely.
+  if (item.enchants.length === 0) return true;
   for (let i = item.enchants.length; i >= 1; i--) {
     if (!isSealed(item, i)) return true;
   }
@@ -110,6 +115,11 @@ export function disenchantTopRefund(item: Item): number {
 export function doDisenchantTop(): void {
   const subject = get(inspector);
   if (!subject || !canDisenchantTop(subject.item)) return;
+  // T0 husk: just delete the item, no refund.
+  if (subject.item.enchants.length === 0) {
+    applyMutation(subject, () => null);
+    return;
+  }
   let popSlot = -1;
   for (let i = subject.item.enchants.length; i >= 1; i--) {
     if (!isSealed(subject.item, i)) {

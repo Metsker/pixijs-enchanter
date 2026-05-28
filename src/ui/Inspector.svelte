@@ -316,6 +316,11 @@
           <span class="action-label">{t('workbench.action.removeSelected')}</span>
         </button>
 
+        <button type="button" class="action destroy" onclick={doDestroy}>
+          <span class="action-label">{t('workbench.action.destroy')}</span>
+          {@render costLine(0, 0, destroyRefund(item))}
+        </button>
+
         <div class="actions-group-label">{t('workbench.group.other')}</div>
 
         <button type="button" class="action" disabled title={t('workbench.notYet')}>
@@ -332,11 +337,6 @@
         >
           <span class="action-label">{t('workbench.action.lockSelected')}</span>
           {@render costLine(LOCK_SELECTED_CRYSTAL_COST, LOCK_SELECTED_SEAL_COST, 0)}
-        </button>
-
-        <button type="button" class="action destroy" onclick={doDestroy}>
-          <span class="action-label">{t('workbench.action.destroy')}</span>
-          {@render costLine(0, 0, destroyRefund(item))}
         </button>
       </div>
     {/snippet}
