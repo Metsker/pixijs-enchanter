@@ -12,6 +12,7 @@
   import ItemSelect from './ui/ItemSelect.svelte';
   import { toggleBackpack } from './state/ui';
   import { run } from './state/run';
+  import { sfx } from './audio/sfx';
 
   onMount(() => {
     function isEditable(target: EventTarget | null): boolean {
@@ -29,8 +30,25 @@
       }
     };
 
+    // Global UI click sound: any <button> click bubbles up here and
+    // plays sfx.click. Buttons that have their own sfx (Buy / pick a
+    // weapon / etc.) layer on top, which sounds natural since the
+    // click is short and quiet by design. Use capture so disabled
+    // buttons that stopPropagation can still be heard.
+    const onClick = (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest('button');
+      if (!btn || btn.disabled) return;
+      sfx.click();
+    };
+    document.addEventListener('click', onClick, true);
+
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('click', onClick, true);
+    };
   });
 </script>
 

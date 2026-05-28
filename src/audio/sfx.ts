@@ -130,6 +130,14 @@ export const sfx = {
     tone({ freq: 820, sweepTo: 240, dur: 0.22, type: 'sawtooth', gain: 0.4 });
     tone({ freq: 420, sweepTo: 110, dur: 0.22, type: 'square', gain: 0.25, delay: 0.01 });
   },
+  kill(): void {
+    // Killing blow: heavy low thump + bright shatter chime overlay so
+    // it reads as "that one finished them" instead of the usual hit
+    // sound playing under the enemy death wail.
+    tone({ freq: 140, sweepTo: 40, dur: 0.22, type: 'square', gain: 0.45 });
+    tone({ freq: 990, sweepTo: 1480, dur: 0.18, type: 'triangle', gain: 0.32, delay: 0.04 });
+    tone({ freq: 1480, sweepTo: 660, dur: 0.14, type: 'sine', gain: 0.22, delay: 0.08 });
+  },
   dodge(): void {
     tone({ freq: 900, sweepTo: 1400, dur: 0.08, type: 'sine', gain: 0.22 });
   },

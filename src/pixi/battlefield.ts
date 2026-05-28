@@ -113,6 +113,12 @@ export class Battlefield {
   // Each entry drips perSec damage per frame until remainingSec
   // expires.
   private delayedPlayerDamage: { perSec: number; remainingSec: number; accumulator: number }[] = [];
+  // Set by landDamage just before applyDamage so playDeath knows the
+  // upcoming enemy death came from a player swing - in that case
+  // sfx.kill already played and we suppress the ambient sfx.death.
+  // For DoT / thorns / counter-attack deaths the flag is false and
+  // sfx.death plays normally.
+  private hitKillInFlight = false;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -440,15 +446,23 @@ export class Battlefield {
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
-      sfx.crit();
     } else {
       this.spawnDamageNumber(view, damage);
-      sfx.hit();
     }
     this.playHitFlash(view);
     if (!isExtraStrike) this.playHitReact(view);
     this.spawnSlash(view);
+
+    // Tell playDeath: a swing-induced death is in flight (suppress
+    // the ambient death wail since we're about to play sfx.kill).
+    this.hitKillInFlight = true;
     applyDamage(target.id, damage);
+    const afterApply = get(fight).enemies.find((e) => e.id === target.id);
+    const killed = !!afterApply && afterApply.hp <= 0;
+    this.hitKillInFlight = false;
+    if (killed) sfx.kill();
+    else if (isCrit) sfx.crit();
+    else sfx.hit();
 
     // Knockback: per-enchant roll, on proc push the target's next
     // attack out by durationSec.
@@ -916,7 +930,10 @@ export class Battlefield {
 
     const id = view.fighter.id;
     if (view.fighter.kind === 'enemy') {
-      sfx.death();
+      // Skip the ambient wail when the death came from a player swing
+      // - sfx.kill is the entire feedback for hit-kills. DoT / thorns
+      // / counter-attack deaths still play sfx.death.
+      if (!this.hitKillInFlight) sfx.death();
       killEnemy(id);
     } else {
       sfx.playerDeath();
