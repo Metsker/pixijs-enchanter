@@ -14,21 +14,22 @@
     7: '#fbbf24',
   };
 
-  import { inspectItem } from '../state/inspector';
+  import { inspectItem, inspector } from '../state/inspector';
 
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
+  let didDrag = $state(false);
   let ghostPos = $state<{ x: number; y: number } | null>(null);
   let pointerStart = { x: 0, y: 0 };
-  let didDrag = false;
-  const DRAG_THRESHOLD_SQ = 25; // ~5px
+  // 10px threshold: clicks with minor jitter won't trigger drag visuals.
+  const DRAG_THRESHOLD_SQ = 100;
 
   function onPointerDown(e: PointerEvent, index: number): void {
     if ($backpack[index] === null) return;
     dragging = index;
-    ghostPos = { x: e.clientX, y: e.clientY };
     pointerStart = { x: e.clientX, y: e.clientY };
     didDrag = false;
+    ghostPos = null; // gated: appears only once the threshold is crossed
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -40,9 +41,12 @@
 
   function onPointerMove(e: PointerEvent): void {
     if (dragging === null) return;
-    const dx = e.clientX - pointerStart.x;
-    const dy = e.clientY - pointerStart.y;
-    if (dx * dx + dy * dy > DRAG_THRESHOLD_SQ) didDrag = true;
+    if (!didDrag) {
+      const dx = e.clientX - pointerStart.x;
+      const dy = e.clientY - pointerStart.y;
+      if (dx * dx + dy * dy <= DRAG_THRESHOLD_SQ) return;
+      didDrag = true;
+    }
     ghostPos = { x: e.clientX, y: e.clientY };
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cell = el?.closest<HTMLElement>('[data-cell-index]');
@@ -67,6 +71,11 @@
     dragOver = null;
     ghostPos = null;
     didDrag = false;
+  }
+
+  function isInspecting(i: number): boolean {
+    const s = $inspector;
+    return s?.source === 'backpack' && s.index === i;
   }
 </script>
 
@@ -94,8 +103,9 @@
           class="cell"
           role="gridcell"
           tabindex={item ? 0 : -1}
-          class:dragging={dragging === i}
-          class:over={dragOver === i && dragging !== null && dragging !== i}
+          class:dragging={didDrag && dragging === i}
+          class:over={dragOver === i && didDrag && dragging !== i}
+          class:inspecting={isInspecting(i)}
           data-cell-index={i}
           data-inspector-source="backpack"
           onpointerdown={(e) => onPointerDown(e, i)}
@@ -229,6 +239,10 @@
   .cell.over {
     background: #2a2a34;
     border-color: #ffcc44;
+  }
+  .cell.inspecting {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 1px #ffcc44;
   }
 
   .emoji {

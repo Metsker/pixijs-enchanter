@@ -1,9 +1,14 @@
 <script lang="ts">
   import { equipped } from '../state/inventory';
-  import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
+  import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
   import { itemEmoji, tierOf } from '../domain/item';
-  import { inspectItem } from '../state/inspector';
+  import { inspectItem, inspector } from '../state/inspector';
   import { t } from '../i18n';
+
+  function isInspecting(slotId: EquipmentSlotId): boolean {
+    const s = $inspector;
+    return s?.source === 'inventory' && s.slotId === slotId;
+  }
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',
@@ -24,6 +29,7 @@
       <button
         type="button"
         class="slot filled"
+        class:inspecting={isInspecting(slotId)}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
         onclick={() => inspectItem({ source: 'inventory', slotId, item })}
@@ -83,6 +89,10 @@
   .slot.filled:focus-visible {
     outline: 2px solid #ffcc44;
     outline-offset: 2px;
+  }
+  .slot.filled.inspecting {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 1px #ffcc44;
   }
 
   .emoji {

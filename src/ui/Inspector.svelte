@@ -8,9 +8,9 @@
     stackLayerAt,
     STACK_HEIGHT,
     tierOf,
+    type Item,
     type StackLayer,
   } from '../domain/item';
-  import type { Enchantment } from '../domain/enchant';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
@@ -26,41 +26,29 @@
     7: '#fbbf24',
   };
 
-  // Render the 6-cell stack TOP-to-BOTTOM in DOM order (slot 6 first) so the
-  // base of the column sits at the bottom of the panel and reads bottom-up
-  // exactly like CONTEXT.md describes ("Slot 1 sits at the base; new tiers
-  // stack upward in m, u, m, u, m, u alternation").
-  const stackSlotsTopFirst = Array.from(
-    { length: STACK_HEIGHT },
-    (_, i) => STACK_HEIGHT - i,
-  );
+  // Slot 1 (Main) at top of the visual list, slot 6 (Utility) at bottom.
+  // Reads top-to-bottom as the enchant order the player added them in.
+  const stackSlots = Array.from({ length: STACK_HEIGHT }, (_, i) => i + 1);
 
-  function enchantAt(slotIndex1Based: number): Enchantment | null {
-    const subject = $inspector;
-    if (!subject) return null;
-    return subject.item.enchants[slotIndex1Based - 1] ?? null;
+  function enchantAt(item: Item, slotIndex1Based: number) {
+    return item.enchants[slotIndex1Based - 1] ?? null;
   }
 
-  function isFilled(slotIndex1Based: number): boolean {
-    const subject = $inspector;
-    if (!subject) return false;
-    return slotIndex1Based <= tierOf(subject.item);
+  function isFilled(item: Item, slotIndex1Based: number): boolean {
+    return slotIndex1Based <= tierOf(item);
   }
 
-  // Comparison enchant: same stack position on whatever item is currently
-  // equipped in this item's primary legal slot (per CONTEXT.md § Hint).
-  function comparisonEnchantAt(slotIndex1Based: number): Enchantment | null {
+  // Comparison item: for a Backpack-source inspection, find an item currently
+  // equipped in any of the inspected item's legal equipment slots. If found,
+  // its enchant stack renders side-by-side. Inventory-source has no
+  // comparison (it IS the equipped item).
+  function comparisonItem(): Item | null {
     const subject = $inspector;
-    if (!subject) return null;
-    // For inventory-source, comparison is moot (it IS the equipped item).
-    if (subject.source === 'inventory') return null;
-
+    if (!subject || subject.source !== 'backpack') return null;
     const legal = legalEquipmentSlots(subject.item);
     for (const slotId of legal) {
-      const equippedItem = $equipped[slotId];
-      if (equippedItem) {
-        return equippedItem.enchants[slotIndex1Based - 1] ?? null;
-      }
+      const eq = $equipped[slotId];
+      if (eq) return eq;
     }
     return null;
   }
@@ -102,8 +90,10 @@
 
 {#if $inspector}
   {@const subject = $inspector}
+  {@const compare = comparisonItem()}
   <aside
     class="inspector"
+    class:with-compare={compare !== null}
     aria-label={t('inspector.title')}
     use:clickOutside={{
       onOutside: closeInspector,
@@ -128,35 +118,50 @@
       </button>
     </header>
 
-    <div class="stack">
-      {#each stackSlotsTopFirst as slotIndex (slotIndex)}
-        {@const layer = stackLayerAt(slotIndex)}
-        {@const filled = isFilled(slotIndex)}
-        {@const enchant = enchantAt(slotIndex)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="cell"
-          class:filled
-          class:hovered={hoveredCell === slotIndex}
-          data-stack-slot={slotIndex}
-          onmouseenter={() => (hoveredCell = slotIndex)}
-          onmouseleave={() => (hoveredCell = null)}
-        >
-          <span class="cell-emoji">
-            {#if filled && enchant}{enchant.emoji}{:else}·{/if}
-          </span>
-          <span class="cell-name">
-            {#if filled && enchant}
-              {t(enchant.nameKey)}
-            {:else}
-              {t('inspector.empty', { layer: layerLabel(layer) })}
-            {/if}
-          </span>
-          <span class="cell-layer" class:main={layer === 'main'} class:utility={layer === 'utility'}>
-            {layerLabel(layer)}
-          </span>
+    {#snippet stackColumn(item: Item, interactive: boolean, label: string | null)}
+      <div class="stack-col">
+        {#if label}<div class="stack-label">{label}</div>{/if}
+        <div class="stack">
+          {#each stackSlots as slotIndex (slotIndex)}
+            {@const layer = stackLayerAt(slotIndex)}
+            {@const filled = isFilled(item, slotIndex)}
+            {@const enchant = enchantAt(item, slotIndex)}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="cell"
+              class:filled
+              class:hovered={interactive && hoveredCell === slotIndex}
+              onmouseenter={interactive ? () => (hoveredCell = slotIndex) : undefined}
+              onmouseleave={interactive ? () => (hoveredCell = null) : undefined}
+            >
+              <span class="cell-emoji">
+                {#if filled && enchant}{enchant.emoji}{:else}·{/if}
+              </span>
+              <span class="cell-name">
+                {#if filled && enchant}
+                  {t(enchant.nameKey)}
+                {:else}
+                  {t('inspector.empty', { layer: layerLabel(layer) })}
+                {/if}
+              </span>
+              <span
+                class="cell-layer"
+                class:main={layer === 'main'}
+                class:utility={layer === 'utility'}
+              >
+                {layerLabel(layer)}
+              </span>
+            </div>
+          {/each}
         </div>
-      {/each}
+      </div>
+    {/snippet}
+
+    <div class="stacks">
+      {@render stackColumn(subject.item, true, compare ? t('inspector.stack.inspected') : null)}
+      {#if compare}
+        {@render stackColumn(compare, false, t('inspector.stack.equipped'))}
+      {/if}
     </div>
 
     <div class="hint">
@@ -164,8 +169,8 @@
         <div class="hint-prompt">{t('inspector.hint.prompt')}</div>
       {:else}
         {@const layer = stackLayerAt(hoveredCell)}
-        {@const enchant = enchantAt(hoveredCell)}
-        {#if isFilled(hoveredCell) && enchant}
+        {@const enchant = enchantAt(subject.item, hoveredCell)}
+        {#if isFilled(subject.item, hoveredCell) && enchant}
           <div class="hint-header">
             <span class="emoji">{enchant.emoji}</span>
             <div>
@@ -176,38 +181,22 @@
             </div>
           </div>
           <div class="hint-desc">{t(enchant.descriptionKey)}</div>
-          {#if subject.source === 'backpack'}
-            {@const comp = comparisonEnchantAt(hoveredCell)}
-            <div class="hint-compare">
-              <span class="compare-label">{t('inspector.hint.vsEquipped')}</span>
-              {#if comp}
-                <span class="compare-value">{comp.emoji} {t(comp.nameKey)}</span>
-              {:else}
-                <span class="compare-empty">{t('inspector.hint.empty')}</span>
-              {/if}
-            </div>
-          {/if}
         {:else}
           <div class="hint-empty">{t('inspector.hint.emptyCell', { layer: layerLabel(layer) })}</div>
         {/if}
       {/if}
     </div>
 
-    {#snippet ctaButton()}
-      {@const disabledReason = ctaDisabledReason()}
+    <footer class="footer">
       <button
         type="button"
         class="cta"
-        disabled={disabledReason !== null}
-        title={disabledReason ?? ''}
+        disabled={ctaDisabledReason() !== null}
+        title={ctaDisabledReason() ?? ''}
         onclick={handleCta}
       >
         {ctaLabel()}
       </button>
-    {/snippet}
-
-    <footer class="footer">
-      {@render ctaButton()}
     </footer>
   </aside>
 {/if}
@@ -227,6 +216,10 @@
     display: flex;
     flex-direction: column;
     user-select: none;
+    transition: width 180ms ease;
+  }
+  .inspector.with-compare {
+    width: 560px;
   }
 
   .header {
@@ -278,21 +271,39 @@
     background: #2a2a34;
   }
 
-  .stack {
+  .stacks {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    gap: 12px;
     padding: 12px;
     overflow-y: auto;
     min-height: 0;
   }
+  .stack-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .stack-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #788;
+    padding: 0 2px;
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
   .cell {
     display: grid;
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 28px 1fr auto;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
+    gap: 8px;
+    padding: 7px 9px;
     border: 1px solid #2a2a34;
     border-radius: 6px;
     background: #14141a;
@@ -307,19 +318,22 @@
   }
   .cell-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     line-height: 1;
     justify-self: center;
   }
   .cell-name {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: #ddd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .cell-layer {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding: 2px 6px;
+    padding: 2px 5px;
     border-radius: 4px;
     border: 1px solid #2a2a34;
   }
@@ -335,7 +349,7 @@
   .hint {
     border-top: 1px solid #2a2a34;
     padding: 12px 14px;
-    min-height: 120px;
+    min-height: 110px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -367,25 +381,6 @@
     font-size: 0.85rem;
     color: #ccc;
     line-height: 1.45;
-  }
-  .hint-compare {
-    margin-top: auto;
-    padding-top: 6px;
-    border-top: 1px dashed #2a2a34;
-    font-size: 0.8rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .compare-label {
-    color: #788;
-  }
-  .compare-value {
-    color: #eee;
-  }
-  .compare-empty {
-    color: #788;
-    font-style: italic;
   }
   .hint-empty {
     color: #788;

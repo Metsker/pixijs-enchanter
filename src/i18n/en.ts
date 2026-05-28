@@ -32,9 +32,9 @@ export const en: Record<string, string> = {
   'inspector.cta.noEmptySlot': 'No empty legal slot - displacement picker coming later',
   'inspector.cta.backpackFull': 'Backpack is full',
   'inspector.hint.prompt': 'Hover an enchant cell to inspect.',
-  'inspector.hint.vsEquipped': 'vs equipped:',
-  'inspector.hint.empty': '(empty)',
   'inspector.hint.emptyCell': 'Empty {layer} slot. Add (Roll) at Rest would fill this for crystals.',
+  'inspector.stack.inspected': 'Inspecting',
+  'inspector.stack.equipped': 'Equipped',
 
   'item.type.weapon': 'Weapon',
   'item.type.shield': 'Shield',
