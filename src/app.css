@@ -93,4 +93,10 @@ body {
 
 .emoji {
   font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  /* Prevent the text caret from landing on emoji glyphs - some renders
+     leave a thin vertical bar next to the emoji when the element gets
+     focus. */
+  user-select: none;
+  -webkit-user-select: none;
+  caret-color: transparent;
 }
