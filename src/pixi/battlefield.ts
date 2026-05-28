@@ -342,7 +342,9 @@ export class Battlefield {
   private drawHpBar(view: FighterView): void {
     const ratio = view.fighter.maxHp > 0 ? view.fighter.hp / view.fighter.maxHp : 0;
     const x = -HP_BAR_WIDTH / 2;
-    const y = -view.emojiText.height - HP_BAR_HEIGHT - 12;
+    // Lifted clear of the emoji head + a bit more so the squash/rotation
+    // hit-react can't cover the bar.
+    const y = -view.emojiText.height - HP_BAR_HEIGHT - 28;
 
     view.hpBg.clear().roundRect(x, y, HP_BAR_WIDTH, HP_BAR_HEIGHT, 3).fill(0x2a2a34);
 
