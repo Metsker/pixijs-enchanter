@@ -8,8 +8,9 @@
 
   // Gold ticks up smoothly when claimed from the victory chest (and on
   // any other change too). Round on render so the counter shows whole
-  // coins throughout the tween. When the tween settles on a new value,
-  // briefly flag pop=true so the CSS keyframe gives a satisfying bounce.
+  // coins throughout the tween. The pop fires at the START of the
+  // tween so the bounce telegraphs that gold is about to arrive,
+  // riding the count-up rather than punctuating the end.
   const goldDisplay = tweened(get(topbar).gold, { duration: 800, easing: cubicOut });
   let goldPop = $state(false);
   let prevGoldTarget = get(topbar).gold;
@@ -18,14 +19,13 @@
     const target = $topbar.gold;
     if (target === prevGoldTarget) return;
     prevGoldTarget = target;
-    goldDisplay.set(target).then(() => {
-      if (popTimer) clearTimeout(popTimer);
-      goldPop = true;
-      popTimer = setTimeout(() => {
-        goldPop = false;
-        popTimer = null;
-      }, 320);
-    });
+    if (popTimer) clearTimeout(popTimer);
+    goldPop = true;
+    popTimer = setTimeout(() => {
+      goldPop = false;
+      popTimer = null;
+    }, 320);
+    goldDisplay.set(target);
   });
 </script>
 
