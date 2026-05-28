@@ -217,9 +217,8 @@ export class Battlefield {
     slash.eventMode = 'none';
     slash.x = cx;
     slash.y = cy;
-    // Random tilt around vertical, ±~45°, so consecutive hits don't all
-    // look identical.
-    slash.rotation = (Math.random() - 0.5) * (Math.PI / 2);
+    // Full 360° random rotation so consecutive hits read with variety.
+    slash.rotation = Math.random() * Math.PI * 2;
     this.app.stage.addChild(slash);
 
     const state = { progress: 0 };
