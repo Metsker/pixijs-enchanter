@@ -15,7 +15,7 @@
   import { fight } from '../state/fight';
   import { run } from '../state/run';
   import { topbar } from '../state/topbar';
-  import { buyItem, canBuyItem } from '../state/shop';
+  import { buyAndEquipItem, buyItem, canBuyAndEquipItem, canBuyItem } from '../state/shop';
   import { removeRewardItem } from '../state/rewards';
   import { canPickItem, pickItem } from '../state/item-offer';
   import {
@@ -250,6 +250,38 @@
     }
   }
 
+  // Shop-only secondary CTA: take the item straight to the Inventory,
+  // skipping the Backpack entirely. Disabled separately from the
+  // primary Buy button so the player can still buy-to-backpack if no
+  // legal slot is free.
+  const buyAndEquipDisabledReason = $derived.by((): string | null => {
+    const s = $inspector;
+    if (!s || s.source !== 'shop') return null;
+    const r = canBuyAndEquipItem(s.index);
+    if (!r.ok && r.reasonKey) return t(r.reasonKey);
+    if (!r.ok) return '';
+    return null;
+  });
+
+  function handleBuyAndEquip(): void {
+    const subject = $inspector;
+    if (!subject || subject.source !== 'shop') return;
+    const landed = buyAndEquipItem(subject.index);
+    if (landed !== null) {
+      // Follow the item: re-open the Inspector on the freshly-equipped
+      // slot so the user can immediately Unequip / inspect it.
+      const newItem = get(equipped)[landed];
+      if (newItem) {
+        inspector.set({ source: 'inventory', slotId: landed, item: newItem });
+      }
+      queueMicrotask(() => {
+        document
+          .querySelector<HTMLElement>(`.inventory [data-slot-id="${landed}"]`)
+          ?.focus();
+      });
+    }
+  }
+
   // === Rest action availability ====================================
   function ownsResources(crystals: number, seals: number): boolean {
     return $topbar.crystals >= crystals && $topbar.seals >= seals;
@@ -474,6 +506,17 @@
         >
           {ctaLabel}
         </button>
+        {#if subject.source === 'shop'}
+          <button
+            type="button"
+            class="cta secondary"
+            disabled={buyAndEquipDisabledReason !== null}
+            title={buyAndEquipDisabledReason ?? ''}
+            onclick={handleBuyAndEquip}
+          >
+            {t('inspector.buyAndEquip', { price: subject.price })}
+          </button>
+        {/if}
       </footer>
     {/if}
   </aside>
@@ -779,6 +822,9 @@
   .footer {
     padding: 12px 14px;
     border-top: 1px solid #2a2a34;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .cta {
     width: 100%;
@@ -793,6 +839,14 @@
     cursor: pointer;
     min-height: 44px;
     transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .cta.secondary {
+    background: #1c1c24;
+    color: #ddd;
+  }
+  .cta.secondary:hover:not(:disabled) {
+    background: #2a2a34;
+    border-color: #ffcc44;
   }
   .cta:hover:not(:disabled) {
     background: #4a4a58;

@@ -26,6 +26,7 @@ export const en: Record<string, string> = {
   'inspector.equip': 'Equip',
   'inspector.unequip': 'Unequip',
   'inspector.buy': 'Buy · 🪙 {price}',
+  'inspector.buyAndEquip': 'Buy and Equip · 🪙 {price}',
   'inspector.empty': 'Empty {layer} slot',
   'inspector.layer.main': 'Main',
   'inspector.layer.utility': 'Utility',

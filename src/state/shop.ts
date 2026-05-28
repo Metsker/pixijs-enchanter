@@ -2,8 +2,10 @@ import { get, writable } from 'svelte/store';
 import type { ShopStock } from '../domain/shop';
 import { generateShopStock } from '../domain/shop';
 import { backpack, addItem } from './backpack';
-import { topbar } from './topbar';
+import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
+import { equipItemDirect, hasEmptyLegalSlot } from './inventory';
+import type { EquipmentSlotId } from '../domain/equipment';
 
 export const shopStock = writable<ShopStock | null>(null);
 
@@ -57,6 +59,50 @@ export function buyItem(shopIndex: number): boolean {
   const ins = get(inspector);
   if (ins?.source === 'shop' && ins.index === shopIndex) closeInspector();
   return true;
+}
+
+// === Buy and Equip in one action ====================================
+// Bypasses the Backpack entirely; goes from shop slot straight to the
+// first empty legal Inventory slot. Doesn't require Backpack space,
+// but does require an empty legal Inventory slot.
+export function canBuyAndEquipItem(shopIndex: number): { ok: boolean; reasonKey?: string } {
+  const stock = get(shopStock);
+  if (!stock) return { ok: false };
+  const slot = stock.items[shopIndex];
+  if (!slot) return { ok: false };
+  if (get(topbar).gold < slot.price) return { ok: false, reasonKey: 'shop.cta.notEnoughGold' };
+  if (!hasEmptyLegalSlot(slot.item)) return { ok: false, reasonKey: 'inspector.cta.noEmptySlot' };
+  return { ok: true };
+}
+
+export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
+  const stock = get(shopStock);
+  if (!stock) return null;
+  const slot = stock.items[shopIndex];
+  if (!slot) return null;
+  if (!canBuyAndEquipItem(shopIndex).ok) return null;
+
+  if (!spendGold(slot.price)) return null;
+  const landed = equipItemDirect(slot.item);
+  if (landed === null) {
+    // Safety refund if equip fell through after our pre-check
+    // somehow (shouldn't happen).
+    addGold(slot.price);
+    return null;
+  }
+
+  shopStock.update((s) => {
+    if (!s) return s;
+    const items = s.items.slice();
+    items[shopIndex] = null;
+    return { ...s, items };
+  });
+
+  // Inspector follows the item to its new home so the user sees
+  // the Equip/Unequip CTA on the now-equipped item.
+  const ins = get(inspector);
+  if (ins?.source === 'shop' && ins.index === shopIndex) closeInspector();
+  return landed;
 }
 
 // === Buy a single Empty scroll / Seal / crystal pack ================
