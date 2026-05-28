@@ -156,7 +156,9 @@ export const sfx = {
     tone({ freq: 660, sweepTo: 990, dur: 0.14, type: 'sine', gain: 0.25 });
   },
   click(): void {
-    tone({ freq: 520, dur: 0.04, type: 'square', gain: 0.18 });
+    // Soft tick: sine instead of square, lower gain, slower attack
+    // so the transient isn't sharp.
+    tone({ freq: 620, dur: 0.05, type: 'sine', gain: 0.08, attack: 0.012 });
   },
   buy(): void {
     tone({ freq: 880, dur: 0.08, type: 'triangle', gain: 0.25 });
