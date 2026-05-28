@@ -3,7 +3,7 @@
   import { t } from '../i18n';
 
   function onClick(): void {
-    if ($run.screen === 'run-complete') {
+    if ($run.screen === 'run-complete' || $run.screen === 'run-lost') {
       startNewRun();
     } else {
       completeRoom();
@@ -12,17 +12,18 @@
 
   function headlineKey(): string {
     if ($run.screen === 'run-complete') return 'room.runComplete';
+    if ($run.screen === 'run-lost') return 'room.runLost';
     if ($run.screen === 'fight' && $run.fightWon) return 'room.victory';
     return '';
   }
 
   function ctaKey(): string {
-    if ($run.screen === 'run-complete') return 'room.newRun';
+    if ($run.screen === 'run-complete' || $run.screen === 'run-lost') return 'room.newRun';
     return 'room.continue';
   }
 </script>
 
-{#if ($run.screen === 'fight' && $run.fightWon) || $run.screen === 'run-complete'}
+{#if ($run.screen === 'fight' && $run.fightWon) || $run.screen === 'run-complete' || $run.screen === 'run-lost'}
   <div class="overlay">
     <div class="card">
       <h2>{t(headlineKey())}</h2>

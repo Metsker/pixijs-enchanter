@@ -57,6 +57,11 @@ export function startFightWith(enemies: EnemyDef[]): void {
   const fighters = makeFighters(enemies);
   fight.update((state) => ({
     ...state,
+    // Reset player HP at the start of every fight. The spec is "HP carries
+    // between rooms, Rest heals" - that's intended for later when dodge /
+    // resist / regen enchants actually work; for now, full HP per fight
+    // keeps unbalanced encounters from immediately snowballing.
+    player: { ...state.player, hp: state.player.maxHp },
     enemies: fighters,
     targetId: fighters[0]?.id ?? null,
     inFight: true,
@@ -77,6 +82,13 @@ export function setTarget(id: string): void {
     if (!state.enemies.some((e) => e.id === id)) return state;
     return { ...state, targetId: id };
   });
+}
+
+export function applyDamageToPlayer(amount: number): void {
+  fight.update((state) => ({
+    ...state,
+    player: { ...state.player, hp: Math.max(0, state.player.hp - amount) },
+  }));
 }
 
 export function applyDamage(targetId: string, amount: number): void {

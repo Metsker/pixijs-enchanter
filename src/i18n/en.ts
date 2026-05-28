@@ -60,6 +60,7 @@ export const en: Record<string, string> = {
   'room.leave': 'Leave',
   'room.victory': 'Victory!',
   'room.runComplete': 'Run complete!',
+  'room.runLost': 'Defeated.',
   'room.newRun': 'New run',
   'shop.placeholder': 'Shop coming in a later step.',
   'shop.items': 'Items',

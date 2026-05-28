@@ -9,10 +9,18 @@ import {
 } from 'pixi.js';
 import { get } from 'svelte/store';
 import gsap from 'gsap';
-import { fight, setTarget, applyDamage, removeEnemy, type FightState } from '../state/fight';
+import {
+  fight,
+  setTarget,
+  applyDamage,
+  applyDamageToPlayer,
+  removeEnemy,
+  type FightState,
+} from '../state/fight';
 import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
 import type { Enchantment } from '../domain/enchant';
 import { SHARPNESS } from '../domain/enchant-catalogue';
+import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 
 const EMOJI_FONT_STACK = [
@@ -51,6 +59,9 @@ export class Battlefield {
   private profile!: AttackProfile;
   private cooldown = 0;
   private damageNumbers = new Set<Text>();
+  // Per-enemy attack cooldowns (seconds), keyed by Fighter id. Each tick
+  // we decrement and fire an attack-on-player when the cooldown hits 0.
+  private enemyCooldowns = new Map<string, number>();
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -130,10 +141,36 @@ export class Battlefield {
     const state = get(fight);
     if (!state.inFight || state.enemies.length === 0) return;
 
-    this.cooldown -= ticker.deltaMS / 1000;
+    const dt = ticker.deltaMS / 1000;
+
+    // Player auto-attack
+    this.cooldown -= dt;
     if (this.cooldown <= 0) {
       this.fireAttack(state);
       this.cooldown = this.profile.interval;
+    }
+
+    // Per-enemy attacks: each enemy fires on its own catalogue-defined
+    // interval, dealing its catalogue damage to the player.
+    for (const enemy of state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const def = ENEMY_CATALOGUE[enemy.name];
+      if (!def) continue;
+      const current = this.enemyCooldowns.get(enemy.id) ?? def.interval;
+      const next = current - dt;
+      if (next <= 0) {
+        this.fireEnemyAttack(enemy, def.damage);
+        this.enemyCooldowns.set(enemy.id, def.interval);
+      } else {
+        this.enemyCooldowns.set(enemy.id, next);
+      }
+    }
+    // Drop stale entries for enemies that no longer exist.
+    if (this.enemyCooldowns.size > state.enemies.length) {
+      const live = new Set(state.enemies.map((e) => e.id));
+      for (const id of this.enemyCooldowns.keys()) {
+        if (!live.has(id)) this.enemyCooldowns.delete(id);
+      }
     }
   };
 
@@ -152,6 +189,37 @@ export class Battlefield {
     this.playHitReact(view);
     this.spawnSlash(view);
     applyDamage(state.targetId, this.profile.damage);
+  }
+
+  // Symmetric to fireAttack: an enemy lands a hit on the Player. Applies
+  // damage, plays the same flash + recoil + slash + floating number combo
+  // on the Player's view.
+  private fireEnemyAttack(enemy: Fighter, damage: number): void {
+    const state = get(fight);
+    if (state.player.hp <= 0) return;
+    // Re-check the enemy against the LIVE store: the snapshot in onTick may
+    // be stale if the player's attack this same tick killed this enemy.
+    const liveEnemy = state.enemies.find((e) => e.id === enemy.id);
+    if (!liveEnemy || liveEnemy.hp <= 0) return;
+    const playerView = this.views.get(state.player.id);
+    if (!playerView || playerView.container.destroyed) return;
+    const enemyView = this.views.get(enemy.id);
+
+    // Enemy lunges toward the player (symmetric to player lunge).
+    if (enemyView && !enemyView.container.destroyed) {
+      const originalX = enemyView.container.x;
+      const dx = enemyView.container.x > playerView.container.x ? -28 : 28;
+      gsap.killTweensOf(enemyView.container, 'x');
+      const tl = gsap.timeline();
+      tl.to(enemyView.container, { x: originalX + dx, duration: 0.08, ease: 'power2.out' });
+      tl.to(enemyView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
+    }
+
+    this.spawnDamageNumber(playerView, damage);
+    this.playHitFlash(playerView);
+    this.playHitReact(playerView);
+    this.spawnSlash(playerView);
+    applyDamageToPlayer(damage);
   }
 
   // Quick lunge of the Player container toward the target, then snap back.
@@ -281,8 +349,9 @@ export class Battlefield {
     const id = view.fighter.id;
     removeEnemy(id);
 
-    // Stop any in-flight hit-react tweens so the death animation takes
-    // over cleanly.
+    // Stop any in-flight hit-react / enemy-lunge tweens so the death
+    // animation takes over cleanly.
+    gsap.killTweensOf(view.container);
     gsap.killTweensOf(view.emojiText);
     gsap.killTweensOf(view.emojiText.scale);
     view.emojiText.x = 0;
@@ -418,14 +487,13 @@ export class Battlefield {
     this.app.ticker.remove(this.onTick);
     this.unsubscribe?.();
     if (this.resizeListener) this.app.renderer.off('resize', this.resizeListener);
-    for (const view of this.views.values()) {
-      gsap.killTweensOf(view.container);
-      gsap.killTweensOf(view.container.scale);
-    }
-    for (const text of this.damageNumbers) {
-      gsap.killTweensOf(text);
-    }
+    // Nuke every in-flight GSAP tween before destroying the Pixi objects
+    // they reference: hit-flash filters, attack swings, knockbacks,
+    // slashes, damage numbers, death scale/alpha tweens, etc. Anything
+    // less is whack-a-mole.
+    gsap.globalTimeline.clear();
     this.damageNumbers.clear();
+    this.enemyCooldowns.clear();
     this.app.destroy(true, { children: true, texture: true });
     this.views.clear();
   }

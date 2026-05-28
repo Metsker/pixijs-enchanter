@@ -3,7 +3,7 @@ import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/m
 import { endFight, fight, startFightWith } from './fight';
 import { closeShop, openShopForFloor } from './shop';
 
-export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete';
+export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete' | 'run-lost';
 
 export interface RunState {
   map: MapGraph;
@@ -80,10 +80,16 @@ export function startNewRun(): void {
 // flip fightWon so the RoomOverlay shows its Continue button. Module-level
 // subscribe runs for the life of the page.
 let prevEnemyCount = 0;
+let prevPlayerHp = Infinity;
 fight.subscribe((state) => {
   const r = get(run);
   if (r.screen === 'fight' && state.inFight && prevEnemyCount > 0 && state.enemies.length === 0) {
     run.update((s) => ({ ...s, fightWon: true }));
   }
+  // Run-lost: player HP just crossed to 0 mid-fight.
+  if (r.screen === 'fight' && state.inFight && prevPlayerHp > 0 && state.player.hp <= 0) {
+    run.update((s) => ({ ...s, screen: 'run-lost' }));
+  }
   prevEnemyCount = state.enemies.length;
+  prevPlayerHp = state.player.hp;
 });
