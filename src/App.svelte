@@ -30,16 +30,20 @@
       }
     };
 
-    // Global UI click sound: any <button> click bubbles up here and
-    // plays sfx.click. Buttons that have their own sfx (Buy / pick a
-    // weapon / etc.) layer on top, which sounds natural since the
-    // click is short and quiet by design. Use capture so disabled
-    // buttons that stopPropagation can still be heard.
+    // Global UI click sound: matches buttons + the project's other
+    // interactive primitives (map node, backpack cell, inspector
+    // enchant cell, shop / item-offer tile). Sold / taken tiles and
+    // non-clickable inspector cells are excluded so a click on a
+    // dead-end target stays silent. Buttons with their own sfx
+    // (Buy / pick / coin) layer on top - sfx.click is a 40ms tick.
+    const CLICK_SELECTOR =
+      'button, .node.reachable, .item-tile:not(.sold):not(.taken), .cell.clickable, [data-cell-index]';
     const onClick = (e: MouseEvent) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
-      const btn = target.closest('button');
-      if (!btn || btn.disabled) return;
+      const el = target.closest(CLICK_SELECTOR);
+      if (!el) return;
+      if (el.tagName === 'BUTTON' && (el as HTMLButtonElement).disabled) return;
       sfx.click();
     };
     document.addEventListener('click', onClick, true);

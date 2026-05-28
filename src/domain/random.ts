@@ -35,7 +35,7 @@ const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
 // new icons by appending to the relevant pool.
 const ICON_POOLS: Record<string, string[]> = {
   weapon: ['⚔️', '🗡️', '🪓', '🔱', '🔨', '🏹'],
-  shield: ['🛡️', '📖'],
+  shield: ['🛡️'],
   helm: ['🪖', '👑', '🎩', '🎓'],
   chest: ['🦺', '👕', '🧥', '👘'],
   gloves: ['🧤', '🥊'],
