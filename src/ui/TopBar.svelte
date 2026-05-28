@@ -8,16 +8,30 @@
 
   // Gold ticks up smoothly when claimed from the victory chest (and on
   // any other change too). Round on render so the counter shows whole
-  // coins throughout the tween.
+  // coins throughout the tween. When the tween settles on a new value,
+  // briefly flag pop=true so the CSS keyframe gives a satisfying bounce.
   const goldDisplay = tweened(get(topbar).gold, { duration: 800, easing: cubicOut });
+  let goldPop = $state(false);
+  let prevGoldTarget = get(topbar).gold;
+  let popTimer: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
-    goldDisplay.set($topbar.gold);
+    const target = $topbar.gold;
+    if (target === prevGoldTarget) return;
+    prevGoldTarget = target;
+    goldDisplay.set(target).then(() => {
+      if (popTimer) clearTimeout(popTimer);
+      goldPop = true;
+      popTimer = setTimeout(() => {
+        goldPop = false;
+        popTimer = null;
+      }, 320);
+    });
   });
 </script>
 
 <header class="topbar">
   <div class="counters">
-    <div class="counter" title={t('topbar.gold')}>
+    <div class="counter gold" class:pop={goldPop} title={t('topbar.gold')}>
       <span class="emoji">🪙</span>
       <span class="value">{Math.round($goldDisplay)}</span>
     </div>
@@ -100,6 +114,32 @@
     font-weight: 600;
     color: #ddd;
     font-variant-numeric: lining-nums tabular-nums;
+    display: inline-block;
+    transform-origin: center;
+  }
+
+  .counter.gold.pop .value {
+    animation: gold-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .counter.gold.pop .emoji {
+    animation: gold-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes gold-pop {
+    0% {
+      transform: scale(1);
+      color: #ddd;
+      text-shadow: none;
+    }
+    45% {
+      transform: scale(1.35);
+      color: #ffe066;
+      text-shadow: 0 0 14px rgba(255, 204, 68, 0.85);
+    }
+    100% {
+      transform: scale(1);
+      color: #ddd;
+      text-shadow: none;
+    }
   }
 
   .progress {
