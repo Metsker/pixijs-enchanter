@@ -20,8 +20,8 @@
 
 <style>
   .battlefield {
-    width: 100%;
-    height: 100dvh;
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
   }
 </style>
