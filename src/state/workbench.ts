@@ -20,10 +20,13 @@ export const REROLL_ALL_COST = 50;
 export const LOCK_SELECTED_SEAL_COST = 1;
 export const LOCK_SELECTED_CRYSTAL_COST = 10;
 export const DISENCHANT_REFUND_PER_SLOT = 15;
-// Destroy refunds a bit more per slot than slot-by-slot Disenchant, so
-// scrapping a finished item is meaningfully better than tediously popping
-// each enchant individually.
-export const DESTROY_REFUND_PER_SLOT = 20;
+// Destroy refunds more per slot than Disenchant - it's the only action that
+// actually removes the item (frees the inventory / backpack slot and clears
+// sealed slots). Slot-by-slot Disenchant leaves a T0 husk behind.
+export const DESTROY_REFUND_PER_SLOT = 25;
+// A non-empty husk Destroy bonus: destroying a T0 husk still pays this baseline
+// so emptying-then-destroying isn't strictly worse than destroying outright.
+export const DESTROY_BASE_REFUND = 25;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
   const next = subject.source === 'backpack'
@@ -100,8 +103,8 @@ export function doLockSelected(slot: number): void {
 // === Disenchant top =================================================
 export function canDisenchantTop(item: Item): boolean {
   if (item.enchants.length === 7) return false;
-  // T0 (empty husk) - allow Disenchant to remove the item entirely.
-  if (item.enchants.length === 0) return true;
+  // T0 husk has nothing to pop; only Destroy removes the item entirely.
+  if (item.enchants.length === 0) return false;
   for (let i = item.enchants.length; i >= 1; i--) {
     if (!isSealed(item, i)) return true;
   }
@@ -115,11 +118,6 @@ export function disenchantTopRefund(item: Item): number {
 export function doDisenchantTop(): void {
   const subject = get(inspector);
   if (!subject || !canDisenchantTop(subject.item)) return;
-  // T0 husk: just delete the item, no refund.
-  if (subject.item.enchants.length === 0) {
-    applyMutation(subject, () => null);
-    return;
-  }
   let popSlot = -1;
   for (let i = subject.item.enchants.length; i >= 1; i--) {
     if (!isSealed(subject.item, i)) {
@@ -135,14 +133,15 @@ export function doDisenchantTop(): void {
     const sealedSlots = (item.sealedSlots ?? [])
       .filter((s) => s !== popSlot)
       .map((s) => (s > popSlot ? s - 1 : s));
-    if (enchants.length === 0) return null;
+    // Item stays as a T0 husk when fully disenchanted - only Destroy removes
+    // it entirely. Re-Enchant fills it from scratch.
     return { ...item, enchants, sealedSlots };
   });
 }
 
 // === Destroy ========================================================
 export function destroyRefund(item: Item): number {
-  return item.enchants.length * DESTROY_REFUND_PER_SLOT;
+  return DESTROY_BASE_REFUND + item.enchants.length * DESTROY_REFUND_PER_SLOT;
 }
 
 export function doDestroy(): void {
