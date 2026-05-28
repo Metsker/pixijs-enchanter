@@ -12,7 +12,20 @@ import { itemPoolFor, pickRandomEnchant } from '../domain/random';
 import { isSealed, stackLayerAt, type Item } from '../domain/item';
 import type { EnchantLayer } from '../domain/enchant';
 import { refundCrystals, spendCrystals, spendSeals, topbar } from './topbar';
+import { playerEnchants } from './player-profile';
 import type { InspectorSubject } from './inspector';
+
+// Crystal Affinity multiplier on refunds (Disenchant / Destroy).
+// Stacks additively across every equipped crystal-affinity enchant.
+function crystalRefundMul(): number {
+  let mul = 1;
+  for (const enchant of get(playerEnchants)) {
+    for (const eff of enchant.effects) {
+      if (eff.kind === 'crystal-affinity') mul += eff.fraction;
+    }
+  }
+  return mul;
+}
 
 // Placeholder costs - tunable later.
 export const ADD_ROLL_COST = 30;
@@ -119,7 +132,7 @@ export function canDisenchantTop(item: Item): boolean {
 }
 
 export function disenchantTopRefund(item: Item): number {
-  return canDisenchantTop(item) ? DISENCHANT_REFUND_PER_SLOT : 0;
+  return canDisenchantTop(item) ? Math.round(DISENCHANT_REFUND_PER_SLOT * crystalRefundMul()) : 0;
 }
 
 export function doDisenchantTop(): void {
@@ -133,7 +146,7 @@ export function doDisenchantTop(): void {
     }
   }
   if (popSlot === -1) return;
-  refundCrystals(DISENCHANT_REFUND_PER_SLOT);
+  refundCrystals(Math.round(DISENCHANT_REFUND_PER_SLOT * crystalRefundMul()));
   applyMutation(subject, (item) => {
     const enchants = item.enchants.slice();
     enchants.splice(popSlot - 1, 1);
@@ -148,7 +161,10 @@ export function doDisenchantTop(): void {
 
 // === Destroy ========================================================
 export function destroyRefund(item: Item): number {
-  return DESTROY_BASE_REFUND + item.enchants.length * DESTROY_REFUND_PER_SLOT;
+  return Math.round(
+    (DESTROY_BASE_REFUND + item.enchants.length * DESTROY_REFUND_PER_SLOT) *
+      crystalRefundMul(),
+  );
 }
 
 export function doDestroy(): void {

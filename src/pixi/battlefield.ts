@@ -98,6 +98,20 @@ export class Battlefield {
   // global window; strongest buff wins.
   private dodgeBuffUntil = 0;
   private dodgeBuffBonus = 0;
+  // Mirror Image (mirror-charge): one stored decoy that absorbs the
+  // next hit. Charge regenerates after intervalSec while a mirror-
+  // charge enchant is equipped.
+  private mirrorCharge = 0;
+  private mirrorChargeTimer = 0;
+  // Lichcrown (on-kill-aura): after a kill, a random aura status is
+  // armed and inflicted on attackers (at the same 15% rate as armor
+  // auras) while the timer holds.
+  private lichcrownAura: StatusType | null = null;
+  private lichcrownUntil = 0;
+  // Stoic (stoic): a queue of DoT-style payments owed to the player.
+  // Each entry drips perSec damage per frame until remainingSec
+  // expires.
+  private delayedPlayerDamage: { perSec: number; remainingSec: number; accumulator: number }[] = [];
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -228,6 +242,42 @@ export class Battlefield {
       this.spawnFloatNumber(view, `${def.emoji} -${ev.amount}`, def.color, 22);
     }
 
+    // Stoic: drip queued delayed damage onto the player. Each entry
+    // pays out perSec until remainingSec expires.
+    if (this.delayedPlayerDamage.length > 0) {
+      const playerView = this.views.get(state.player.id);
+      for (const entry of this.delayedPlayerDamage) {
+        entry.remainingSec -= dt;
+        entry.accumulator += entry.perSec * dt;
+        if (entry.accumulator >= 1) {
+          const dmg = Math.floor(entry.accumulator);
+          entry.accumulator -= dmg;
+          applyDamageToPlayer(dmg);
+          if (playerView && !playerView.container.destroyed) {
+            this.spawnFloatNumber(playerView, `-${dmg}`, '#ff5252', 22);
+          }
+        }
+      }
+      this.delayedPlayerDamage = this.delayedPlayerDamage.filter((e) => e.remainingSec > 0);
+    }
+
+    // Mirror Image: regenerate a decoy charge after intervalSec while
+    // the enchant is equipped (max 1 charge).
+    for (const enchant of get(playerEnchants)) {
+      for (const eff of enchant.effects) {
+        if (eff.kind !== 'mirror-charge') continue;
+        if (this.mirrorCharge >= eff.maxCharges) {
+          this.mirrorChargeTimer = 0;
+          continue;
+        }
+        this.mirrorChargeTimer += dt;
+        if (this.mirrorChargeTimer >= eff.intervalSec) {
+          this.mirrorCharge = Math.min(eff.maxCharges, this.mirrorCharge + 1);
+          this.mirrorChargeTimer = 0;
+        }
+      }
+    }
+
     // Per-enemy attacks: each enemy fires on its own catalogue-defined
     // interval, dealing its catalogue damage to the player.
     for (const enemy of state.enemies) {
@@ -304,8 +354,21 @@ export class Battlefield {
     isExtraStrike: boolean,
   ): void {
     const enchants = get(playerEnchants);
-    const isCrit = this.attack.critChance > 0 && Math.random() < this.attack.critChance;
-    let dmg = isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage;
+
+    // Vorpal Edge: every attack crits, crit multiplier replaced by
+    // the enchant's reduced value. First matching enchant wins.
+    let critChance = this.attack.critChance;
+    let critMul = this.attack.critMultiplier;
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'all-crit-replace-mul') {
+          critChance = 1;
+          critMul = eff.replacedMul;
+        }
+      }
+    }
+    const isCrit = critChance > 0 && Math.random() < critChance;
+    let dmg = isCrit ? this.attack.damage * critMul : this.attack.damage;
 
     // Conditional / scaling damage modifiers. Multiplicative bonuses
     // stack as (1 + sum) so two Berserker stacks don't compound into
@@ -353,7 +416,24 @@ export class Battlefield {
     // Shocked targets take takeDamageMul more damage from every
     // source. Stacks multiplicatively with crit / bonuses.
     const shockMul = target.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
-    const damage = Math.max(1, Math.round(dmg * shockMul));
+
+    // Avatar of [Element] / Prism: each conversion fraction is the
+    // share of the player's physical damage that bypasses the
+    // enemy's flat physical resist. Enemy resist applies only to the
+    // unconverted physical portion.
+    let convertedFraction = 0;
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'convert-physical-rolled' || eff.kind === 'convert-physical-random') {
+          convertedFraction += eff.fraction;
+        }
+      }
+    }
+    convertedFraction = Math.min(1, convertedFraction);
+    const enemyResist = ENEMY_CATALOGUE[target.name]?.resist ?? 0;
+    const resistMul = 1 - (1 - convertedFraction) * enemyResist;
+
+    const damage = Math.max(1, Math.round(dmg * shockMul * resistMul));
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
@@ -467,6 +547,25 @@ export class Battlefield {
         const now = performance.now() / 1000;
         this.adrenalineUntil = Math.max(this.adrenalineUntil, now + bestDuration);
       }
+
+      // Lichcrown: gain a random aura status for durationSec. While
+      // armed, the aura-on-hit pass in fireEnemyAttack inflicts it
+      // on attackers at the same rate as armor auras.
+      for (const enchant of enchants) {
+        for (const eff of enchant.effects) {
+          if (eff.kind !== 'on-kill-aura') continue;
+          const all: StatusType[] = ['burn', 'freeze', 'shock', 'poison', 'bleed'];
+          const pick = all[Math.floor(Math.random() * all.length)];
+          this.lichcrownAura = pick;
+          const now = performance.now() / 1000;
+          this.lichcrownUntil = Math.max(this.lichcrownUntil, now + eff.durationSec);
+          const sd = STATUS_DEFS[pick];
+          const playerView = this.views.get(state.player.id);
+          if (playerView && !playerView.container.destroyed) {
+            this.spawnFloatNumber(playerView, `${sd.emoji} aura`, sd.color, 26);
+          }
+        }
+      }
     }
   }
 
@@ -500,6 +599,15 @@ export class Battlefield {
     }
 
     const enchants = get(playerEnchants);
+
+    // Mirror Image: a stored decoy absorbs the next hit outright.
+    // Consumed before the dodge/DR/thorns chain so nothing else
+    // triggers - it's a clean skip.
+    if (this.mirrorCharge > 0) {
+      this.mirrorCharge--;
+      this.spawnFloatNumber(playerView, '🪞', '#cbd5ff', 28);
+      return;
+    }
 
     // Player dodge: if the player dodges, no damage, no thorns - just
     // a "Miss" float over the player. The enemy's lunge still plays
@@ -551,6 +659,40 @@ export class Battlefield {
       }
     }
 
+    // Per-element resist: enemies have a typed damageType in the
+    // catalogue; the player's stacked Warding gives a fraction per
+    // type. Final reduction is multiplicative with DR.
+    const dmgType = ENEMY_CATALOGUE[enemy.name]?.damageType;
+    const resistFrac = dmgType ? this.defence.resists[dmgType] ?? 0 : 0;
+    if (resistFrac > 0) {
+      incoming = Math.max(1, Math.round(incoming * (1 - resistFrac)));
+    }
+
+    // Stoic: split a fraction off the incoming hit into a delayed
+    // DoT-style queue that drips over durationSec instead of
+    // applying instantly. Strongest stoic wins (first match here).
+    let stoicShift = 0;
+    let stoicDur = 0;
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'stoic' && eff.fraction > stoicShift) {
+          stoicShift = eff.fraction;
+          stoicDur = eff.durationSec;
+        }
+      }
+    }
+    if (stoicShift > 0 && stoicDur > 0) {
+      const delayed = Math.round(incoming * stoicShift);
+      if (delayed > 0) {
+        incoming -= delayed;
+        this.delayedPlayerDamage.push({
+          perSec: delayed / stoicDur,
+          remainingSec: stoicDur,
+          accumulator: 0,
+        });
+      }
+    }
+
     this.spawnDamageNumber(playerView, incoming);
     this.playHitFlash(playerView);
     this.playHitReact(playerView);
@@ -583,6 +725,15 @@ export class Battlefield {
             const sd = STATUS_DEFS[pick];
             this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
           }
+        }
+      }
+      // Lichcrown active aura: 15% chance per hit (matches armor
+      // aura rate) to inflict the post-kill aura status.
+      if (this.lichcrownAura && performance.now() / 1000 < this.lichcrownUntil) {
+        if (Math.random() < 0.15) {
+          applyStatusToEnemy(enemy.id, this.lichcrownAura);
+          const sd = STATUS_DEFS[this.lichcrownAura];
+          this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
         }
       }
     }
@@ -794,6 +945,11 @@ export class Battlefield {
       this.adrenalineBonus = 0;
       this.dodgeBuffUntil = 0;
       this.dodgeBuffBonus = 0;
+      this.mirrorCharge = 0;
+      this.mirrorChargeTimer = 0;
+      this.lichcrownAura = null;
+      this.lichcrownUntil = 0;
+      this.delayedPlayerDamage.length = 0;
     }
     this.prevInFight = state.inFight;
 

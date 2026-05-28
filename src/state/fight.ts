@@ -4,7 +4,7 @@ import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
 import { randomItem } from '../domain/random';
 import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
-import { playerProfile } from './player-profile';
+import { playerEnchants, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
 
@@ -58,11 +58,35 @@ function makeFighters(defs: EnemyDef[]): Fighter[] {
   }));
 }
 
+// Phoenix Form / revive-on-death is once per fight. Tracked here
+// rather than on Battlefield so it can intercept any HP-modifying
+// path (direct hit, DoT, future damage sources) before subscribers
+// see the player at 0 HP and schedule run-lost.
+let phoenixUsedThisFight = false;
+
+function preventDeathByPhoenix(player: Fighter): Fighter {
+  if (player.hp > 0 || phoenixUsedThisFight) return player;
+  for (const enchant of get(playerEnchants)) {
+    for (const eff of enchant.effects) {
+      if (eff.kind === 'revive-on-death') {
+        phoenixUsedThisFight = true;
+        return {
+          ...player,
+          hp: Math.max(1, Math.round(player.maxHp * eff.hpFraction)),
+          statuses: undefined,
+        };
+      }
+    }
+  }
+  return player;
+}
+
 export function startFightWith(enemies: EnemyDef[]): void {
   const fighters = makeFighters(enemies);
   // Loot from a previous fight that the player never claimed is gone -
   // a fresh fight always starts with an empty chest.
   resetPendingRewards();
+  phoenixUsedThisFight = false;
   // Snapshot the player's defence profile from currently-equipped
   // enchants and rebuild player maxHp / hp from it. Equip changes are
   // blocked during combat, so this snapshot is stable for the fight.
@@ -95,7 +119,10 @@ export function setTarget(id: string): void {
 export function applyDamageToPlayer(amount: number): void {
   fight.update((state) => ({
     ...state,
-    player: { ...state.player, hp: Math.max(0, state.player.hp - amount) },
+    player: preventDeathByPhoenix({
+      ...state.player,
+      hp: Math.max(0, state.player.hp - amount),
+    }),
   }));
 }
 
@@ -211,7 +238,7 @@ export function tickStatuses(dt: number): DoTEvent[] {
   const events: DoTEvent[] = [];
   fight.update((state) => ({
     ...state,
-    player: tickFighterStatuses(state.player, dt, events),
+    player: preventDeathByPhoenix(tickFighterStatuses(state.player, dt, events)),
     enemies: state.enemies.map((e) => tickFighterStatuses(e, dt, events)),
   }));
   return events;
@@ -290,8 +317,23 @@ export function killEnemy(id: string): void {
     const def = ENEMY_CATALOGUE[enemy.name];
     const kind = (def?.kind ?? 'common') as 'common' | 'elite' | 'boss';
     const table = DROP_TABLES[kind];
-    addRewardGold(rollInt(table.goldMin, table.goldMax));
-    if (Math.random() < table.itemChance) {
+
+    // Treasure Hunter / gold-find: stacks additively across every
+    // equipped enchant. goldFraction scales rolled gold, itemDropFraction
+    // bumps the per-kill item chance.
+    let goldMul = 1;
+    let itemBonus = 0;
+    for (const enchant of get(playerEnchants)) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'gold-find') {
+          goldMul += eff.goldFraction;
+          itemBonus += eff.itemDropFraction;
+        }
+      }
+    }
+
+    addRewardGold(Math.round(rollInt(table.goldMin, table.goldMax) * goldMul));
+    if (Math.random() < table.itemChance + itemBonus) {
       const tier = rollInt(table.tierMin, table.tierMax);
       addRewardItem(randomItem(tier, 'loot'));
     }
