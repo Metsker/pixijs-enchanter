@@ -1,3 +1,10 @@
+/* Cormorant Garamond - elegant fantasy serif (SIL OFL, bundled via
+   @fontsource so we don't hit Google Fonts at runtime). */
+@import '@fontsource/cormorant-garamond/400.css';
+@import '@fontsource/cormorant-garamond/500.css';
+@import '@fontsource/cormorant-garamond/600.css';
+@import '@fontsource/cormorant-garamond/700.css';
+
 @font-face {
   font-family: 'Noto Color Emoji';
   font-style: normal;
@@ -80,7 +87,10 @@
 }
 
 :root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+  /* Cormorant runs a touch light at small sizes - bump to 500 default
+     and lean on 600/700 for emphasis instead of bold. */
+  font-weight: 500;
   color-scheme: dark;
   /* No text-input UI in the game; suppress the text caret everywhere so
      it can't appear next to glyphs or focused emoji elements. */

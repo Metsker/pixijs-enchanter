@@ -19,6 +19,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "@fontsource/cormorant-garamond": "^5.2.11",
     "gsap": "^3.15.0",
     "pixi.js": "^8.6.0"
   }
