@@ -10,7 +10,7 @@
   const ROOM_EMOJI: Record<RoomKind, string> = {
     common: '⚔️',
     elite: '💀',
-    shop: '🛒',
+    shop: '🪙',
     rest: '🔥',
     boss: '👑',
   };

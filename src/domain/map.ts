@@ -174,6 +174,7 @@ export function generateMap(seed: number = Date.now()): MapGraph {
         const forbidden = new Set<RoomKind>();
         if (parentKinds.has('rest')) forbidden.add('rest');
         if (parentKinds.has('shop')) forbidden.add('shop');
+        if (parentKinds.has('elite')) forbidden.add('elite');
         // Floor N-2 forbids rest to keep the forced N-1 rest from being a
         // back-to-back repeat.
         if (floor === FLOORS - 2) forbidden.add('rest');
@@ -184,6 +185,67 @@ export function generateMap(seed: number = Date.now()): MapGraph {
       }
     }
   }
+
+  // Pass 4: minimum guarantees. Convert middle-floor nodes to shop / rest
+  // until we have at least 2 of each total (the forced N-1 rest counts).
+  // Two-tier search: prefer candidates that don't create a back-to-back
+  // repeat; if none fit, fall back to ANY eligible middle node to honour
+  // the min-count guarantee. Rest conversions skip floor N-2 either way
+  // since that would always be back-to-back with the forced N-1 rest.
+  const byId = new Map(nodes.map((n) => [n.id, n] as const));
+  function ensureMinimum(target: RoomKind, min: number): void {
+    let current = nodes.filter((n) => n.kind === target).length;
+    if (current >= min) return;
+
+    const middleFloors = nodes.filter(
+      (n) =>
+        n.floor >= 2 &&
+        n.floor <= FLOORS - 2 &&
+        n.kind !== target &&
+        !(target === 'rest' && n.floor === FLOORS - 2),
+    );
+    const shuffled = middleFloors.slice().sort(() => rng() - 0.5);
+
+    function isCleanFor(node: MapNode): boolean {
+      const myParents = nodes.filter((p) => p.children.includes(node.id));
+      if (myParents.some((p) => p.kind === target)) return false;
+      const myChildren = node.children
+        .map((id) => byId.get(id))
+        .filter((c): c is MapNode => !!c);
+      return !myChildren.some((c) => c.kind === target);
+    }
+
+    function convert(node: MapNode): void {
+      node.kind = target;
+      if (target === 'common' || target === 'elite' || target === 'boss') {
+        node.enemies = rollEnemies(target, rng);
+      } else {
+        delete node.enemies;
+      }
+      current += 1;
+    }
+
+    // First pass: convert clean COMMON nodes only. Protects existing shops /
+    // rests / elites - we don't want shop-min to cannibalise a rest.
+    for (const node of shuffled) {
+      if (current >= min) return;
+      if (node.kind === 'common' && isCleanFor(node)) convert(node);
+    }
+    // Second pass: any clean non-target (may eat into rest/shop/elite).
+    for (const node of shuffled) {
+      if (current >= min) return;
+      if (isCleanFor(node)) convert(node);
+    }
+    // Third pass: accept back-to-back if needed to hit the minimum.
+    for (const node of shuffled) {
+      if (current >= min) return;
+      if (node.kind !== target) convert(node);
+    }
+  }
+
+  ensureMinimum('rest', 2);
+  ensureMinimum('shop', 2);
+  ensureMinimum('elite', 2);
 
   return { floors: FLOORS, nodes };
 }
