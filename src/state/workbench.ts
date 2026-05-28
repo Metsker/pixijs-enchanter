@@ -32,6 +32,10 @@ export const ADD_ROLL_COST = 30;
 export const REROLL_ALL_COST = 50;
 export const LOCK_SELECTED_SEAL_COST = 1;
 export const LOCK_SELECTED_CRYSTAL_COST = 10;
+export const REROLL_LAYER_SEAL_COST = 1;
+export const REROLL_LAYER_CRYSTAL_COST = 30;
+export const REMOVE_SELECTED_SEAL_COST = 1;
+export const REMOVE_SELECTED_CRYSTAL_COST = 15;
 export const DISENCHANT_REFUND_PER_SLOT = 15;
 // Destroy refunds more per slot than Disenchant - it's the only action that
 // actually removes the item (frees the inventory / backpack slot and clears
@@ -94,6 +98,75 @@ export function doRerollAll(): void {
       return pickRandomEnchant(pool, stackLayerAt(slot) as EnchantLayer);
     });
     return { ...item, enchants };
+  });
+}
+
+// === Reroll Mains / Reroll Utilities ================================
+// Per-layer variant of Reroll All: rerolls just the unsealed slots
+// whose stack-layer matches the requested layer. Slot 1 / 3 / 5 are
+// main; 2 / 4 / 6 are utility.
+export function canRerollLayer(item: Item, layer: EnchantLayer): boolean {
+  for (let slot = 1; slot <= item.enchants.length; slot++) {
+    if (isSealed(item, slot)) continue;
+    if ((stackLayerAt(slot) as EnchantLayer) === layer) return true;
+  }
+  return false;
+}
+
+function doRerollLayer(layer: EnchantLayer): void {
+  const subject = get(inspector);
+  if (!subject || !canRerollLayer(subject.item, layer)) return;
+  const tb = get(topbar);
+  if (tb.seals < REROLL_LAYER_SEAL_COST || tb.crystals < REROLL_LAYER_CRYSTAL_COST) return;
+  spendSeals(REROLL_LAYER_SEAL_COST);
+  spendCrystals(REROLL_LAYER_CRYSTAL_COST);
+  applyMutation(subject, (item) => {
+    const pool = itemPoolFor(item.itemType);
+    const enchants = item.enchants.map((current, i) => {
+      const slot = i + 1;
+      if (isSealed(item, slot)) return current;
+      const slotLayer = stackLayerAt(slot) as EnchantLayer;
+      if (slotLayer !== layer) return current;
+      return pickRandomEnchant(pool, slotLayer);
+    });
+    return { ...item, enchants };
+  });
+}
+
+export function doRerollMains(): void {
+  doRerollLayer('main');
+}
+
+export function doRerollUtilities(): void {
+  doRerollLayer('utility');
+}
+
+// === Remove selected ================================================
+// Pops the specifically-selected slot (rather than the top one
+// Disenchant grabs). Sealed slots are protected. The item demotes
+// in tier; later slots shift up by one. No refund - the cost of
+// the seal + crystals is the player's payment for the precision.
+export function canRemoveSelected(item: Item, slot: number | null): boolean {
+  if (slot === null) return false;
+  if (slot < 1 || slot > item.enchants.length) return false;
+  if (isSealed(item, slot)) return false;
+  return true;
+}
+
+export function doRemoveSelected(slot: number): void {
+  const subject = get(inspector);
+  if (!subject || !canRemoveSelected(subject.item, slot)) return;
+  const tb = get(topbar);
+  if (tb.seals < REMOVE_SELECTED_SEAL_COST || tb.crystals < REMOVE_SELECTED_CRYSTAL_COST) return;
+  spendSeals(REMOVE_SELECTED_SEAL_COST);
+  spendCrystals(REMOVE_SELECTED_CRYSTAL_COST);
+  applyMutation(subject, (item) => {
+    const enchants = item.enchants.slice();
+    enchants.splice(slot - 1, 1);
+    const sealedSlots = (item.sealedSlots ?? [])
+      .filter((s) => s !== slot)
+      .map((s) => (s > slot ? s - 1 : s));
+    return { ...item, enchants, sealedSlots };
   });
 }
 

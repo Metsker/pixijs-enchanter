@@ -73,7 +73,7 @@
       <span class="value">{$topbar.emptyScrolls}</span>
     </div>
     <div class="counter" title={t('topbar.seals')}>
-      <span class="emoji">🔒</span>
+      <span class="emoji">⚜️</span>
       <span class="value">{$topbar.seals}</span>
     </div>
   </div>

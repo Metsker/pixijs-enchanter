@@ -95,7 +95,7 @@
           onclick={buySeal}
         >
           <div class="row">
-            <span class="emoji">🔒</span>
+            <span class="emoji">⚜️</span>
             <span class="name">{t('topbar.seals')}</span>
             <span class="stock">×{stock.seals.remaining}</span>
           </div>

@@ -25,17 +25,26 @@
     canAddRoll,
     canDisenchantTop,
     canLockSelected,
+    canRemoveSelected,
     canRerollAll,
+    canRerollLayer,
     destroyRefund,
     disenchantTopRefund,
     doAddRoll,
     doDestroy,
     doDisenchantTop,
     doLockSelected,
+    doRemoveSelected,
     doRerollAll,
+    doRerollMains,
+    doRerollUtilities,
     LOCK_SELECTED_CRYSTAL_COST,
     LOCK_SELECTED_SEAL_COST,
+    REMOVE_SELECTED_CRYSTAL_COST,
+    REMOVE_SELECTED_SEAL_COST,
     REROLL_ALL_COST,
+    REROLL_LAYER_CRYSTAL_COST,
+    REROLL_LAYER_SEAL_COST,
   } from '../state/workbench';
   import {
     isSealed,
@@ -383,7 +392,7 @@
                 {layerLabel(layer)}
               </span>
               {#if sealed}
-                <span class="seal-badge" aria-label="Sealed">🔒</span>
+                <span class="seal-badge" aria-label="Sealed">⚜️</span>
               {/if}
             </div>
           {/each}
@@ -393,7 +402,7 @@
 
     {#snippet costLine(crystals: number, seals: number, refund: number)}
       <span class="cost">
-        {#if seals > 0}<span class="cost-pill">{seals} 🔒</span>{/if}
+        {#if seals > 0}<span class="cost-pill">{seals} ⚜️</span>{/if}
         {#if crystals > 0}<span class="cost-pill">-{crystals} 💎</span>{/if}
         {#if refund > 0}<span class="cost-pill refund">+{refund} 💎</span>{/if}
       </span>
@@ -427,11 +436,25 @@
           {@render costLine(REROLL_ALL_COST, 0, 0)}
         </button>
 
-        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+        <button
+          type="button"
+          class="action"
+          disabled={!canRerollLayer(item, 'main') ||
+            !ownsResources(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST)}
+          onclick={doRerollMains}
+        >
           <span class="action-label">{t('workbench.action.rerollMains')}</span>
+          {@render costLine(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST, 0)}
         </button>
-        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+        <button
+          type="button"
+          class="action"
+          disabled={!canRerollLayer(item, 'utility') ||
+            !ownsResources(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST)}
+          onclick={doRerollUtilities}
+        >
           <span class="action-label">{t('workbench.action.rerollUtilities')}</span>
+          {@render costLine(REROLL_LAYER_CRYSTAL_COST, REROLL_LAYER_SEAL_COST, 0)}
         </button>
 
         <div class="actions-group-label">{t('workbench.group.disenchant')}</div>
@@ -448,8 +471,16 @@
           {@render costLine(0, 0, disenchantTopRefund(item))}
         </button>
 
-        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+        <button
+          type="button"
+          class="action"
+          disabled={!canRemoveSelected(item, selSlot) ||
+            !ownsResources(REMOVE_SELECTED_CRYSTAL_COST, REMOVE_SELECTED_SEAL_COST)}
+          title={selSlot === null ? t('workbench.needSelection') : ''}
+          onclick={() => selSlot !== null && doRemoveSelected(selSlot)}
+        >
           <span class="action-label">{t('workbench.action.removeSelected')}</span>
+          {@render costLine(REMOVE_SELECTED_CRYSTAL_COST, REMOVE_SELECTED_SEAL_COST, 0)}
         </button>
 
         <button type="button" class="action destroy" onclick={doDestroy}>
