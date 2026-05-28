@@ -6,7 +6,10 @@ import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetTopbar } from './topbar';
-import { closeInspector } from './inspector';
+import { closeInspector, inspectItem } from './inspector';
+import { equipped } from './inventory';
+import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
+import type { Item } from '../domain/item';
 import { closeItemOffer, openItemOffer } from './item-offer';
 
 export type Screen =
@@ -47,6 +50,23 @@ function screenFor(kind: RoomKind): Screen {
   return 'rest';
 }
 
+// Walks the equipped slots and inspects the item with the most
+// enchants (ties broken by canonical slot order). Used to auto-pop
+// the Inspector on the player's "best" gear at room entry so the
+// fight / rest / shop opens with their key item already in focus.
+function inspectHighestTierEquipped(): void {
+  const eq = get(equipped);
+  let best: { slotId: EquipmentSlotId; item: Item } | null = null;
+  for (const slotId of EQUIPMENT_SLOT_ORDER) {
+    const item = eq[slotId];
+    if (!item) continue;
+    if (!best || item.enchants.length > best.item.enchants.length) {
+      best = { slotId, item };
+    }
+  }
+  if (best) inspectItem({ source: 'inventory', slotId: best.slotId, item: best.item });
+}
+
 export function enterRoom(roomId: string): void {
   const state = get(run);
   const node = nodeById(state.map, roomId);
@@ -68,6 +88,13 @@ export function enterRoom(roomId: string): void {
   }
   if (screen === 'item-select' && node.offerItems) {
     openItemOffer(node.offerItems);
+  }
+
+  // Auto-inspect the player's best equipped item on room entry
+  // (skip item-select rooms - the offer choices need to stay
+  // centre-stage).
+  if (screen !== 'item-select') {
+    inspectHighestTierEquipped();
   }
 }
 
