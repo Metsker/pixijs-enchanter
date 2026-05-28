@@ -94,11 +94,24 @@
   /* Bigger root size than the browser default 16px - the serif body font
      reads small unless you give it room, and every rem-sized label,
      button, and badge scales with this. */
-  font-size: 18px;
+  font-size: 20px;
   color-scheme: dark;
   /* No text-input UI in the game; suppress the text caret everywhere so
      it can't appear next to glyphs or focused emoji elements. */
   caret-color: transparent;
+}
+
+/* Browsers default form elements (button, input, select, textarea) to the
+   system font instead of inheriting - which leaves buttons like "Sort"
+   rendering in the default sans even though the rest of the UI uses
+   Cormorant. Force inherit so the fantasy serif applies everywhere. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 body {
