@@ -54,25 +54,38 @@ function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set(
   return weights[weights.length - 1].kind;
 }
 
-function rollEnemies(kind: RoomKind, rng: () => number): EnemyDef[] {
+// Encounter sizing follows the half-act split: first half of the
+// act is always a single enemy per fight (one common, or a solo
+// elite); second half ramps to 2-3 enemies. The boss is always
+// just the Lich regardless of half.
+function rollEnemies(kind: RoomKind, rng: () => number, floor: number): EnemyDef[] {
+  const firstHalf = floor <= Math.floor(FLOORS / 2);
   if (kind === 'common') {
-    const count = 1 + Math.floor(rng() * 3); // 1..3
+    const count = firstHalf ? 1 : 2 + Math.floor(rng() * 2); // 1 or 2-3
     return Array.from({ length: count }, () => COMMONS[Math.floor(rng() * COMMONS.length)]);
   }
   if (kind === 'elite') {
     const elite = ELITES[Math.floor(rng() * ELITES.length)];
-    // Minotaur ALWAYS rolls 1-2 common escort per docs/enemies.md.
+    if (firstHalf) {
+      // Solo elite in the first half - overrides Minotaur's
+      // always-1-2-escort rule so the cap holds.
+      return [elite];
+    }
     if (elite.id === MINOTAUR.id) {
+      // Second-half Minotaur keeps its 1-2 escort signature.
       const escortCount = 1 + Math.floor(rng() * 2);
       const escort: EnemyDef[] = Array.from({ length: escortCount }, () =>
         [SKELETON, GOBLIN, SLIME][Math.floor(rng() * 3)],
       );
       return [elite, ...escort];
     }
-    // Harpy / Ogre roll 0-1 common escort.
-    return rng() < 0.5
-      ? [elite]
-      : [elite, COMMONS[Math.floor(rng() * COMMONS.length)]];
+    // Second-half Harpy / Ogre always roll 1-2 escort so the floor
+    // hits the 2-3 enemy cap.
+    const escortCount = 1 + Math.floor(rng() * 2);
+    const escort: EnemyDef[] = Array.from({ length: escortCount }, () =>
+      COMMONS[Math.floor(rng() * COMMONS.length)],
+    );
+    return [elite, ...escort];
   }
   if (kind === 'boss') {
     return [LICH];
@@ -196,7 +209,7 @@ export function generateMap(seed: number = Date.now()): MapGraph {
         node.kind = pickKind(rng, forbidden);
       }
       if (node.kind === 'common' || node.kind === 'elite' || node.kind === 'boss') {
-        node.enemies = rollEnemies(node.kind, rng);
+        node.enemies = rollEnemies(node.kind, rng, node.floor);
       }
     }
   }
@@ -233,7 +246,7 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     function convert(node: MapNode): void {
       node.kind = target;
       if (target === 'common' || target === 'elite' || target === 'boss') {
-        node.enemies = rollEnemies(target, rng);
+        node.enemies = rollEnemies(target, rng, node.floor);
       } else {
         delete node.enemies;
       }
