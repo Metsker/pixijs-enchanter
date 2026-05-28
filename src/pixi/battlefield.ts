@@ -82,6 +82,12 @@ export class Battlefield {
   // Tracks the previous sync's inFight flag so we can detect the
   // false → true transition and re-snapshot the player profile.
   private prevInFight = false;
+  // Adrenaline / speed-burst-on-kill: any enchant declaring the kind
+  // sets this to (now + durationSec) on a kill. While now < value
+  // the player's attack interval is scaled by (1 - bonusFraction).
+  // Single global window - the strongest burst overrides.
+  private adrenalineUntil = 0;
+  private adrenalineBonus = 0;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -168,11 +174,14 @@ export class Battlefield {
     const dt = ticker.deltaMS / 1000;
 
     // Player auto-attack. A frozen player swings slower per
-     // STATUS_DEFS.freeze.attackIntervalMul.
+    // STATUS_DEFS.freeze.attackIntervalMul; Adrenaline speeds them up
+    // for a few seconds after a kill.
     this.cooldown -= dt;
     if (this.cooldown <= 0) {
       this.fireAttack(state);
-      this.cooldown = this.attack.interval * this.freezeMulFor(state.player);
+      const adrenalineMul =
+        performance.now() / 1000 < this.adrenalineUntil ? 1 - this.adrenalineBonus : 1;
+      this.cooldown = this.attack.interval * this.freezeMulFor(state.player) * adrenalineMul;
     }
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
@@ -243,14 +252,81 @@ export class Battlefield {
       return;
     }
 
-    // Crit roll: multiplies damage by critMultiplier. Crits get a
-    // bigger / yellower damage number to telegraph the impact.
+    this.landDamage(state, target, view, /* isExtraStrike */ false);
+
+    // Multistrike: each enchant rolls independently; on a proc the
+    // attack fires a second time at the same target. Cheap recursion -
+    // the second land skips the swing animation and the dodge / mults
+    // roll fresh so the visual reads as a flurry.
+    for (const enchant of get(playerEnchants)) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'multistrike-chance' && Math.random() < eff.chance) {
+          const live = get(fight).enemies.find((e) => e.id === target.id);
+          if (live && live.hp > 0) {
+            this.landDamage(state, live, view, true);
+          }
+        }
+      }
+    }
+  }
+
+  // Applies a single landed hit: rolls crit, runs the equipped
+  // damage modifiers (Smite / Bane / Berserker / Resonant Hum / etc.),
+  // applies shock + thorns + lifesteal + on-hit statuses, and triggers
+  // post-kill speed bursts. Extracted so Multistrike can fire it twice
+  // without copy-pasting all the modifier code.
+  private landDamage(
+    state: FightState,
+    target: Fighter,
+    view: FighterView,
+    isExtraStrike: boolean,
+  ): void {
+    const enchants = get(playerEnchants);
     const isCrit = this.attack.critChance > 0 && Math.random() < this.attack.critChance;
-    const base = isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage;
+    let dmg = isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage;
+
+    // Conditional / scaling damage modifiers. Multiplicative bonuses
+    // stack as (1 + sum) so two Berserker stacks don't compound into
+    // an explosion; flat adders (Resonant Hum, Doryani) sum into the
+    // base before mult.
+    let flatBonus = 0;
+    let bonusFraction = 0;
+    const targetFrac = target.maxHp > 0 ? target.hp / target.maxHp : 0;
+    const playerFrac =
+      state.player.maxHp > 0 ? state.player.hp / state.player.maxHp : 1;
+
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        switch (eff.kind) {
+          case 'damage-vs-high-hp':
+            if (targetFrac >= eff.threshold) bonusFraction += eff.bonusFraction;
+            break;
+          case 'damage-vs-low-hp':
+            if (targetFrac <= eff.threshold) bonusFraction += eff.bonusFraction;
+            break;
+          case 'damage-mul-low-hp': {
+            // Berserker: +perPercentMissing per 10% HP missing, capped.
+            const missing = Math.max(0, 1 - playerFrac);
+            const stacks = Math.floor(missing * 10);
+            bonusFraction += Math.min(eff.cap, stacks * eff.perPercentMissing);
+            break;
+          }
+          case 'damage-from-max-hp':
+            flatBonus += state.player.maxHp * eff.fractionOfMaxHp;
+            break;
+          case 'damage-per-max-hp':
+            // Doryani's Heart: +eff.perHundred per +100 max HP.
+            bonusFraction += (state.player.maxHp / 100) * eff.perHundred;
+            break;
+        }
+      }
+    }
+    dmg = (dmg + flatBonus) * (1 + bonusFraction);
+
     // Shocked targets take takeDamageMul more damage from every
-    // source. Stacks multiplicatively with crit.
+    // source. Stacks multiplicatively with crit / bonuses.
     const shockMul = target.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
-    const damage = Math.round(base * shockMul);
+    const damage = Math.max(1, Math.round(dmg * shockMul));
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
@@ -258,17 +334,29 @@ export class Battlefield {
       this.spawnDamageNumber(view, damage);
     }
     this.playHitFlash(view);
-    this.playHitReact(view);
+    if (!isExtraStrike) this.playHitReact(view);
     this.spawnSlash(view);
-    applyDamage(state.targetId, damage);
+    applyDamage(target.id, damage);
+
+    // Knockback: per-enchant roll, on proc push the target's next
+    // attack out by durationSec.
+    for (const enchant of enchants) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'knockback-on-hit' && Math.random() < eff.chance) {
+          const current = this.enemyCooldowns.get(target.id) ?? 0;
+          this.enemyCooldowns.set(target.id, current + eff.durationSec);
+          this.spawnFloatNumber(view, '👊', '#aaaaaa', 28);
+        }
+      }
+    }
 
     // Weapon status-on-hit (Pyroclasm burn, Frostbite freeze, etc.).
     // Independent rolls per effect; landed statuses get a tiny icon
     // float on the target so the proc reads.
-    for (const enchant of get(playerEnchants)) {
+    for (const enchant of enchants) {
       for (const eff of enchant.effects) {
         if (eff.kind === 'status-on-hit' && Math.random() < eff.chance) {
-          applyStatusToEnemy(state.targetId, eff.status);
+          applyStatusToEnemy(target.id, eff.status);
           const def = STATUS_DEFS[eff.status];
           this.spawnFloatNumber(view, def.emoji, def.color, 28);
         }
@@ -286,6 +374,28 @@ export class Battlefield {
         if (playerView && !playerView.container.destroyed) {
           this.spawnFloatNumber(playerView, `+${heal}`, '#7fe57f', 28);
         }
+      }
+    }
+
+    // Adrenaline / speed-burst-on-kill: if this hit dropped the
+    // target to 0 HP, arm the post-kill speed window. Strongest
+    // burst wins (longest remaining time stays).
+    const after = get(fight).enemies.find((e) => e.id === target.id);
+    if (after && after.hp <= 0) {
+      let bestBonus = 0;
+      let bestDuration = 0;
+      for (const enchant of enchants) {
+        for (const eff of enchant.effects) {
+          if (eff.kind === 'speed-burst-on-kill' && eff.bonusFraction > bestBonus) {
+            bestBonus = eff.bonusFraction;
+            bestDuration = eff.durationSec;
+          }
+        }
+      }
+      if (bestBonus > 0) {
+        this.adrenalineBonus = bestBonus;
+        const now = performance.now() / 1000;
+        this.adrenalineUntil = Math.max(this.adrenalineUntil, now + bestDuration);
       }
     }
   }
@@ -568,6 +678,8 @@ export class Battlefield {
       this.refreshProfile();
       this.cooldown = this.attack.interval;
       this.regenAccum = 0;
+      this.adrenalineUntil = 0;
+      this.adrenalineBonus = 0;
     }
     this.prevInFight = state.inFight;
 
