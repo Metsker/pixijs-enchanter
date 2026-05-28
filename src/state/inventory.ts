@@ -20,47 +20,86 @@ export function resetEquipped(): void {
   equipped.set(makeInitial());
 }
 
-// Equip flow Path A per CONTEXT.md § Equip flow: take the item out of the
-// Backpack and place it in the FIRST EMPTY legal slot in canonical order
-// (weapon, offhand, helm, chest, gloves, boots, ring1, ring2, amulet).
-// Returns the slot it landed in, or null if no legal slot is empty (Path B
-// displacement picker is deferred).
+// Equip from the Backpack. Tries the FIRST EMPTY legal slot in
+// canonical order first; if none is free, swaps in-place with the
+// first legal occupied slot (the displaced item lands in the same
+// backpack index the new one came from - one tile toggle, no
+// backpack-space requirement). Returns the slot it landed in.
 export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null {
   const item = get(backpack)[backpackIndex];
   if (!item) return null;
-  return equipIntoFirstEmpty(item, () => removeItem(backpackIndex));
-}
-
-// Equip an item that doesn't live in the Backpack yet (e.g. straight from
-// the victory chest). Returns the slot id on success, or null if every
-// legal slot is occupied.
-export function equipItemDirect(item: Item): EquipmentSlotId | null {
-  return equipIntoFirstEmpty(item, () => undefined);
-}
-
-function equipIntoFirstEmpty(
-  item: Item,
-  onSuccess: () => void,
-): EquipmentSlotId | null {
   const legal = new Set(legalEquipmentSlots(item));
   const currentEquipped = get(equipped);
+
   for (const slotId of EQUIPMENT_SLOT_ORDER) {
     if (!legal.has(slotId)) continue;
     if (currentEquipped[slotId] !== null) continue;
-    onSuccess();
+    removeItem(backpackIndex);
+    equipped.update((eq) => ({ ...eq, [slotId]: item }));
+    return slotId;
+  }
+
+  // Swap path: displaced item slides into the source backpack slot.
+  for (const slotId of EQUIPMENT_SLOT_ORDER) {
+    if (!legal.has(slotId)) continue;
+    const old = currentEquipped[slotId];
+    if (!old) continue;
+    backpack.update((slots) => {
+      const next = slots.slice();
+      next[backpackIndex] = old;
+      return next;
+    });
     equipped.update((eq) => ({ ...eq, [slotId]: item }));
     return slotId;
   }
   return null;
 }
 
-export function hasEmptyLegalSlot(item: Item): boolean {
+// Equip an item that doesn't live in the Backpack (chest, item-
+// offer, shop's Buy and Equip). Tries an empty legal slot first;
+// otherwise swaps with the first legal occupied slot and stows the
+// displaced item in the first empty Backpack tile. If every legal
+// slot is occupied AND the Backpack is full, returns null.
+export function equipItemDirect(item: Item): EquipmentSlotId | null {
   const legal = new Set(legalEquipmentSlots(item));
   const currentEquipped = get(equipped);
+
   for (const slotId of EQUIPMENT_SLOT_ORDER) {
-    if (legal.has(slotId) && currentEquipped[slotId] === null) return true;
+    if (!legal.has(slotId)) continue;
+    if (currentEquipped[slotId] !== null) continue;
+    equipped.update((eq) => ({ ...eq, [slotId]: item }));
+    return slotId;
   }
-  return false;
+
+  if (!get(backpack).includes(null)) return null;
+  for (const slotId of EQUIPMENT_SLOT_ORDER) {
+    if (!legal.has(slotId)) continue;
+    const old = currentEquipped[slotId];
+    if (!old) continue;
+    addItem(old);
+    equipped.update((eq) => ({ ...eq, [slotId]: item }));
+    return slotId;
+  }
+  return null;
+}
+
+// True when an item from the Backpack can land somewhere - always
+// the case when the item has at least one legal slot, since the
+// swap path uses the source backpack tile as the displaced item's
+// home.
+export function canEquipFromBackpack(item: Item): boolean {
+  return legalEquipmentSlots(item).length > 0;
+}
+
+// True when an off-backpack item (chest / shop / item-offer) can
+// land. Either there's a legal empty slot, or the Backpack has
+// room for a displaced item.
+export function canEquipDirect(item: Item): boolean {
+  const legal = legalEquipmentSlots(item);
+  if (legal.length === 0) return false;
+  const eq = get(equipped);
+  for (const slot of legal) if (eq[slot] === null) return true;
+  return get(backpack).includes(null);
 }
 
 // Apply a mutator to the item in `slotId`. Pass `null` from the mutator to

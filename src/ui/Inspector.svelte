@@ -5,10 +5,10 @@
   import { closeInspector, inspector } from '../state/inspector';
   import { completeRoom } from '../state/run';
   import {
+    canEquipDirect,
     equipFromBackpack,
     equipItemDirect,
     equipped,
-    hasEmptyLegalSlot,
     unequipToBackpack,
   } from '../state/inventory';
   import { backpack } from '../state/backpack';
@@ -173,9 +173,8 @@
     if (!s) return null;
     if (s.source === 'backpack') {
       if ($fight.inFight) return t('inspector.cta.duringCombat');
-      const legal = legalEquipmentSlots(s.item);
-      const hasEmptyLegal = legal.some((slotId) => $equipped[slotId] === null);
-      if (!hasEmptyLegal) return t('inspector.cta.noEmptySlot');
+      // Equip-from-backpack always works via swap-in-place when no
+      // empty legal slot is free; only block during combat.
     }
     if (s.source === 'inventory') {
       if ($fight.inFight) return t('inspector.cta.duringCombat');
@@ -187,10 +186,12 @@
       if (!r.ok) return '';
     }
     if (s.source === 'rewards') {
-      if (!hasEmptyLegalSlot(s.item)) return t('inspector.cta.noEmptySlot');
+      // No legal slot AND backpack full -> nowhere for the
+      // displaced item to land.
+      if (!canEquipDirect(s.item)) return t('inspector.cta.backpackFull');
     }
     if (s.source === 'item-offer') {
-      if (!canPickItem(s.index)) return t('inspector.cta.noEmptySlot');
+      if (!canPickItem(s.index)) return t('inspector.cta.backpackFull');
     }
     return null;
   });

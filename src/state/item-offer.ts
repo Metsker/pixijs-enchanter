@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 import type { Item } from '../domain/item';
-import { equipItemDirect, hasEmptyLegalSlot } from './inventory';
+import { canEquipDirect, equipItemDirect } from './inventory';
 import { closeInspector, inspector } from './inspector';
 import { sfx } from '../audio/sfx';
 
@@ -27,7 +27,7 @@ export function canPickItem(index: number): boolean {
   if (!offer) return false;
   const item = offer.items[index];
   if (!item) return false;
-  return hasEmptyLegalSlot(item);
+  return canEquipDirect(item);
 }
 
 // Equip the item at `index` into the first empty legal slot and blank

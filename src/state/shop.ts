@@ -4,7 +4,7 @@ import { generateShopStock } from '../domain/shop';
 import { backpack, addItem } from './backpack';
 import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
-import { equipItemDirect, hasEmptyLegalSlot } from './inventory';
+import { canEquipDirect, equipItemDirect } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { sfx } from '../audio/sfx';
 
@@ -73,7 +73,7 @@ export function canBuyAndEquipItem(shopIndex: number): { ok: boolean; reasonKey?
   const slot = stock.items[shopIndex];
   if (!slot) return { ok: false };
   if (get(topbar).gold < slot.price) return { ok: false, reasonKey: 'shop.cta.notEnoughGold' };
-  if (!hasEmptyLegalSlot(slot.item)) return { ok: false, reasonKey: 'inspector.cta.noEmptySlot' };
+  if (!canEquipDirect(slot.item)) return { ok: false, reasonKey: 'shop.cta.backpackFull' };
   return { ok: true };
 }
 
