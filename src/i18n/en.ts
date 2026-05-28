@@ -33,6 +33,7 @@ export const en: Record<string, string> = {
   'inspector.cta.backpackFull': 'Backpack is full',
   'inspector.cta.duringCombat': 'Unavailable during combat',
   'inspector.hint.prompt': 'Hover an enchant cell to inspect.',
+  'inspector.hint.clickPrompt': 'Click an enchant cell to inspect.',
   'inspector.hint.emptyCell': 'Empty {layer} slot. Add (Roll) at Rest would fill this for crystals.',
   'inspector.stack.inspected': 'Inspecting',
   'inspector.stack.equipped': 'Equipped',
@@ -78,6 +79,7 @@ export const en: Record<string, string> = {
   'workbench.notYet': 'Available in a later step',
   'workbench.armedLock': 'Pick an unsealed enchant to lock (1 Seal + crystals)',
   'workbench.disarm': 'Cancel',
+  'workbench.needSelection': 'Click an unsealed enchant cell first',
 
   'enemy.skeleton': 'Skeleton',
   'enemy.goblin': 'Goblin',

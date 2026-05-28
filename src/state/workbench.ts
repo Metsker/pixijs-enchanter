@@ -1,172 +1,115 @@
-import { get, writable } from 'svelte/store';
-import { run } from './run';
-import type { InspectorSubject } from './inspector';
-import { inspectItem } from './inspector';
+// Rest-action handlers. Used by the Inspector when the current screen is a
+// Rest room. Per CONTEXT.md the Workbench is "the Rest-time replacement for
+// the Inspector"; this codebase merges the two into one Inspector panel
+// that grows an action column during Rest, so this module no longer owns a
+// separate workbench-open store - it just exposes the actions.
+
+import { get } from 'svelte/store';
+import { inspector } from './inspector';
 import { updateItemAt } from './backpack';
 import { updateEquippedAt } from './inventory';
 import { itemPoolFor, pickRandomEnchant } from '../domain/random';
-import { isSealed, stackLayerAt, STACK_HEIGHT, type Item } from '../domain/item';
+import { isSealed, stackLayerAt, type Item } from '../domain/item';
 import type { EnchantLayer } from '../domain/enchant';
 import { refundCrystals, spendCrystals, spendSeals, topbar } from './topbar';
+import type { InspectorSubject } from './inspector';
 
-// Cost tuning placeholders - the catalogue note says numbers tune during
-// playtesting; locked here for step 10.
-const ADD_ROLL_COST = 30;
-const REROLL_ALL_COST = 50;
-const LOCK_SELECTED_CRYSTAL_COST = 10;
-const DISENCHANT_REFUND_PER_SLOT = 15;
-const DESTROY_REFUND_PER_SLOT = 15;
-
-export type ArmedAction = 'lock' | null;
-
-export const workbench = writable<InspectorSubject | null>(null);
-export const armed = writable<ArmedAction>(null);
-
-export function openWorkbench(subject: InspectorSubject): void {
-  workbench.set(subject);
-  armed.set(null);
-}
-
-export function closeWorkbench(): void {
-  workbench.set(null);
-  armed.set(null);
-}
-
-// Router: items clicked during a Rest room open the Workbench instead of the
-// Inspector (per CONTEXT.md § Inspector: "Inside a Rest room the Inspector
-// is replaced by the Workbench").
-export function clickItem(subject: InspectorSubject): void {
-  const r = get(run);
-  if (r.screen === 'rest') {
-    openWorkbench(subject);
-  } else {
-    inspectItem(subject);
-  }
-}
+// Placeholder costs - tunable later.
+export const ADD_ROLL_COST = 30;
+export const REROLL_ALL_COST = 50;
+export const LOCK_SELECTED_SEAL_COST = 1;
+export const LOCK_SELECTED_CRYSTAL_COST = 10;
+export const DISENCHANT_REFUND_PER_SLOT = 15;
+export const DESTROY_REFUND_PER_SLOT = 15;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
-  let next: Item | null = null;
-  if (subject.source === 'backpack') {
-    next = updateItemAt(subject.index, mutate);
-  } else {
-    next = updateEquippedAt(subject.slotId, mutate);
-  }
-
+  const next = subject.source === 'backpack'
+    ? updateItemAt(subject.index, mutate)
+    : updateEquippedAt(subject.slotId, mutate);
   if (next === null) {
-    // Item was destroyed / depleted to tier 0 - close the workbench.
-    closeWorkbench();
+    inspector.set(null);
   } else {
-    // Refresh the subject's item reference so the UI rerenders.
-    workbench.set({ ...subject, item: next } as InspectorSubject);
+    inspector.set({ ...subject, item: next } as InspectorSubject);
   }
   return next;
 }
 
 // === Add (Roll) =====================================================
-// Promote the item by one Tier, filling the new slot with a random enchant
-// of the alternation-determined layer for that slot. Illegal at tier 6 per
-// CONTEXT.md ("already maxed").
 export function canAddRoll(item: Item): boolean {
   return item.enchants.length < 6;
 }
 
 export function doAddRoll(): void {
-  const subject = get(workbench);
+  const subject = get(inspector);
   if (!subject || !canAddRoll(subject.item)) return;
   if (!spendCrystals(ADD_ROLL_COST)) return;
-
   applyMutation(subject, (item) => {
-    const nextSlot = item.enchants.length + 1; // 1-indexed
+    const nextSlot = item.enchants.length + 1;
     const layer = stackLayerAt(nextSlot) as EnchantLayer;
     const pool = itemPoolFor(item.itemType);
-    const newEnchant = pickRandomEnchant(pool, layer);
-    return { ...item, enchants: [...item.enchants, newEnchant] };
+    return { ...item, enchants: [...item.enchants, pickRandomEnchant(pool, layer)] };
   });
 }
 
 // === Reroll All =====================================================
-// Reroll EVERY enchant on the item; skip sealed slots. Crystals only
-// (no Seal cost - that's Reroll Mains/Utilities).
 export function canRerollAll(item: Item): boolean {
   return item.enchants.length > 0;
 }
 
 export function doRerollAll(): void {
-  const subject = get(workbench);
+  const subject = get(inspector);
   if (!subject || !canRerollAll(subject.item)) return;
   if (!spendCrystals(REROLL_ALL_COST)) return;
-
   applyMutation(subject, (item) => {
     const pool = itemPoolFor(item.itemType);
     const enchants = item.enchants.map((current, i) => {
       const slot = i + 1;
       if (isSealed(item, slot)) return current;
-      const layer = stackLayerAt(slot) as EnchantLayer;
-      return pickRandomEnchant(pool, layer);
+      return pickRandomEnchant(pool, stackLayerAt(slot) as EnchantLayer);
     });
     return { ...item, enchants };
   });
 }
 
-// === Lock selected (multi-step) =====================================
-// Arm the action; player then clicks a non-sealed cell to seal it.
-// Costs 1 Seal + crystals on commit.
-export function canLockAny(item: Item): boolean {
-  return item.enchants.some((_, i) => !isSealed(item, i + 1));
+// === Lock selected (single-step now: pass the slot) =================
+export function canLockSelected(item: Item, slot: number | null): boolean {
+  if (slot === null) return false;
+  if (slot < 1 || slot > item.enchants.length) return false;
+  if (isSealed(item, slot)) return false;
+  return true;
 }
 
-export function armLock(): void {
-  const subject = get(workbench);
-  if (!subject || !canLockAny(subject.item)) return;
-  armed.set('lock');
-}
+export function doLockSelected(slot: number): void {
+  const subject = get(inspector);
+  if (!subject || !canLockSelected(subject.item, slot)) return;
 
-export function disarmAction(): void {
-  armed.set(null);
-}
-
-export function commitLock(slotIndex1Based: number): void {
-  const subject = get(workbench);
-  if (!subject) return;
-  if (slotIndex1Based < 1 || slotIndex1Based > subject.item.enchants.length) return;
-  if (isSealed(subject.item, slotIndex1Based)) return;
-
-  // Check both costs upfront before consuming either, so a partial spend
-  // can't leave the player short.
   const tb = get(topbar);
-  if (tb.seals < 1 || tb.crystals < LOCK_SELECTED_CRYSTAL_COST) {
-    armed.set(null);
-    return;
-  }
-  spendSeals(1);
+  if (tb.seals < LOCK_SELECTED_SEAL_COST || tb.crystals < LOCK_SELECTED_CRYSTAL_COST) return;
+  spendSeals(LOCK_SELECTED_SEAL_COST);
   spendCrystals(LOCK_SELECTED_CRYSTAL_COST);
 
   applyMutation(subject, (item) => {
-    const sealedSlots = [...(item.sealedSlots ?? []), slotIndex1Based].sort((a, b) => a - b);
+    const sealedSlots = [...(item.sealedSlots ?? []), slot].sort((a, b) => a - b);
     return { ...item, sealedSlots };
   });
-  armed.set(null);
 }
 
 // === Disenchant top =================================================
-// Pop the topmost UNSEALED enchant; refund crystals proportional. Tier
-// drops by 1; if it hits 0 the item is deleted entirely.
 export function canDisenchantTop(item: Item): boolean {
-  // Tier 7 not supported here (per spec, only Destroy clears the Unique cell).
-  if (item.enchants.length === 0) return false;
-  if (item.enchants.length === 7) return false;
-  // Need at least one unsealed slot in the 6-stack.
+  if (item.enchants.length === 0 || item.enchants.length === 7) return false;
   for (let i = item.enchants.length; i >= 1; i--) {
     if (!isSealed(item, i)) return true;
   }
   return false;
 }
 
-export function doDisenchantTop(): void {
-  const subject = get(workbench);
-  if (!subject || !canDisenchantTop(subject.item)) return;
+export function disenchantTopRefund(item: Item): number {
+  return canDisenchantTop(item) ? DISENCHANT_REFUND_PER_SLOT : 0;
+}
 
-  // Find topmost unsealed slot index (1-indexed).
+export function doDisenchantTop(): void {
+  const subject = get(inspector);
+  if (!subject || !canDisenchantTop(subject.item)) return;
   let popSlot = -1;
   for (let i = subject.item.enchants.length; i >= 1; i--) {
     if (!isSealed(subject.item, i)) {
@@ -175,28 +118,26 @@ export function doDisenchantTop(): void {
     }
   }
   if (popSlot === -1) return;
-
   refundCrystals(DISENCHANT_REFUND_PER_SLOT);
-
   applyMutation(subject, (item) => {
     const enchants = item.enchants.slice();
     enchants.splice(popSlot - 1, 1);
-    // Sealed indices above the popped slot shift down by 1.
     const sealedSlots = (item.sealedSlots ?? [])
       .filter((s) => s !== popSlot)
       .map((s) => (s > popSlot ? s - 1 : s));
-    if (enchants.length === 0) return null; // Item destroyed.
+    if (enchants.length === 0) return null;
     return { ...item, enchants, sealedSlots };
   });
 }
 
 // === Destroy ========================================================
-// Scrap the entire item including any sealed slots; refund crystals equal
-// to disenchanting every slot.
+export function destroyRefund(item: Item): number {
+  return item.enchants.length * DESTROY_REFUND_PER_SLOT;
+}
+
 export function doDestroy(): void {
-  const subject = get(workbench);
+  const subject = get(inspector);
   if (!subject) return;
-  const slots = subject.item.enchants.length;
-  refundCrystals(slots * DESTROY_REFUND_PER_SLOT);
+  refundCrystals(destroyRefund(subject.item));
   applyMutation(subject, () => null);
 }

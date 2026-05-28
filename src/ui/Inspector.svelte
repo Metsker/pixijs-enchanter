@@ -3,7 +3,27 @@
   import { equipFromBackpack, equipped, unequipToBackpack } from '../state/inventory';
   import { backpack } from '../state/backpack';
   import { fight } from '../state/fight';
+  import { run } from '../state/run';
+  import { topbar } from '../state/topbar';
   import {
+    ADD_ROLL_COST,
+    canAddRoll,
+    canDisenchantTop,
+    canLockSelected,
+    canRerollAll,
+    destroyRefund,
+    disenchantTopRefund,
+    doAddRoll,
+    doDestroy,
+    doDisenchantTop,
+    doLockSelected,
+    doRerollAll,
+    LOCK_SELECTED_CRYSTAL_COST,
+    LOCK_SELECTED_SEAL_COST,
+    REROLL_ALL_COST,
+  } from '../state/workbench';
+  import {
+    isSealed,
     itemEmoji,
     legalEquipmentSlots,
     stackLayerAt,
@@ -15,7 +35,23 @@
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
-  let hovered = $state<{ slot: number; item: Item } | null>(null);
+  let selected = $state<{ slot: number; item: Item } | null>(null);
+  let lastSubjectId = $state<string | null>(null);
+
+  // Reset selection when the subject ITEM changes (different item picked).
+  // Mutations to the same item (Lock, Reroll, Disenchant) preserve the
+  // selection but the selected.item ref is refreshed so the hint reads
+  // post-mutation enchant data.
+  $effect(() => {
+    const sub = $inspector;
+    const id = sub?.item.id ?? null;
+    if (id !== lastSubjectId) {
+      selected = null;
+      lastSubjectId = id;
+    } else if (sub && selected && selected.item.id === sub.item.id) {
+      selected = { slot: selected.slot, item: sub.item };
+    }
+  });
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',
@@ -27,25 +63,21 @@
     7: '#fbbf24',
   };
 
-  // Slot 1 (Main) at top of the visual list, slot 6 (Utility) at bottom.
-  // Reads top-to-bottom as the enchant order the player added them in.
   const stackSlots = Array.from({ length: STACK_HEIGHT }, (_, i) => i + 1);
 
-  function enchantAt(item: Item, slotIndex1Based: number) {
-    return item.enchants[slotIndex1Based - 1] ?? null;
+  const inRest = $derived($run.screen === 'rest');
+
+  function enchantAt(item: Item, slot: number) {
+    return item.enchants[slot - 1] ?? null;
   }
 
-  function isFilled(item: Item, slotIndex1Based: number): boolean {
-    return slotIndex1Based <= tierOf(item);
+  function isFilled(item: Item, slot: number): boolean {
+    return slot <= tierOf(item);
   }
 
-  // Comparison item: for a Backpack-source inspection, find an item currently
-  // equipped in any of the inspected item's legal equipment slots. If found,
-  // its enchant stack renders side-by-side. Inventory-source has no
-  // comparison (it IS the equipped item).
   function comparisonItem(): Item | null {
     const subject = $inspector;
-    if (!subject || subject.source !== 'backpack') return null;
+    if (!subject || subject.source !== 'backpack' || inRest) return null;
     const legal = legalEquipmentSlots(subject.item);
     for (const slotId of legal) {
       const eq = $equipped[slotId];
@@ -54,6 +86,21 @@
     return null;
   }
 
+  function onCellClick(slot: number, item: Item): void {
+    if (selected?.slot === slot && selected.item.id === item.id) {
+      selected = null;
+    } else {
+      selected = { slot, item };
+    }
+  }
+
+  function layerLabel(layer: StackLayer): string {
+    if (layer === 'main') return t('inspector.layer.main');
+    if (layer === 'utility') return t('inspector.layer.utility');
+    return t('inspector.layer.unique');
+  }
+
+  // === Equip / Unequip CTA (non-Rest only) =========================
   const ctaLabel = $derived.by(() => {
     if (!$inspector) return '';
     return $inspector.source === 'backpack' ? t('inspector.equip') : t('inspector.unequip');
@@ -83,19 +130,24 @@
     }
   }
 
-  function layerLabel(layer: StackLayer): string {
-    if (layer === 'main') return t('inspector.layer.main');
-    if (layer === 'utility') return t('inspector.layer.utility');
-    return t('inspector.layer.unique');
+  // === Rest action availability ====================================
+  function ownsResources(crystals: number, seals: number): boolean {
+    return $topbar.crystals >= crystals && $topbar.seals >= seals;
+  }
+
+  function selectedOnInspected(item: Item): number | null {
+    return selected && selected.item.id === item.id ? selected.slot : null;
   }
 </script>
 
 {#if $inspector}
   {@const subject = $inspector}
   {@const compare = comparisonItem()}
+  {@const item = subject.item}
+  {@const selSlot = selectedOnInspected(item)}
   <aside
     class="inspector"
-    class:with-compare={compare !== null}
+    class:wide={compare !== null || inRest}
     aria-label={t('inspector.title')}
     use:clickOutside={{
       onOutside: closeInspector,
@@ -103,11 +155,11 @@
     }}
   >
     <header class="header">
-      <span class="emoji">{itemEmoji(subject.item)}</span>
+      <span class="emoji">{itemEmoji(item)}</span>
       <div class="title">
-        <div class="kind">{t(`item.type.${subject.item.itemType}`)}</div>
-        <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(subject.item)] ?? '#666'}">
-          {t('inspector.tier', { tier: tierOf(subject.item) })}
+        <div class="kind">{t(`item.type.${item.itemType}`)}</div>
+        <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
+          {t('inspector.tier', { tier: tierOf(item) })}
         </div>
       </div>
       <button
@@ -120,25 +172,28 @@
       </button>
     </header>
 
-    {#snippet stackColumn(item: Item, label: string | null)}
+    {#snippet stackColumn(stackItem: Item, label: string | null, clickable: boolean)}
       <div class="stack-col">
         {#if label}<div class="stack-label">{label}</div>{/if}
         <div class="stack">
           {#each stackSlots as slotIndex (slotIndex)}
             {@const layer = stackLayerAt(slotIndex)}
-            {@const filled = isFilled(item, slotIndex)}
-            {@const enchant = enchantAt(item, slotIndex)}
+            {@const filled = isFilled(stackItem, slotIndex)}
+            {@const enchant = enchantAt(stackItem, slotIndex)}
+            {@const sealed = isSealed(stackItem, slotIndex)}
+            {@const isSelected =
+              selected?.slot === slotIndex && selected?.item.id === stackItem.id}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
               class="cell"
               class:filled
-              class:hovered={hovered?.slot === slotIndex && hovered?.item.id === item.id}
-              onmouseenter={() => (hovered = { slot: slotIndex, item })}
-              onmouseleave={() => (hovered = null)}
+              class:sealed
+              class:selected={isSelected}
+              class:clickable
+              onclick={() => clickable && onCellClick(slotIndex, stackItem)}
             >
-              <span class="cell-emoji">
-                {#if filled && enchant}{enchant.emoji}{:else}·{/if}
-              </span>
+              <span class="cell-emoji">{filled && enchant ? enchant.emoji : '·'}</span>
               <span class="cell-name">
                 {#if filled && enchant}
                   {t(enchant.nameKey)}
@@ -153,26 +208,106 @@
               >
                 {layerLabel(layer)}
               </span>
+              {#if sealed}
+                <span class="seal-badge" aria-label="Sealed">🔒</span>
+              {/if}
             </div>
           {/each}
         </div>
       </div>
     {/snippet}
 
-    <div class="stacks">
-      {@render stackColumn(subject.item, compare ? t('inspector.stack.inspected') : null)}
-      {#if compare}
-        {@render stackColumn(compare, t('inspector.stack.equipped'))}
+    {#snippet costLine(crystals: number, seals: number, refund: number)}
+      <span class="cost">
+        {#if seals > 0}<span class="cost-pill">{seals} 🔒</span>{/if}
+        {#if crystals > 0}<span class="cost-pill">-{crystals} 💎</span>{/if}
+        {#if refund > 0}<span class="cost-pill refund">+{refund} 💎</span>{/if}
+      </span>
+    {/snippet}
+
+    {#snippet restActions()}
+      <div class="actions-col">
+        <div class="stack-label">{t('workbench.title')}</div>
+
+        <button
+          type="button"
+          class="action"
+          disabled={!canAddRoll(item) || !ownsResources(ADD_ROLL_COST, 0)}
+          onclick={doAddRoll}
+        >
+          <span class="action-label">{t('workbench.action.add')}</span>
+          {@render costLine(ADD_ROLL_COST, 0, 0)}
+        </button>
+
+        <button
+          type="button"
+          class="action"
+          disabled={!canRerollAll(item) || !ownsResources(REROLL_ALL_COST, 0)}
+          onclick={doRerollAll}
+        >
+          <span class="action-label">{t('workbench.action.rerollAll')}</span>
+          {@render costLine(REROLL_ALL_COST, 0, 0)}
+        </button>
+
+        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+          <span class="action-label">{t('workbench.action.rerollMains')}</span>
+        </button>
+        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+          <span class="action-label">{t('workbench.action.rerollUtilities')}</span>
+        </button>
+        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+          <span class="action-label">{t('workbench.action.transfer')}</span>
+        </button>
+
+        <button
+          type="button"
+          class="action"
+          disabled={!canDisenchantTop(item)}
+          onclick={doDisenchantTop}
+        >
+          <span class="action-label">{t('workbench.action.disenchantTop')}</span>
+          {@render costLine(0, 0, disenchantTopRefund(item))}
+        </button>
+
+        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+          <span class="action-label">{t('workbench.action.removeSelected')}</span>
+        </button>
+
+        <button
+          type="button"
+          class="action"
+          disabled={!canLockSelected(item, selSlot) ||
+            !ownsResources(LOCK_SELECTED_CRYSTAL_COST, LOCK_SELECTED_SEAL_COST)}
+          title={selSlot === null ? t('workbench.needSelection') : ''}
+          onclick={() => selSlot !== null && doLockSelected(selSlot)}
+        >
+          <span class="action-label">{t('workbench.action.lockSelected')}</span>
+          {@render costLine(LOCK_SELECTED_CRYSTAL_COST, LOCK_SELECTED_SEAL_COST, 0)}
+        </button>
+
+        <button type="button" class="action destroy" onclick={doDestroy}>
+          <span class="action-label">{t('workbench.action.destroy')}</span>
+          {@render costLine(0, 0, destroyRefund(item))}
+        </button>
+      </div>
+    {/snippet}
+
+    <div class="body">
+      {@render stackColumn(item, inRest || compare ? t('inspector.stack.inspected') : null, true)}
+      {#if inRest}
+        {@render restActions()}
+      {:else if compare}
+        {@render stackColumn(compare, t('inspector.stack.equipped'), true)}
       {/if}
     </div>
 
     <div class="hint">
-      {#if hovered === null}
-        <div class="hint-prompt">{t('inspector.hint.prompt')}</div>
+      {#if selected === null}
+        <div class="hint-prompt">{t('inspector.hint.clickPrompt')}</div>
       {:else}
-        {@const layer = stackLayerAt(hovered.slot)}
-        {@const enchant = enchantAt(hovered.item, hovered.slot)}
-        {#if isFilled(hovered.item, hovered.slot) && enchant}
+        {@const layer = stackLayerAt(selected.slot)}
+        {@const enchant = enchantAt(selected.item, selected.slot)}
+        {#if isFilled(selected.item, selected.slot) && enchant}
           <div class="hint-header">
             <span class="emoji">{enchant.emoji}</span>
             <div>
@@ -189,17 +324,19 @@
       {/if}
     </div>
 
-    <footer class="footer">
-      <button
-        type="button"
-        class="cta"
-        disabled={ctaDisabledReason !== null}
-        title={ctaDisabledReason ?? ''}
-        onclick={handleCta}
-      >
-        {ctaLabel}
-      </button>
-    </footer>
+    {#if !inRest}
+      <footer class="footer">
+        <button
+          type="button"
+          class="cta"
+          disabled={ctaDisabledReason !== null}
+          title={ctaDisabledReason ?? ''}
+          onclick={handleCta}
+        >
+          {ctaLabel}
+        </button>
+      </footer>
+    {/if}
   </aside>
 {/if}
 
@@ -220,7 +357,7 @@
     user-select: none;
     transition: width 180ms ease;
   }
-  .inspector.with-compare {
+  .inspector.wide {
     width: 560px;
   }
 
@@ -273,7 +410,7 @@
     background: #2a2a34;
   }
 
-  .stacks {
+  .body {
     flex: 1;
     display: flex;
     gap: 12px;
@@ -281,7 +418,8 @@
     overflow-y: auto;
     min-height: 0;
   }
-  .stack-col {
+  .stack-col,
+  .actions-col {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -301,6 +439,7 @@
     gap: 4px;
   }
   .cell {
+    position: relative;
     display: grid;
     grid-template-columns: 28px 1fr auto;
     align-items: center;
@@ -314,9 +453,21 @@
   .cell:not(.filled) {
     opacity: 0.55;
   }
-  .cell.hovered {
-    border-color: #ffcc44;
+  .cell.sealed {
+    border-style: dashed;
+    border-color: #5a5a64;
+  }
+  .cell.clickable {
+    cursor: pointer;
+  }
+  .cell.clickable:hover {
+    border-color: #4a4a58;
     background: #1f1f28;
+  }
+  .cell.selected {
+    border-color: #ffcc44;
+    background: #2a2418;
+    box-shadow: inset 0 0 0 1px #ffcc44;
   }
   .cell-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -347,11 +498,75 @@
     color: #88c8ff;
     border-color: #2a4760;
   }
+  .seal-badge {
+    position: absolute;
+    bottom: -4px;
+    right: -4px;
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 0.95rem;
+    background: #14141a;
+    border-radius: 50%;
+    padding: 0 2px;
+    line-height: 1;
+  }
+
+  .actions-col .action {
+    appearance: none;
+    background: #2a2a34;
+    border: 1px solid #3a3a48;
+    color: #ddd;
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .actions-col .action:hover:not(:disabled) {
+    background: #3a3a48;
+    border-color: #ffcc44;
+  }
+  .actions-col .action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .actions-col .action.destroy {
+    background: #3a1a1a;
+    border-color: #8a3a3a;
+    color: #ff8888;
+  }
+  .actions-col .action.destroy:hover:not(:disabled) {
+    background: #5a2424;
+    border-color: #cc4444;
+  }
+  .action-label {
+    font-size: 0.88rem;
+    font-weight: 500;
+  }
+  .cost {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 0.72rem;
+    color: #aab;
+  }
+  .cost-pill {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid #2a2a34;
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .cost-pill.refund {
+    color: #88dd88;
+    border-color: #2a4a2a;
+  }
 
   .hint {
     border-top: 1px solid #2a2a34;
     padding: 12px 14px;
-    min-height: 110px;
+    min-height: 100px;
     display: flex;
     flex-direction: column;
     gap: 8px;

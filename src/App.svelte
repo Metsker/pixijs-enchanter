@@ -5,7 +5,6 @@
   import Battlefield from './ui/Battlefield.svelte';
   import Backpack from './ui/Backpack.svelte';
   import Inspector from './ui/Inspector.svelte';
-  import Workbench from './ui/Workbench.svelte';
   import Map from './ui/Map.svelte';
   import ShopRoom from './ui/ShopRoom.svelte';
   import RestRoom from './ui/RestRoom.svelte';
@@ -50,7 +49,6 @@
   </main>
   <Backpack />
   <Inspector />
-  <Workbench />
   <RoomOverlay />
 </div>
 
