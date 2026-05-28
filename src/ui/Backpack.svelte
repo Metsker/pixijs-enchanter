@@ -16,10 +16,12 @@
 
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
+  let ghostPos = $state<{ x: number; y: number } | null>(null);
 
   function onPointerDown(e: PointerEvent, index: number): void {
     if ($backpack[index] === null) return;
     dragging = index;
+    ghostPos = { x: e.clientX, y: e.clientY };
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -31,6 +33,7 @@
 
   function onPointerMove(e: PointerEvent): void {
     if (dragging === null) return;
+    ghostPos = { x: e.clientX, y: e.clientY };
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cell = el?.closest<HTMLElement>('[data-cell-index]');
     dragOver = cell ? Number(cell.dataset.cellIndex) : null;
@@ -42,6 +45,7 @@
     }
     dragging = null;
     dragOver = null;
+    ghostPos = null;
   }
 </script>
 
@@ -92,6 +96,23 @@
 
     <footer class="hint">{t('backpack.hint')}</footer>
   </div>
+
+  {#if dragging !== null && ghostPos && $backpack[dragging]}
+    {@const ghostItem = $backpack[dragging]!}
+    <div
+      class="drag-ghost"
+      style="left: {ghostPos.x}px; top: {ghostPos.y}px;"
+      aria-hidden="true"
+    >
+      <span class="emoji">{itemEmoji(ghostItem)}</span>
+      <span
+        class="tier"
+        style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#666'}"
+      >
+        T{tierOf(ghostItem)}
+      </span>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -213,5 +234,22 @@
     padding: 8px 14px 12px;
     font-size: 0.8rem;
     color: #788;
+  }
+
+  .drag-ghost {
+    position: fixed;
+    width: 88px;
+    height: 88px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 200;
+    background: #14141a;
+    border: 1px solid #ffcc44;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+    opacity: 0.95;
   }
 </style>
