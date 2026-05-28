@@ -61,6 +61,10 @@ interface FighterView {
   // recreating them every frame.
   statusRow: Container;
   statusIcons: Map<StatusType, Text>;
+  // Smoothly-eased HP fraction used by drawHpBar. Eases each frame
+  // toward fighter.hp / fighter.maxHp so the bar slides instead of
+  // snapping when damage / heal lands.
+  displayedHpFrac: number;
 }
 
 export class Battlefield {
@@ -113,6 +117,9 @@ export class Battlefield {
   // Each entry drips perSec damage per frame until remainingSec
   // expires.
   private delayedPlayerDamage: { perSec: number; remainingSec: number; accumulator: number }[] = [];
+  // Camera shake: scratch offset applied to stage position. Kicked
+  // by big moments (crit, kill, player hit) and decays each tick.
+  private shakeIntensity = 0;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -197,6 +204,7 @@ export class Battlefield {
       homeY: 0,
       statusRow,
       statusIcons: new Map(),
+      displayedHpFrac: fighter.maxHp > 0 ? fighter.hp / fighter.maxHp : 0,
     };
   }
 
@@ -260,6 +268,32 @@ export class Battlefield {
         }
       }
       this.delayedPlayerDamage = this.delayedPlayerDamage.filter((e) => e.remainingSec > 0);
+    }
+
+    // HP-bar ease + camera shake decay run every frame regardless of
+    // who's attacking - they're pure-visual.
+    const hpLerp = 1 - Math.exp(-dt * 10);
+    for (const view of this.views.values()) {
+      const target = view.fighter.maxHp > 0 ? view.fighter.hp / view.fighter.maxHp : 0;
+      const delta = target - view.displayedHpFrac;
+      if (Math.abs(delta) < 0.0005) {
+        if (view.displayedHpFrac !== target) {
+          view.displayedHpFrac = target;
+          this.drawHpBar(view);
+        }
+      } else {
+        view.displayedHpFrac += delta * hpLerp;
+        this.drawHpBar(view);
+      }
+    }
+    if (this.shakeIntensity > 0) {
+      this.shakeIntensity = Math.max(0, this.shakeIntensity - dt * 60);
+      const mag = this.shakeIntensity;
+      this.app.stage.x = (Math.random() - 0.5) * mag * 2;
+      this.app.stage.y = (Math.random() - 0.5) * mag * 2;
+    } else if (this.app.stage.x !== 0 || this.app.stage.y !== 0) {
+      this.app.stage.x = 0;
+      this.app.stage.y = 0;
     }
 
     // Mirror Image: regenerate a decoy charge after intervalSec while
@@ -453,9 +487,15 @@ export class Battlefield {
     // still layers in to wail for the corpse.
     const afterApply = get(fight).enemies.find((e) => e.id === target.id);
     const killed = !!afterApply && afterApply.hp <= 0;
-    if (killed) sfx.kill();
-    else if (isCrit) sfx.crit();
-    else sfx.hit();
+    if (killed) {
+      sfx.kill();
+      this.shakeKick(11);
+    } else if (isCrit) {
+      sfx.crit();
+      this.shakeKick(6);
+    } else {
+      sfx.hit();
+    }
 
     // Knockback: per-enchant roll, on proc push the target's next
     // attack out by durationSec.
@@ -714,6 +754,7 @@ export class Battlefield {
     this.spawnSlash(playerView);
     applyDamageToPlayer(incoming);
     sfx.hit();
+    this.shakeKick(5);
 
     // Enemy-applied status (e.g. Slime's poison): roll a flat 30%
     // chance per hit, respecting player's Hex Ward / Eternal Vigil.
@@ -927,6 +968,7 @@ export class Battlefield {
       killEnemy(id);
     } else {
       sfx.playerDeath();
+      this.shakeKick(20);
     }
 
     // Stop any in-flight hit-react / enemy-lunge tweens so the death
@@ -971,6 +1013,7 @@ export class Battlefield {
       this.lichcrownAura = null;
       this.lichcrownUntil = 0;
       this.delayedPlayerDamage.length = 0;
+      this.shakeIntensity = 0;
     }
     this.prevInFight = state.inFight;
 
@@ -1059,7 +1102,7 @@ export class Battlefield {
   }
 
   private drawHpBar(view: FighterView): void {
-    const ratio = view.fighter.maxHp > 0 ? view.fighter.hp / view.fighter.maxHp : 0;
+    const ratio = Math.max(0, Math.min(1, view.displayedHpFrac));
     const x = -HP_BAR_WIDTH / 2;
     // Lifted clear of the emoji head + a bit more so the squash/rotation
     // hit-react can't cover the bar.
@@ -1149,6 +1192,13 @@ export class Battlefield {
     const p = get(playerProfile);
     this.attack = p.attack;
     this.defence = p.defence;
+  }
+
+  // Public-ish helper for combat hooks: bumps the shake intensity to
+  // at least `amount`. Stronger kicks override weaker ones already in
+  // flight so two crits in a row don't double-bump linearly.
+  private shakeKick(amount: number): void {
+    if (amount > this.shakeIntensity) this.shakeIntensity = amount;
   }
 
   destroy(): void {
