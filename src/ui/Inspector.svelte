@@ -3,6 +3,7 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
+  import { completeRoom } from '../state/run';
   import {
     equipFromBackpack,
     equipItemDirect,
@@ -238,10 +239,12 @@
         }
       }
     } else if (subject.source === 'item-offer') {
-      // pickItem handles equip + offer-slot blank + closes the
-      // Inspector if it was still pointed at this slot. The shop
-      // pattern's "Taken" tile then renders in the room view.
-      pickItem(subject.index);
+      // pickItem equips + blanks the offer slot + closes the
+      // Inspector. An item-select room is a "pick one and go"
+      // decision, so on a successful equip we auto-complete the
+      // room straight back to the map.
+      const landed = pickItem(subject.index);
+      if (landed !== null) completeRoom();
     } else {
       buyItem(subject.index);
     }
