@@ -104,6 +104,10 @@ export class Battlefield {
         fontFamily: EMOJI_FONT_STACK,
         fontSize: EMOJI_SIZE,
         fill: '#ffffff',
+        // Color-emoji glyphs (Noto COLRv1) often paint above the reported
+        // ascender; without padding Pixi's canvas-to-texture upload clips
+        // a sliver off the top of hair/horns/crowns.
+        padding: 8,
       }),
     });
     emojiText.anchor.set(0.5, 1);
@@ -182,21 +186,21 @@ export class Battlefield {
     });
   }
 
-  // Physical recoil to telegraph the impact: a tiny horizontal squash
-  // + rotation wobble, then an elastic spring back. Runs in parallel
-  // with the red flash for a stronger combined "I just got hit" beat.
+  // Physical recoil to telegraph the impact: squash + rotation wobble,
+  // then an elastic spring back. Targets the emoji Text so the HP bar
+  // (also a child of view.container) stays still.
   private playHitReact(view: FighterView): void {
     if (view.container.destroyed) return;
-    gsap.killTweensOf(view.container, 'rotation');
-    gsap.killTweensOf(view.container.scale);
-    view.container.rotation = 0;
-    view.container.scale.set(1, 1);
+    gsap.killTweensOf(view.emojiText, 'rotation');
+    gsap.killTweensOf(view.emojiText.scale);
+    view.emojiText.rotation = 0;
+    view.emojiText.scale.set(1, 1);
 
     const tl = gsap.timeline();
-    tl.to(view.container, { rotation: 0.14, duration: 0.06, ease: 'power2.out' }, 0);
-    tl.to(view.container.scale, { x: 1.18, y: 0.85, duration: 0.06, ease: 'power2.out' }, 0);
-    tl.to(view.container, { rotation: 0, duration: 0.32, ease: 'elastic.out(1, 0.4)' });
-    tl.to(view.container.scale, { x: 1, y: 1, duration: 0.32, ease: 'elastic.out(1, 0.4)' }, '<');
+    tl.to(view.emojiText, { rotation: 0.14, duration: 0.06, ease: 'power2.out' }, 0);
+    tl.to(view.emojiText.scale, { x: 1.18, y: 0.85, duration: 0.06, ease: 'power2.out' }, 0);
+    tl.to(view.emojiText, { rotation: 0, duration: 0.32, ease: 'elastic.out(1, 0.4)' });
+    tl.to(view.emojiText.scale, { x: 1, y: 1, duration: 0.32, ease: 'elastic.out(1, 0.4)' }, '<');
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
@@ -238,9 +242,10 @@ export class Battlefield {
 
     // Stop any in-flight hit-react / rotation tweens so the death animation
     // takes over cleanly.
-    gsap.killTweensOf(view.container, 'rotation');
-    gsap.killTweensOf(view.container.scale);
-    view.container.rotation = 0;
+    gsap.killTweensOf(view.emojiText, 'rotation');
+    gsap.killTweensOf(view.emojiText.scale);
+    view.emojiText.rotation = 0;
+    view.emojiText.scale.set(1, 1);
 
     gsap.to(view.container.scale, {
       x: 0,
