@@ -18,17 +18,54 @@ export const equipped = writable<EquippedItems>(makeInitial());
 
 export function resetEquipped(): void {
   equipped.set(makeInitial());
+  cancelDisplacementPick();
+}
+
+// === Displacement picker ============================================
+// When an equip would have to displace one of several legal occupied
+// slots (rings, dual weapons), the picker holds the pending item and
+// the candidate slots. InventoryColumn renders the candidate slots
+// as highlighted clickable targets; clicking one resolves the pick.
+export interface DisplacementPick {
+  item: Item;
+  legalSlots: EquipmentSlotId[];
+  // Run after the swap to place the displaced item somewhere
+  // appropriate to the original source (backpack tile, chest, etc.).
+  placeDisplaced: (displaced: Item) => void;
+}
+
+export const displacementPick = writable<DisplacementPick | null>(null);
+
+export function cancelDisplacementPick(): void {
+  displacementPick.set(null);
+}
+
+export function resolveDisplacementPick(
+  slotId: EquipmentSlotId,
+): EquipmentSlotId | null {
+  const pick = get(displacementPick);
+  if (!pick) return null;
+  if (!pick.legalSlots.includes(slotId)) return null;
+  const currentEquipped = get(equipped);
+  const old = currentEquipped[slotId];
+  if (!old) return null;
+  pick.placeDisplaced(old);
+  equipped.update((eq) => ({ ...eq, [slotId]: pick.item }));
+  displacementPick.set(null);
+  return slotId;
 }
 
 // Equip from the Backpack. Tries the FIRST EMPTY legal slot in
-// canonical order first; if none is free, swaps in-place with the
-// first legal occupied slot (the displaced item lands in the same
-// backpack index the new one came from - one tile toggle, no
-// backpack-space requirement). Returns the slot it landed in.
+// canonical order; if none is free and there are multiple legal
+// slots (rings, dual weapons), starts a displacement picker so the
+// player chooses which to swap with. Single-slot items (helm,
+// chest, etc.) skip the picker and swap in-place. The displaced
+// item lands in the same backpack tile the new one came from.
 export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null {
   const item = get(backpack)[backpackIndex];
   if (!item) return null;
-  const legal = new Set(legalEquipmentSlots(item));
+  const legalList = legalEquipmentSlots(item);
+  const legal = new Set(legalList);
   const currentEquipped = get(equipped);
 
   for (const slotId of EQUIPMENT_SLOT_ORDER) {
@@ -39,16 +76,35 @@ export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null
     return slotId;
   }
 
-  // Swap path: displaced item slides into the source backpack slot.
-  for (const slotId of EQUIPMENT_SLOT_ORDER) {
-    if (!legal.has(slotId)) continue;
-    const old = currentEquipped[slotId];
-    if (!old) continue;
+  const occupied = legalList.filter((s) => currentEquipped[s] !== null);
+  const placeIntoBackpackSource = (old: Item): void => {
     backpack.update((slots) => {
       const next = slots.slice();
       next[backpackIndex] = old;
       return next;
     });
+  };
+
+  // Multi-slot all-occupied: defer to the player via the picker so
+  // they choose ring1 vs ring2 / weapon vs offhand explicitly. The
+  // backpack tile keeps the new item until resolve; the placeDisplaced
+  // callback overwrites it with the displaced item in one shot, so a
+  // cancel cleanly leaves the new item in place.
+  if (legalList.length > 1 && occupied.length === legalList.length) {
+    displacementPick.set({
+      item,
+      legalSlots: occupied,
+      placeDisplaced: placeIntoBackpackSource,
+    });
+    return null;
+  }
+
+  // Single legal slot occupied: forced swap, no choice.
+  for (const slotId of EQUIPMENT_SLOT_ORDER) {
+    if (!legal.has(slotId)) continue;
+    const old = currentEquipped[slotId];
+    if (!old) continue;
+    placeIntoBackpackSource(old);
     equipped.update((eq) => ({ ...eq, [slotId]: item }));
     return slotId;
   }

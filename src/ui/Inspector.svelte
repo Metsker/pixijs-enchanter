@@ -6,6 +6,8 @@
   import { completeRoom } from '../state/run';
   import {
     canEquipDirect,
+    cancelDisplacementPick,
+    displacementPick,
     equipFromBackpack,
     equipItemDirect,
     equipped,
@@ -168,9 +170,26 @@
     return t('inspector.buy', { price: s.price });
   });
 
+  // While a displacement pick is open for this item, the CTA is
+  // disabled - the player resolves the equip by clicking an
+  // Inventory slot (or hitting the banner's cancel).
+  const pickActive = $derived(
+    $inspector !== null &&
+      $displacementPick !== null &&
+      $displacementPick.item.id === $inspector.item.id,
+  );
+
+  // Cancel a pending picker when the user closes the Inspector via
+  // clickOutside or the X. Without this the pulsing slots would
+  // linger after the user has clearly moved on.
+  $effect(() => {
+    if (!$inspector && $displacementPick) cancelDisplacementPick();
+  });
+
   const ctaDisabledReason = $derived.by((): string | null => {
     const s = $inspector;
     if (!s) return null;
+    if (pickActive) return t('inspector.pickSlotHint');
     if (s.source === 'backpack') {
       if ($fight.inFight) return t('inspector.cta.duringCombat');
       // Equip-from-backpack always works via swap-in-place when no
@@ -216,6 +235,8 @@
             ?.focus();
         });
       }
+      // Else null may mean displacement picker armed - the user
+      // clicks an Inventory slot to resolve.
     } else if (subject.source === 'inventory') {
       const landedIndex = unequipToBackpack(subject.slotId);
       if (landedIndex !== -1) {
@@ -456,6 +477,20 @@
       </div>
     {/snippet}
 
+    {#if pickActive}
+      <div class="pick-banner">
+        <span class="pick-banner-text">{t('inspector.pickSlot')}</span>
+        <button
+          type="button"
+          class="pick-banner-cancel"
+          aria-label={t('inspector.cancelPick')}
+          onclick={cancelDisplacementPick}
+        >
+          ✕
+        </button>
+      </div>
+    {/if}
+
     <div class="body">
       {@render stackColumn(item, inRest || compare ? t('inspector.stack.inspected') : null, true)}
       {#if inRest}
@@ -604,6 +639,37 @@
   }
   .close:hover {
     background: #2a2a34;
+  }
+
+  .pick-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #182536;
+    border-bottom: 1px solid #2a3a50;
+    color: #88c8ff;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .pick-banner-text {
+    flex: 1;
+  }
+  .pick-banner-cancel {
+    appearance: none;
+    background: transparent;
+    border: 1px solid #2a3a50;
+    color: #88c8ff;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .pick-banner-cancel:hover {
+    background: #2a3a50;
   }
 
   .body {

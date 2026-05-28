@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { equipped } from '../state/inventory';
+  import {
+    displacementPick,
+    equipped,
+    resolveDisplacementPick,
+  } from '../state/inventory';
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
   import { itemEmoji, tierOf } from '../domain/item';
   import { inspector, inspectItem } from '../state/inspector';
@@ -8,6 +12,29 @@
   function isInspecting(slotId: EquipmentSlotId): boolean {
     const s = $inspector;
     return s?.source === 'inventory' && s.slotId === slotId;
+  }
+
+  // Picker mode: when displacementPick is set, certain slots become
+  // highlighted swap-targets. Clicking a target resolves the pick;
+  // any other slot click stays a normal inspect.
+  function isPickTarget(slotId: EquipmentSlotId): boolean {
+    return $displacementPick?.legalSlots.includes(slotId) ?? false;
+  }
+
+  function onSlotClick(slotId: EquipmentSlotId, item: ReturnType<typeof getItem>): void {
+    if ($displacementPick && isPickTarget(slotId)) {
+      const landed = resolveDisplacementPick(slotId);
+      if (landed !== null) {
+        const next = $equipped[landed];
+        if (next) inspector.set({ source: 'inventory', slotId: landed, item: next });
+      }
+      return;
+    }
+    if (item) inspectItem({ source: 'inventory', slotId, item });
+  }
+
+  function getItem(slotId: EquipmentSlotId) {
+    return $equipped[slotId];
   }
 
   const TIER_COLORS: Record<number, string> = {
@@ -25,15 +52,17 @@
   {#each EQUIPMENT_SLOT_ORDER as slotId (slotId)}
     {@const slot = EQUIPMENT_SLOTS[slotId]}
     {@const item = $equipped[slotId]}
+    {@const pickTarget = isPickTarget(slotId)}
     {#if item}
       <button
         type="button"
         class="slot filled"
         class:inspecting={isInspecting(slotId)}
+        class:pick-target={pickTarget}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
         data-slot-id={slotId}
-        onclick={() => inspectItem({ source: 'inventory', slotId, item })}
+        onclick={() => onSlotClick(slotId, item)}
       >
         <span class="emoji">{itemEmoji(item)}</span>
         <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
@@ -99,6 +128,18 @@
   .slot.filled.inspecting {
     border-color: #ffcc44;
     box-shadow: inset 0 0 0 1px #ffcc44;
+  }
+  .slot.pick-target {
+    animation: pick-pulse 900ms ease-in-out infinite;
+    border-color: #88c8ff;
+  }
+  @keyframes pick-pulse {
+    0%, 100% {
+      box-shadow: inset 0 0 0 1px #88c8ff, 0 0 0 0 rgba(136, 200, 255, 0.6);
+    }
+    50% {
+      box-shadow: inset 0 0 0 1px #88c8ff, 0 0 0 6px rgba(136, 200, 255, 0);
+    }
   }
 
   .emoji {
