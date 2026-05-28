@@ -87,7 +87,13 @@
 }
 
 :root {
-  font-family: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+  /* Noto Color Emoji sits between the serif chain and the generic
+     'serif' fallback so any 🪙 / ⚜️ / 🔥 etc. that's not wrapped in
+     a class="emoji" span still renders in colour (Chrome's default
+     sans doesn't ship every Unicode 13+ glyph, so a bare 🪙 in the
+     shop price would otherwise tofu out). */
+  font-family: 'Cormorant Garamond', 'Iowan Old Style', Georgia,
+    'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', serif;
   /* Cormorant runs a touch light at small sizes - bump to 500 default
      and lean on 600/700 for emphasis instead of bold. */
   font-weight: 500;

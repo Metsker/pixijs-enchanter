@@ -226,14 +226,16 @@ export class Battlefield {
     const dt = ticker.deltaMS / 1000;
 
     // Player auto-attack. A frozen player swings slower per
-    // STATUS_DEFS.freeze.attackIntervalMul; Adrenaline speeds them up
-    // for a few seconds after a kill.
-    this.cooldown -= dt;
+    // STATUS_DEFS.freeze.attackIntervalMul applied per-frame, so the
+    // slowdown is felt throughout the freeze window (not just on the
+    // next reset). Adrenaline speeds attacks up for a few seconds
+    // after a kill via a smaller-interval reset.
+    this.cooldown -= dt / this.freezeMulFor(state.player);
     if (this.cooldown <= 0) {
       this.fireAttack(state);
       const adrenalineMul =
         performance.now() / 1000 < this.adrenalineUntil ? 1 - this.adrenalineBonus : 1;
-      this.cooldown = this.attack.interval * this.freezeMulFor(state.player) * adrenalineMul;
+      this.cooldown = this.attack.interval * adrenalineMul;
     }
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
@@ -329,10 +331,12 @@ export class Battlefield {
       const def = ENEMY_CATALOGUE[enemy.name];
       if (!def) continue;
       const current = this.enemyCooldowns.get(enemy.id) ?? def.interval;
-      const next = current - dt;
+      // Frozen enemies drain their cooldown at 1/freezeMul rate so
+      // the slowdown is continuous, not just on the next reset.
+      const next = current - dt / this.freezeMulFor(enemy);
       if (next <= 0) {
         this.fireEnemyAttack(enemy, def);
-        this.enemyCooldowns.set(enemy.id, def.interval * this.freezeMulFor(enemy));
+        this.enemyCooldowns.set(enemy.id, def.interval);
       } else {
         this.enemyCooldowns.set(enemy.id, next);
       }
