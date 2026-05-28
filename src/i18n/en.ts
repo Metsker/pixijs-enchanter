@@ -66,6 +66,9 @@ export const en: Record<string, string> = {
 
   'workbench.title': 'Workbench',
   'workbench.close': 'Close workbench',
+  'workbench.group.enchant': 'Enchant',
+  'workbench.group.disenchant': 'Disenchant',
+  'workbench.group.other': 'Other',
   'workbench.action.add': 'Enchant',
   'workbench.action.rerollAll': 'Reroll All',
   'workbench.action.rerollMains': 'Reroll Mains',

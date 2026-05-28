@@ -42,6 +42,20 @@
   let selectedSlot = $state<number | null>(null);
   let selectedItemId = $state<string | null>(null);
 
+  // Reset selection whenever the inspected item changes (different item picked
+  // in the Inventory or Backpack). lastItemId is a plain let, not $state, so
+  // the effect only re-runs on $inspector changes and the write below can't
+  // form a reactive loop.
+  let lastItemId: string | null = null;
+  $effect(() => {
+    const id = $inspector?.item.id ?? null;
+    if (id !== lastItemId) {
+      lastItemId = id;
+      selectedSlot = null;
+      selectedItemId = null;
+    }
+  });
+
   // Which action button is currently hovered, so we can preview the slot(s)
   // it will affect on the enchant stack (per docs/ux.md § Workbench:
   // "Hovering a button previews its target").
@@ -213,7 +227,7 @@
               class:filled
               class:sealed
               class:selected={isSelected}
-              class:preview={isPreview && !isSelected}
+              class:preview={isPreview}
               class:clickable
               onclick={() => clickable && onCellClick(slotIndex, stackItem)}
             >
@@ -251,7 +265,7 @@
 
     {#snippet restActions()}
       <div class="actions-col">
-        <div class="stack-label">{t('workbench.title')}</div>
+        <div class="actions-group-label">{t('workbench.group.enchant')}</div>
 
         <button
           type="button"
@@ -283,9 +297,8 @@
         <button type="button" class="action" disabled title={t('workbench.notYet')}>
           <span class="action-label">{t('workbench.action.rerollUtilities')}</span>
         </button>
-        <button type="button" class="action" disabled title={t('workbench.notYet')}>
-          <span class="action-label">{t('workbench.action.transfer')}</span>
-        </button>
+
+        <div class="actions-group-label">{t('workbench.group.disenchant')}</div>
 
         <button
           type="button"
@@ -301,6 +314,12 @@
 
         <button type="button" class="action" disabled title={t('workbench.notYet')}>
           <span class="action-label">{t('workbench.action.removeSelected')}</span>
+        </button>
+
+        <div class="actions-group-label">{t('workbench.group.other')}</div>
+
+        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+          <span class="action-label">{t('workbench.action.transfer')}</span>
         </button>
 
         <button
@@ -551,6 +570,19 @@
     border-radius: 50%;
     padding: 0 2px;
     line-height: 1;
+  }
+
+  .actions-group-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6a7080;
+    padding: 8px 2px 2px;
+    border-top: 1px solid #2a2a34;
+  }
+  .actions-group-label:first-child {
+    padding-top: 0;
+    border-top: none;
   }
 
   .actions-col .action {
