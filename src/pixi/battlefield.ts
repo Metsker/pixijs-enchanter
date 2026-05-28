@@ -145,6 +145,7 @@ export class Battlefield {
     this.playAttackSwing(view);
     this.spawnDamageNumber(view, this.profile.damage);
     this.playHitFlash(view);
+    this.playHitReact(view);
     applyDamage(state.targetId, this.profile.damage);
   }
 
@@ -179,6 +180,23 @@ export class Battlefield {
         if (!view.container.destroyed) view.emojiText.filters = [];
       },
     });
+  }
+
+  // Physical recoil to telegraph the impact: a tiny horizontal squash
+  // + rotation wobble, then an elastic spring back. Runs in parallel
+  // with the red flash for a stronger combined "I just got hit" beat.
+  private playHitReact(view: FighterView): void {
+    if (view.container.destroyed) return;
+    gsap.killTweensOf(view.container, 'rotation');
+    gsap.killTweensOf(view.container.scale);
+    view.container.rotation = 0;
+    view.container.scale.set(1, 1);
+
+    const tl = gsap.timeline();
+    tl.to(view.container, { rotation: 0.14, duration: 0.06, ease: 'power2.out' }, 0);
+    tl.to(view.container.scale, { x: 1.18, y: 0.85, duration: 0.06, ease: 'power2.out' }, 0);
+    tl.to(view.container, { rotation: 0, duration: 0.32, ease: 'elastic.out(1, 0.4)' });
+    tl.to(view.container.scale, { x: 1, y: 1, duration: 0.32, ease: 'elastic.out(1, 0.4)' }, '<');
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
@@ -217,6 +235,12 @@ export class Battlefield {
 
     const id = view.fighter.id;
     removeEnemy(id);
+
+    // Stop any in-flight hit-react / rotation tweens so the death animation
+    // takes over cleanly.
+    gsap.killTweensOf(view.container, 'rotation');
+    gsap.killTweensOf(view.container.scale);
+    view.container.rotation = 0;
 
     gsap.to(view.container.scale, {
       x: 0,
