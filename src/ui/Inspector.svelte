@@ -35,23 +35,20 @@
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
-  let selected = $state<{ slot: number; item: Item } | null>(null);
-  let lastSubjectId = $state<string | null>(null);
+  // Selection is stored as primitives so mutations to the inspected item
+  // (which change the object ref) don't cause an effect loop trying to
+  // refresh `selected.item`. The hint and the action eligibility derive
+  // their enchant from the live $inspector value.
+  let selectedSlot = $state<number | null>(null);
+  let selectedItemId = $state<string | null>(null);
 
-  // Reset selection when the subject ITEM changes (different item picked).
-  // Mutations to the same item (Lock, Reroll, Disenchant) preserve the
-  // selection but the selected.item ref is refreshed so the hint reads
-  // post-mutation enchant data.
-  $effect(() => {
-    const sub = $inspector;
-    const id = sub?.item.id ?? null;
-    if (id !== lastSubjectId) {
-      selected = null;
-      lastSubjectId = id;
-    } else if (sub && selected && selected.item.id === sub.item.id) {
-      selected = { slot: selected.slot, item: sub.item };
-    }
-  });
+  function isSelectedCell(stackItem: Item, slot: number): boolean {
+    return selectedSlot === slot && selectedItemId === stackItem.id;
+  }
+
+  function selectedSlotOn(item: Item): number | null {
+    return selectedItemId === item.id ? selectedSlot : null;
+  }
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',
@@ -87,10 +84,12 @@
   }
 
   function onCellClick(slot: number, item: Item): void {
-    if (selected?.slot === slot && selected.item.id === item.id) {
-      selected = null;
+    if (selectedSlot === slot && selectedItemId === item.id) {
+      selectedSlot = null;
+      selectedItemId = null;
     } else {
-      selected = { slot, item };
+      selectedSlot = slot;
+      selectedItemId = item.id;
     }
   }
 
@@ -135,16 +134,13 @@
     return $topbar.crystals >= crystals && $topbar.seals >= seals;
   }
 
-  function selectedOnInspected(item: Item): number | null {
-    return selected && selected.item.id === item.id ? selected.slot : null;
-  }
 </script>
 
 {#if $inspector}
   {@const subject = $inspector}
   {@const compare = comparisonItem()}
   {@const item = subject.item}
-  {@const selSlot = selectedOnInspected(item)}
+  {@const selSlot = selectedSlotOn(item)}
   <aside
     class="inspector"
     class:wide={compare !== null || inRest}
@@ -181,8 +177,7 @@
             {@const filled = isFilled(stackItem, slotIndex)}
             {@const enchant = enchantAt(stackItem, slotIndex)}
             {@const sealed = isSealed(stackItem, slotIndex)}
-            {@const isSelected =
-              selected?.slot === slotIndex && selected?.item.id === stackItem.id}
+            {@const isSelected = isSelectedCell(stackItem, slotIndex)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
@@ -302,24 +297,32 @@
     </div>
 
     <div class="hint">
-      {#if selected === null}
+      {#if selectedSlot === null || selectedItemId === null}
         <div class="hint-prompt">{t('inspector.hint.clickPrompt')}</div>
       {:else}
-        {@const layer = stackLayerAt(selected.slot)}
-        {@const enchant = enchantAt(selected.item, selected.slot)}
-        {#if isFilled(selected.item, selected.slot) && enchant}
-          <div class="hint-header">
-            <span class="emoji">{enchant.emoji}</span>
-            <div>
-              <div class="hint-name">{t(enchant.nameKey)}</div>
-              <div class="hint-meta">
-                {layerLabel(layer)} · {enchant.pools.map((p) => t(`enchant.pool.${p}`)).join(' / ')}
+        {@const hintItem =
+          selectedItemId === item.id ? item : compare && selectedItemId === compare.id ? compare : null}
+        {#if hintItem}
+          {@const layer = stackLayerAt(selectedSlot)}
+          {@const enchant = enchantAt(hintItem, selectedSlot)}
+          {#if isFilled(hintItem, selectedSlot) && enchant}
+            <div class="hint-header">
+              <span class="emoji">{enchant.emoji}</span>
+              <div>
+                <div class="hint-name">{t(enchant.nameKey)}</div>
+                <div class="hint-meta">
+                  {layerLabel(layer)} · {enchant.pools.map((p) => t(`enchant.pool.${p}`)).join(' / ')}
+                </div>
               </div>
             </div>
-          </div>
-          <div class="hint-desc">{t(enchant.descriptionKey)}</div>
+            <div class="hint-desc">{t(enchant.descriptionKey)}</div>
+          {:else}
+            <div class="hint-empty">
+              {t('inspector.hint.emptyCell', { layer: layerLabel(layer) })}
+            </div>
+          {/if}
         {:else}
-          <div class="hint-empty">{t('inspector.hint.emptyCell', { layer: layerLabel(layer) })}</div>
+          <div class="hint-prompt">{t('inspector.hint.clickPrompt')}</div>
         {/if}
       {/if}
     </div>
