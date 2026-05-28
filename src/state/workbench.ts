@@ -26,7 +26,7 @@ export const DISENCHANT_REFUND_PER_SLOT = 15;
 export const DESTROY_REFUND_PER_SLOT = 25;
 // A non-empty husk Destroy bonus: destroying a T0 husk still pays this baseline
 // so emptying-then-destroying isn't strictly worse than destroying outright.
-export const DESTROY_BASE_REFUND = 25;
+export const DESTROY_BASE_REFUND = 5;
 
 function applyMutation(subject: InspectorSubject, mutate: (item: Item) => Item | null): Item | null {
   const next = subject.source === 'backpack'
