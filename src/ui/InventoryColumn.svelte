@@ -49,6 +49,10 @@
 
 <style>
   .inventory {
+    position: relative;
+    /* Sit above the Backpack scrim (z 95) so the column is never visually
+       darkened or blurred when the Backpack opens. */
+    z-index: 96;
     flex: 0 0 auto;
     width: 80px;
     display: flex;

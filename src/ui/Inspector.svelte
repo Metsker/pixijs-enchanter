@@ -203,7 +203,7 @@
     transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
     use:clickOutside={{
       onOutside: closeInspector,
-      ignoreSelectors: ['[data-inspector-source]'],
+      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim'],
     }}
   >
     <header class="header">
