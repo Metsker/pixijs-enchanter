@@ -14,7 +14,7 @@
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
-  let hoveredCell = $state<number | null>(null);
+  let hovered = $state<{ slot: number; item: Item } | null>(null);
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',
@@ -118,7 +118,7 @@
       </button>
     </header>
 
-    {#snippet stackColumn(item: Item, interactive: boolean, label: string | null)}
+    {#snippet stackColumn(item: Item, label: string | null)}
       <div class="stack-col">
         {#if label}<div class="stack-label">{label}</div>{/if}
         <div class="stack">
@@ -130,9 +130,9 @@
             <div
               class="cell"
               class:filled
-              class:hovered={interactive && hoveredCell === slotIndex}
-              onmouseenter={interactive ? () => (hoveredCell = slotIndex) : undefined}
-              onmouseleave={interactive ? () => (hoveredCell = null) : undefined}
+              class:hovered={hovered?.slot === slotIndex && hovered?.item === item}
+              onmouseenter={() => (hovered = { slot: slotIndex, item })}
+              onmouseleave={() => (hovered = null)}
             >
               <span class="cell-emoji">
                 {#if filled && enchant}{enchant.emoji}{:else}·{/if}
@@ -158,19 +158,19 @@
     {/snippet}
 
     <div class="stacks">
-      {@render stackColumn(subject.item, true, compare ? t('inspector.stack.inspected') : null)}
+      {@render stackColumn(subject.item, compare ? t('inspector.stack.inspected') : null)}
       {#if compare}
-        {@render stackColumn(compare, false, t('inspector.stack.equipped'))}
+        {@render stackColumn(compare, t('inspector.stack.equipped'))}
       {/if}
     </div>
 
     <div class="hint">
-      {#if hoveredCell === null}
+      {#if hovered === null}
         <div class="hint-prompt">{t('inspector.hint.prompt')}</div>
       {:else}
-        {@const layer = stackLayerAt(hoveredCell)}
-        {@const enchant = enchantAt(subject.item, hoveredCell)}
-        {#if isFilled(subject.item, hoveredCell) && enchant}
+        {@const layer = stackLayerAt(hovered.slot)}
+        {@const enchant = enchantAt(hovered.item, hovered.slot)}
+        {#if isFilled(hovered.item, hovered.slot) && enchant}
           <div class="hint-header">
             <span class="emoji">{enchant.emoji}</span>
             <div>
