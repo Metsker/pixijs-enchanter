@@ -1,14 +1,70 @@
 export type EnchantPool = 'weapons' | 'armor' | 'jewelry' | 'unique';
 export type EnchantLayer = 'main' | 'utility';
 export type DamageType = 'physical' | 'fire' | 'cold' | 'lightning' | 'chaos';
+export type StatusType = 'bleed' | 'burn' | 'freeze' | 'shock' | 'poison';
 
-export type EnchantEffect = { kind: 'damage-add'; amount: number; type: DamageType };
+// The full effect union. resolveProfile in attack-profile.ts handles the
+// attack-side simple kinds (damage-add, damage-split, interval-reduction,
+// attack-speed-add, crit-chance-add, crit-mul-add, lifesteal-add). The
+// defence-side and conditional / reactive / on-kill kinds are catalogued so
+// they show up in the Inspector but don't yet drive combat math - they'll
+// be wired in a later combat-depth step.
+export type EnchantEffect =
+  // Attack-side, immediately resolved
+  | { kind: 'damage-add'; amount: number; type: DamageType }
+  | { kind: 'damage-split'; amount: number }
+  | { kind: 'interval-reduction'; amount: number }
+  | { kind: 'attack-speed-add'; amount: number }
+  | { kind: 'crit-chance-add'; amount: number }
+  | { kind: 'crit-mul-add'; amount: number }
+  | { kind: 'lifesteal-add'; fraction: number }
+  // Attack-side, not yet wired
+  | { kind: 'status-on-hit'; status: StatusType; chance: number }
+  | { kind: 'splash-add'; fraction: number; flag?: 'grounded-only' }
+  | { kind: 'chain-add'; targets: number; damage: number }
+  | { kind: 'multistrike-chance'; chance: number }
+  | { kind: 'knockback-on-hit'; chance: number; durationSec: number }
+  | { kind: 'damage-vs-high-hp'; bonusFraction: number; threshold: number }
+  | { kind: 'damage-vs-low-hp'; bonusFraction: number; threshold: number }
+  | { kind: 'damage-mul-low-hp'; perPercentMissing: number; cap: number }
+  | { kind: 'speed-burst-on-kill'; bonusFraction: number; durationSec: number }
+  | { kind: 'damage-from-max-hp'; fractionOfMaxHp: number }
+  | { kind: 'damage-per-max-hp'; perHundred: number }
+  // Type conversion
+  | { kind: 'convert-physical-rolled'; toType: DamageType; fraction: number }
+  | { kind: 'convert-physical-random'; fraction: number }
+  // Defence-side, not yet wired into combat
+  | { kind: 'hp-max-add'; amount: number }
+  | { kind: 'hp-max-mul'; factor: number }
+  | { kind: 'dodge-add'; amount: number }
+  | { kind: 'resist-add'; amount: number; type?: DamageType | 'rolled' }
+  | { kind: 'damage-reduction'; amount: number }
+  | { kind: 'damage-reduction-low-hp'; amount: number; threshold: number }
+  | { kind: 'big-hit-reduction'; threshold: number; reductionFraction: number }
+  | { kind: 'stoic'; fraction: number; durationSec: number }
+  | { kind: 'thorns-flat'; amount: number }
+  | { kind: 'reactive-status'; chance: number }
+  | { kind: 'counter-attack'; fraction: number }
+  | { kind: 'on-dodge-damage-buff'; bonusFraction: number; durationSec: number }
+  | { kind: 'regen'; amount: number }
+  | { kind: 'aura-on-hit'; status: StatusType; chance: number }
+  | { kind: 'status-resist-chance'; chance: number }
+  | { kind: 'status-immune' }
+  // Economy
+  | { kind: 'gold-find'; goldFraction: number; itemDropFraction: number }
+  | { kind: 'crystal-affinity'; fraction: number }
+  // Unique-only specials
+  | { kind: 'on-kill-aura'; durationSec: number }
+  | { kind: 'revive-on-death'; hpFraction: number; once: true }
+  | { kind: 'all-crit-replace-mul'; replacedMul: number }
+  | { kind: 'mirror-charge'; intervalSec: number; maxCharges: number };
 
 export interface Enchantment {
   id: string;
-  name: string;
+  nameKey: string;
+  descriptionKey: string;
   emoji: string;
-  pool: EnchantPool;
+  pools: EnchantPool[];
   layer: EnchantLayer;
-  effect: EnchantEffect;
+  effects: EnchantEffect[];
 }

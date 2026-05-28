@@ -4,6 +4,7 @@ import gsap from 'gsap';
 import { fight, setTarget, applyDamage, removeEnemy, type FightState } from '../state/fight';
 import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
 import type { Enchantment } from '../domain/enchant';
+import { SHARPNESS } from '../domain/enchant-catalogue';
 import type { Fighter } from '../domain/fighter';
 
 const EMOJI_FONT_STACK = [
@@ -22,17 +23,8 @@ const DEATH_DURATION = 0.3;
 const DAMAGE_NUMBER_DURATION = 0.8;
 
 // Step 3 placeholder: one Sharpness enchant on a single weapon item.
-// Step 5+ replaces this with a real Inventory store.
-const HARDCODED_INVENTORY: Enchantment[] = [
-  {
-    id: 'sharpness',
-    name: 'Sharpness',
-    emoji: '⚔️',
-    pool: 'weapons',
-    layer: 'main',
-    effect: { kind: 'damage-add', amount: 300, type: 'physical' },
-  },
-];
+// A later step replaces this with the real equipped-inventory store.
+const HARDCODED_INVENTORY: Enchantment[] = [SHARPNESS];
 
 interface FighterView {
   fighter: Fighter;

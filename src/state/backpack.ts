@@ -1,33 +1,17 @@
 import { writable } from 'svelte/store';
-import type { Enchantment, EnchantLayer, EnchantPool } from '../domain/enchant';
 import type { Item } from '../domain/item';
+import {
+  SHARPNESS,
+  PYROCLASM,
+  SWIFT,
+  PRECISION,
+  VITALITY,
+  DODGE,
+  THORNS,
+  REGENERATION,
+} from '../domain/enchant-catalogue';
 
 export const BACKPACK_CAPACITY = 20;
-
-// Step 6 placeholder enchants. They satisfy the Enchantment type but use the
-// only effect kind we model so far (damage-add) regardless of pool, so they
-// can populate items without throwing off combat. The real catalogue (54
-// entries from docs/enchant-catalogue.md) lands in a later step alongside
-// the full set of EnchantEffect variants.
-function mk(id: string, name: string, emoji: string, pool: EnchantPool, layer: EnchantLayer): Enchantment {
-  return {
-    id,
-    name,
-    emoji,
-    pool,
-    layer,
-    effect: { kind: 'damage-add', amount: 1, type: 'physical' },
-  };
-}
-
-const SHARPNESS = mk('sharpness', 'Sharpness', '⚔️', 'weapons', 'main');
-const PYROCLASM = mk('pyroclasm', 'Pyroclasm', '🔥', 'weapons', 'main');
-const SWIFT = mk('swift', 'Swift', '💨', 'weapons', 'utility');
-const PRECISION = mk('precision', 'Precision', '🎯', 'weapons', 'utility');
-const VITALITY = mk('vitality', 'Vitality', '❤️', 'armor', 'main');
-const DODGE = mk('dodge', 'Dodge', '🌀', 'armor', 'main');
-const THORNS = mk('thorns', 'Thorns', '🌹', 'armor', 'utility');
-const REGENERATION = mk('regeneration', 'Regeneration', '✨', 'jewelry', 'main');
 
 const starterItems: Item[] = [
   { id: 'wpn-1', itemType: 'weapon', enchants: [SHARPNESS, SWIFT] },
