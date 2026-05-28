@@ -27,12 +27,24 @@ export interface MapGraph {
 // common / elite / shop / rest with a bias toward fights.
 const FLOORS = 8;
 
-function pickKind(rng: () => number): RoomKind {
-  const r = rng();
-  if (r < 0.5) return 'common';
-  if (r < 0.7) return 'elite';
-  if (r < 0.85) return 'shop';
-  return 'rest';
+// Weighted random RoomKind for middle floors, biased toward fights.
+// `forbidden` lets the caller exclude kinds that would create a back-to-back
+// repeat with a parent on the previous floor (e.g. no rest after rest).
+function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set()): RoomKind {
+  const allWeights: { kind: RoomKind; weight: number }[] = [
+    { kind: 'common', weight: 0.5 },
+    { kind: 'elite', weight: 0.2 },
+    { kind: 'shop', weight: 0.15 },
+    { kind: 'rest', weight: 0.15 },
+  ];
+  const weights = allWeights.filter((c) => !forbidden.has(c.kind));
+  const total = weights.reduce((s, c) => s + c.weight, 0);
+  let r = rng() * total;
+  for (const c of weights) {
+    if (r < c.weight) return c.kind;
+    r -= c.weight;
+  }
+  return weights[weights.length - 1].kind;
 }
 
 function rollEnemies(kind: RoomKind, rng: () => number): EnemyDef[] {
@@ -69,6 +81,9 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     return state / 0x100000000;
   };
 
+  // Pass 1: create empty nodes (kind picked later). Forced nodes (floor 1,
+  // floor N-1 = Rest, floor N = Boss) are tagged now but their enemy rolls
+  // wait until kinds are finalised.
   const nodes: MapNode[] = [];
   const byFloor: MapNode[][] = [];
 
@@ -80,22 +95,12 @@ export function generateMap(seed: number = Date.now()): MapGraph {
 
     const floorNodes: MapNode[] = [];
     for (let i = 0; i < count; i++) {
-      let kind: RoomKind;
-      if (floor === 1) kind = 'common';
-      else if (floor === FLOORS) kind = 'boss';
-      else if (floor === FLOORS - 1) kind = 'rest';
-      else kind = pickKind(rng);
-
-      const node: MapNode = {
+      floorNodes.push({
         id: `f${floor}-n${i}`,
         floor,
-        kind,
+        kind: 'common', // placeholder; resolved in pass 3
         children: [],
-      };
-      if (kind === 'common' || kind === 'elite' || kind === 'boss') {
-        node.enemies = rollEnemies(kind, rng);
-      }
-      floorNodes.push(node);
+      });
     }
     byFloor.push(floorNodes);
     nodes.push(...floorNodes);
@@ -144,6 +149,38 @@ export function generateMap(seed: number = Date.now()): MapGraph {
       }
       if (!parents[bestPi].children.includes(child.id)) {
         parents[bestPi].children.push(child.id);
+      }
+    }
+  }
+
+  // Pass 3: assign kinds. Floor 1 = common, floor N = boss, floor N-1 =
+  // forced rest. Middle floors pick weighted-random but exclude kinds that
+  // would land back-to-back with any parent on the previous floor (no
+  // rest -> rest, no shop -> shop). Floor N-2 also forbids rest so the
+  // forced rest on N-1 doesn't end up immediately after another rest.
+  for (let floor = 1; floor <= FLOORS; floor++) {
+    const floorNodes = byFloor[floor - 1];
+    const parents = floor > 1 ? byFloor[floor - 2] : [];
+    for (const node of floorNodes) {
+      if (floor === 1) {
+        node.kind = 'common';
+      } else if (floor === FLOORS) {
+        node.kind = 'boss';
+      } else if (floor === FLOORS - 1) {
+        node.kind = 'rest';
+      } else {
+        const myParents = parents.filter((p) => p.children.includes(node.id));
+        const parentKinds = new Set(myParents.map((p) => p.kind));
+        const forbidden = new Set<RoomKind>();
+        if (parentKinds.has('rest')) forbidden.add('rest');
+        if (parentKinds.has('shop')) forbidden.add('shop');
+        // Floor N-2 forbids rest to keep the forced N-1 rest from being a
+        // back-to-back repeat.
+        if (floor === FLOORS - 2) forbidden.add('rest');
+        node.kind = pickKind(rng, forbidden);
+      }
+      if (node.kind === 'common' || node.kind === 'elite' || node.kind === 'boss') {
+        node.enemies = rollEnemies(node.kind, rng);
       }
     }
   }
