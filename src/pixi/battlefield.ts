@@ -1,10 +1,12 @@
-import { Application, Container, Graphics, Text, TextStyle, type Ticker } from 'pixi.js';
+import { Application, Container, Graphics, NoiseFilter, Text, TextStyle, type Ticker } from 'pixi.js';
+import { AdvancedBloomFilter, CRTFilter, RGBSplitFilter } from 'pixi-filters';
 import { get } from 'svelte/store';
 import gsap from 'gsap';
 import { fight, setTarget, applyDamage, removeEnemy, type FightState } from '../state/fight';
 import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
 import type { Enchantment } from '../domain/enchant';
 import { SHARPNESS } from '../domain/enchant-catalogue';
+import { LICH } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 
 const EMOJI_FONT_STACK = [
@@ -43,6 +45,13 @@ export class Battlefield {
   private profile!: AttackProfile;
   private cooldown = 0;
   private damageNumbers = new Set<Text>();
+  // Post-fx chain (docs/post-effects.md). bloom + noise + RGB-split is the
+  // default for common / elite rooms; boss rooms layer a CRT on top.
+  private bloom!: AdvancedBloomFilter;
+  private noise!: NoiseFilter;
+  private rgbSplit!: RGBSplitFilter;
+  private crt?: CRTFilter;
+  private hasLich = false;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -62,6 +71,17 @@ export class Battlefield {
     this.targetRing = new Graphics();
     this.targetRing.eventMode = 'none';
     this.app.stage.addChild(this.targetRing);
+
+    // Build post-fx chain. Per-frame noise.seed update happens in onTick.
+    this.bloom = new AdvancedBloomFilter({
+      threshold: 0.55,
+      bloomScale: 1.0,
+      brightness: 1.0,
+      blur: 4,
+    });
+    this.noise = new NoiseFilter({ noise: 0.08 });
+    this.rgbSplit = new RGBSplitFilter({ red: { x: -1, y: 0 }, green: { x: 0, y: 0 }, blue: { x: 1, y: 0 } });
+    this.applyChain(initial);
 
     this.buildViews(initial);
 
@@ -113,6 +133,9 @@ export class Battlefield {
   }
 
   private onTick = (ticker: Ticker): void => {
+    // Re-seed filmgrain noise every frame so it shimmers.
+    this.noise.seed = Math.random();
+
     const state = get(fight);
     if (!state.inFight || state.enemies.length === 0) return;
 
@@ -122,6 +145,36 @@ export class Battlefield {
       this.cooldown = this.profile.interval;
     }
   };
+
+  // Swap CRT in/out and tune bloom/RGB intensity based on whether the
+  // current fight is a boss (Lich present in enemies).
+  private applyChain(state: FightState): void {
+    const lichPresent = state.enemies.some((e) => e.name === LICH.id);
+    if (lichPresent && !this.hasLich) {
+      this.crt = new CRTFilter({
+        lineWidth: 2.5,
+        lineContrast: 0.15,
+        noise: 0.08,
+        vignetting: 0.35,
+        vignettingAlpha: 0.5,
+        vignettingBlur: 0.3,
+      });
+      // Slightly darker scene for boss flair.
+      this.bloom.brightness = 1.1;
+    } else if (!lichPresent && this.hasLich) {
+      this.crt = undefined;
+      this.bloom.brightness = 1.0;
+    }
+    this.hasLich = lichPresent;
+
+    const chain: Array<AdvancedBloomFilter | NoiseFilter | RGBSplitFilter | CRTFilter> = [
+      this.bloom,
+      this.noise,
+      this.rgbSplit,
+    ];
+    if (this.crt) chain.push(this.crt);
+    this.app.stage.filters = chain;
+  }
 
   private fireAttack(state: FightState): void {
     if (!state.targetId) return;
@@ -207,6 +260,7 @@ export class Battlefield {
     }
     if (newlyAdded.length > 0) {
       this.layout(state);
+      this.applyChain(state);
       // Mid-fight spawns (boss adds) get a fade + scale-in flourish so they
       // don't pop in stiffly. Initial fight build also runs this but with the
       // same nice entrance - cheap and consistent.
