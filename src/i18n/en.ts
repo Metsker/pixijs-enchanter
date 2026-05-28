@@ -5,4 +5,13 @@ export const en: Record<string, string> = {
   'topbar.seals': 'Seals',
   'topbar.actFloor': 'Act {act} · Floor {floor}',
   'topbar.toggleBackpack': 'Toggle backpack',
+
+  'inventory.slot.weapon': 'Weapon',
+  'inventory.slot.offhand': 'Offhand',
+  'inventory.slot.helm': 'Helm',
+  'inventory.slot.chest': 'Chest',
+  'inventory.slot.gloves': 'Gloves',
+  'inventory.slot.boots': 'Boots',
+  'inventory.slot.ring': 'Ring',
+  'inventory.slot.amulet': 'Amulet',
 };
