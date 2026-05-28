@@ -55,6 +55,11 @@ interface FighterView {
   // that should sit still) reads from here so it doesn't bug out.
   homeX: number;
   homeY: number;
+  // Status icons row sits above the HP bar; the per-status Text
+  // objects are cached so we redraw fades each sync instead of
+  // recreating them every frame.
+  statusRow: Container;
+  statusIcons: Map<StatusType, Text>;
 }
 
 export class Battlefield {
@@ -151,8 +156,10 @@ export class Battlefield {
 
     const hpBg = new Graphics();
     const hpFill = new Graphics();
+    const statusRow = new Container();
+    statusRow.eventMode = 'none';
 
-    container.addChild(emojiText, hpBg, hpFill);
+    container.addChild(emojiText, hpBg, hpFill, statusRow);
 
     if (fighter.kind === 'enemy') {
       container.eventMode = 'static';
@@ -160,7 +167,17 @@ export class Battlefield {
       container.on('pointertap', () => setTarget(fighter.id));
     }
 
-    return { fighter, container, emojiText, hpBg, hpFill, homeX: 0, homeY: 0 };
+    return {
+      fighter,
+      container,
+      emojiText,
+      hpBg,
+      hpFill,
+      homeX: 0,
+      homeY: 0,
+      statusRow,
+      statusIcons: new Map(),
+    };
   }
 
   private onTick = (ticker: Ticker): void => {
@@ -724,6 +741,7 @@ export class Battlefield {
       const prevHp = view.fighter.hp;
       view.fighter = next;
       this.drawHpBar(view);
+      this.drawStatusRow(view);
 
       if (prevHp > 0 && next.hp <= 0) {
         this.playDeath(view);
@@ -781,6 +799,62 @@ export class Battlefield {
         .roundRect(x, y, HP_BAR_WIDTH * ratio, HP_BAR_HEIGHT, 3)
         .fill(view.fighter.kind === 'player' ? 0x55cc66 : 0xcc4444);
     }
+  }
+
+  // Row of small emoji icons (🔥🩸☠️❄️⚡) above the HP bar
+  // showing which statuses are currently applied. Icon alpha fades
+  // from 1 down to 0.35 as remainingSec drains, so the player can
+  // see at a glance which DoTs are about to expire. Icons are
+  // cached per status to avoid recreating Text objects every frame
+  // (sync fires every tick because tickStatuses writes the store).
+  private drawStatusRow(view: FighterView): void {
+    const statuses = view.fighter.statuses ?? {};
+    const active = Object.keys(statuses) as StatusType[];
+
+    for (const [key, icon] of view.statusIcons) {
+      if (!(key in statuses)) {
+        icon.destroy();
+        view.statusIcons.delete(key);
+      }
+    }
+
+    for (const key of active) {
+      const inst = statuses[key];
+      const def = STATUS_DEFS[key];
+      if (!inst || !def) continue;
+      let icon = view.statusIcons.get(key);
+      if (!icon) {
+        icon = new Text({
+          text: def.emoji,
+          style: new TextStyle({
+            fontFamily: EMOJI_FONT_STACK,
+            fontSize: 20,
+            padding: 4,
+          }),
+        });
+        icon.anchor.set(0.5, 1);
+        icon.eventMode = 'none';
+        view.statusRow.addChild(icon);
+        view.statusIcons.set(key, icon);
+      }
+      const durationFrac = Math.max(0, Math.min(1, inst.remainingSec / def.durationSec));
+      icon.alpha = 0.35 + durationFrac * 0.65;
+    }
+
+    // Center the row above the HP bar.
+    const visible: Text[] = [];
+    for (const key of active) {
+      const icon = view.statusIcons.get(key);
+      if (icon) visible.push(icon);
+    }
+    const spacing = 22;
+    const totalWidth = Math.max(0, (visible.length - 1) * spacing);
+    let x = -totalWidth / 2;
+    for (const icon of visible) {
+      icon.x = x;
+      x += spacing;
+    }
+    view.statusRow.y = -view.emojiText.height - HP_BAR_HEIGHT - 32;
   }
 
   private drawTargetRing(state: FightState): void {
