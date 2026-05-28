@@ -27,6 +27,10 @@ export function pickRandomEnchant(pool: EnchantPool, layer: EnchantLayer): Encha
 
 const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
 const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
+// Cosmetic-only weapon icon pool. Sword/dagger/axe/spear/hammer/bow -
+// every weapon rolls one at generation time so the loot loop has
+// visual variety. None of these affect combat math.
+const WEAPON_ICONS = ['⚔️', '🗡️', '🪓', '🔱', '🔨', '🏹'];
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -40,11 +44,20 @@ function nextItemId(prefix: string): string {
 
 export function randomItem(tier: number, idPrefix = 'item'): Item {
   const itemType = pick(ALL_ITEM_TYPES);
+  return buildItem(itemType, tier, idPrefix);
+}
+
+export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
+  return buildItem('weapon', tier, idPrefix);
+}
+
+function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
   const pool = itemPoolFor(itemType);
   const enchants = Array.from({ length: tier }, (_, i) => {
     const layer = stackLayerAt(i + 1) as EnchantLayer;
     return pickRandomEnchant(pool, layer);
   });
-  return { id: nextItemId(idPrefix), itemType, armorSlot, enchants };
+  const icon = itemType === 'weapon' ? pick(WEAPON_ICONS) : undefined;
+  return { id: nextItemId(idPrefix), itemType, armorSlot, enchants, icon };
 }

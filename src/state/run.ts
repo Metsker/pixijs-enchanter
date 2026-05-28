@@ -8,7 +8,14 @@ import { resetEquipped } from './inventory';
 import { resetTopbar } from './topbar';
 import { closeInspector } from './inspector';
 
-export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete' | 'run-lost';
+export type Screen =
+  | 'weapon-select'
+  | 'map'
+  | 'fight'
+  | 'shop'
+  | 'rest'
+  | 'run-complete'
+  | 'run-lost';
 
 export interface RunState {
   map: MapGraph;
@@ -25,7 +32,10 @@ function makeInitial(): RunState {
     map: generateMap(),
     lastCompletedRoomId: null,
     currentRoomId: null,
-    screen: 'map',
+    // Every run opens on the weapon-pick screen - the player picks one
+    // of three T1 weapons before the map appears, so they always start
+    // with a kit instead of an empty Inventory.
+    screen: 'weapon-select',
     fightWon: false,
   };
 }
@@ -36,6 +46,12 @@ function screenFor(kind: RoomKind): Screen {
   if (kind === 'common' || kind === 'elite' || kind === 'boss') return 'fight';
   if (kind === 'shop') return 'shop';
   return 'rest';
+}
+
+// Called by WeaponSelect once the player has picked one of the three
+// starter weapons; equips it and drops the player onto the map.
+export function leaveWeaponSelect(): void {
+  run.update((s) => ({ ...s, screen: 'map' }));
 }
 
 export function enterRoom(roomId: string): void {

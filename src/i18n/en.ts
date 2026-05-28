@@ -65,6 +65,8 @@ export const en: Record<string, string> = {
   'rewards.chest': 'Loot chest',
   'rewards.items': 'Items',
   'rewards.itemAria': 'Tier {tier} item - click to inspect',
+  'weaponSelect.title': 'Choose your weapon',
+  'weaponSelect.subtitle': 'Pick one to start the run.',
   'shop.placeholder': 'Shop coming in a later step.',
   'shop.items': 'Items',
   'shop.consumables': 'Consumables',

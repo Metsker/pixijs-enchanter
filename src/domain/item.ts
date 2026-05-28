@@ -19,6 +19,11 @@ export interface Item {
   // protected from Reroll All / Reroll Mains / Reroll Utilities / Disenchant
   // top / Remove selected. Only Destroy pops a sealed slot.
   sealedSlots?: number[];
+  // Per-item visual variant override (e.g. weapons roll a random sword /
+  // axe / spear / bow icon at generation time). Purely cosmetic - all
+  // weapons share the same combat math regardless of icon. When unset,
+  // itemEmoji falls back to the slot's default emoji.
+  icon?: string;
 }
 
 export function isSealed(item: Item, slotIndex1Based: number): boolean {
@@ -39,6 +44,7 @@ export function tierOf(item: Item): number {
 }
 
 export function itemEmoji(item: Item): string {
+  if (item.icon) return item.icon;
   switch (item.itemType) {
     case 'weapon':
       return EQUIPMENT_SLOTS.weapon.emoji;
