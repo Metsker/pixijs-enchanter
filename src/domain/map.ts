@@ -101,24 +101,50 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     nodes.push(...floorNodes);
   }
 
-  // Wire edges: each parent picks 1-2 children on the next floor; ensure
-  // every child has at least one parent.
+  // Wire edges: each parent picks 1-2 children on the NEXT floor, constrained
+  // to children within ~1 column of the parent's x position so the rendered
+  // graph has no long horizontal jumps. Then any orphan child gets adopted
+  // by its closest parent.
+  const CLOSENESS = 0.3; // normalized x distance (0..1)
+
+  function relX(idx: number, count: number): number {
+    return (idx + 1) / (count + 1);
+  }
+
   for (let floor = 1; floor < FLOORS; floor++) {
     const parents = byFloor[floor - 1];
     const children = byFloor[floor];
 
-    for (const parent of parents) {
-      const numChildren = Math.min(children.length, 1 + (rng() < 0.5 ? 0 : 1));
-      const shuffled = [...children].sort(() => rng() - 0.5);
-      parent.children = shuffled.slice(0, numChildren).map((c) => c.id);
+    for (let pi = 0; pi < parents.length; pi++) {
+      const px = relX(pi, parents.length);
+      const ranked = children
+        .map((_, ci) => ({ ci, dist: Math.abs(px - relX(ci, children.length)) }))
+        .sort((a, b) => a.dist - b.dist);
+
+      const within = ranked.filter((r) => r.dist <= CLOSENESS);
+      const pool = within.length > 0 ? within : ranked.slice(0, 1);
+      const numChildren = Math.min(pool.length, 1 + (rng() < 0.5 ? 0 : 1));
+      parents[pi].children = pool.slice(0, numChildren).map((r) => children[r.ci].id);
     }
 
     const claimed = new Set<string>();
     for (const parent of parents) for (const cid of parent.children) claimed.add(cid);
-    for (const child of children) {
+    for (let ci = 0; ci < children.length; ci++) {
+      const child = children[ci];
       if (claimed.has(child.id)) continue;
-      const adopter = parents[Math.floor(rng() * parents.length)];
-      if (!adopter.children.includes(child.id)) adopter.children.push(child.id);
+      const cx = relX(ci, children.length);
+      let bestPi = 0;
+      let bestDist = Infinity;
+      for (let pi = 0; pi < parents.length; pi++) {
+        const d = Math.abs(cx - relX(pi, parents.length));
+        if (d < bestDist) {
+          bestDist = d;
+          bestPi = pi;
+        }
+      }
+      if (!parents[bestPi].children.includes(child.id)) {
+        parents[bestPi].children.push(child.id);
+      }
     }
   }
 
