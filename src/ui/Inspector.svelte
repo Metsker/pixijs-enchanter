@@ -42,6 +42,32 @@
   let selectedSlot = $state<number | null>(null);
   let selectedItemId = $state<string | null>(null);
 
+  // Which action button is currently hovered, so we can preview the slot(s)
+  // it will affect on the enchant stack (per docs/ux.md § Workbench:
+  // "Hovering a button previews its target").
+  type PreviewAction = 'enchant' | 'disenchant' | 'rerollAll' | null;
+  let hoveredAction = $state<PreviewAction>(null);
+
+  function previewSlots(forItem: Item): number[] {
+    if (hoveredAction === null) return [];
+    if (hoveredAction === 'enchant') {
+      if (forItem.enchants.length >= 6) return [];
+      return [forItem.enchants.length + 1];
+    }
+    if (hoveredAction === 'disenchant') {
+      for (let i = forItem.enchants.length; i >= 1; i--) {
+        if (!isSealed(forItem, i)) return [i];
+      }
+      return [];
+    }
+    // rerollAll: every filled, unsealed slot
+    const slots: number[] = [];
+    for (let s = 1; s <= forItem.enchants.length; s++) {
+      if (!isSealed(forItem, s)) slots.push(s);
+    }
+    return slots;
+  }
+
   function isSelectedCell(stackItem: Item, slot: number): boolean {
     return selectedSlot === slot && selectedItemId === stackItem.id;
   }
@@ -169,6 +195,7 @@
     </header>
 
     {#snippet stackColumn(stackItem: Item, label: string | null, clickable: boolean)}
+      {@const preview = new Set(previewSlots(stackItem))}
       <div class="stack-col">
         {#if label}<div class="stack-label">{label}</div>{/if}
         <div class="stack">
@@ -178,6 +205,7 @@
             {@const enchant = enchantAt(stackItem, slotIndex)}
             {@const sealed = isSealed(stackItem, slotIndex)}
             {@const isSelected = isSelectedCell(stackItem, slotIndex)}
+            {@const isPreview = preview.has(slotIndex) && stackItem === item}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
@@ -185,6 +213,7 @@
               class:filled
               class:sealed
               class:selected={isSelected}
+              class:preview={isPreview && !isSelected}
               class:clickable
               onclick={() => clickable && onCellClick(slotIndex, stackItem)}
             >
@@ -229,6 +258,8 @@
           class="action"
           disabled={!canAddRoll(item) || !ownsResources(ADD_ROLL_COST, 0)}
           onclick={doAddRoll}
+          onmouseenter={() => (hoveredAction = 'enchant')}
+          onmouseleave={() => (hoveredAction = null)}
         >
           <span class="action-label">{t('workbench.action.add')}</span>
           {@render costLine(ADD_ROLL_COST, 0, 0)}
@@ -239,6 +270,8 @@
           class="action"
           disabled={!canRerollAll(item) || !ownsResources(REROLL_ALL_COST, 0)}
           onclick={doRerollAll}
+          onmouseenter={() => (hoveredAction = 'rerollAll')}
+          onmouseleave={() => (hoveredAction = null)}
         >
           <span class="action-label">{t('workbench.action.rerollAll')}</span>
           {@render costLine(REROLL_ALL_COST, 0, 0)}
@@ -259,6 +292,8 @@
           class="action"
           disabled={!canDisenchantTop(item)}
           onclick={doDisenchantTop}
+          onmouseenter={() => (hoveredAction = 'disenchant')}
+          onmouseleave={() => (hoveredAction = null)}
         >
           <span class="action-label">{t('workbench.action.disenchantTop')}</span>
           {@render costLine(0, 0, disenchantTopRefund(item))}
@@ -471,6 +506,11 @@
     border-color: #ffcc44;
     background: #2a2418;
     box-shadow: inset 0 0 0 1px #ffcc44;
+  }
+  .cell.preview {
+    border-color: #88c8ff;
+    background: #182028;
+    box-shadow: inset 0 0 0 1px #88c8ff;
   }
   .cell-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
