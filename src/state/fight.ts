@@ -1,6 +1,13 @@
 import { writable } from 'svelte/store';
 import type { Fighter } from '../domain/fighter';
 import type { EnemyDef } from '../domain/enemy';
+import { LICH, SKELETON } from '../domain/enemy-catalogue';
+
+// Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
+// HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
+// Skeleton adds.
+const LICH_PHASE_THRESHOLDS = [0.66, 0.33];
+const SKELETON_ADD_CAP = 2;
 
 export interface FightState {
   player: Fighter;
@@ -35,8 +42,8 @@ function nextInstanceId(prefix: string): string {
   return `${prefix}#${enemyCounter}`;
 }
 
-export function startFightWith(enemies: EnemyDef[]): void {
-  const fighters: Fighter[] = enemies.map((e) => ({
+function makeFighters(defs: EnemyDef[]): Fighter[] {
+  return defs.map((e) => ({
     id: nextInstanceId(e.id),
     kind: 'enemy',
     name: e.id,
@@ -44,6 +51,10 @@ export function startFightWith(enemies: EnemyDef[]): void {
     hp: e.hp,
     maxHp: e.hp,
   }));
+}
+
+export function startFightWith(enemies: EnemyDef[]): void {
+  const fighters = makeFighters(enemies);
   fight.update((state) => ({
     ...state,
     enemies: fighters,
@@ -69,12 +80,48 @@ export function setTarget(id: string): void {
 }
 
 export function applyDamage(targetId: string, amount: number): void {
-  fight.update((state) => ({
-    ...state,
-    enemies: state.enemies.map((e) =>
-      e.id === targetId ? { ...e, hp: Math.max(0, e.hp - amount) } : e,
-    ),
-  }));
+  let pendingAdds = 0;
+  fight.update((state) => {
+    const enemies = state.enemies.map((e) => {
+      if (e.id !== targetId) return e;
+      const newHp = Math.max(0, e.hp - amount);
+      const next: Fighter = { ...e, hp: newHp };
+
+      // Lich phase-spawn check: if this damage crossed an untriggered
+      // threshold, mark the phase and queue Skeleton adds (respecting cap).
+      if (e.name === LICH.id) {
+        const triggered = new Set(e.triggeredPhases ?? []);
+        const oldFrac = e.maxHp > 0 ? e.hp / e.maxHp : 0;
+        const newFrac = e.maxHp > 0 ? newHp / e.maxHp : 0;
+        for (let i = 0; i < LICH_PHASE_THRESHOLDS.length; i++) {
+          if (triggered.has(i)) continue;
+          const t = LICH_PHASE_THRESHOLDS[i];
+          if (oldFrac > t && newFrac <= t) {
+            triggered.add(i);
+            const liveSkeletons = state.enemies.filter(
+              (x) => x.name === SKELETON.id && x.hp > 0,
+            ).length;
+            const slots = Math.max(0, SKELETON_ADD_CAP - liveSkeletons);
+            pendingAdds += Math.min(2, slots);
+          }
+        }
+        if (triggered.size !== (e.triggeredPhases?.length ?? 0)) {
+          next.triggeredPhases = Array.from(triggered).sort();
+        }
+      }
+
+      return next;
+    });
+    return { ...state, enemies };
+  });
+
+  if (pendingAdds > 0) {
+    const newSkeletons = makeFighters(Array.from({ length: pendingAdds }, () => SKELETON));
+    fight.update((state) => ({
+      ...state,
+      enemies: [...state.enemies, ...newSkeletons],
+    }));
+  }
 }
 
 export function removeEnemy(id: string): void {

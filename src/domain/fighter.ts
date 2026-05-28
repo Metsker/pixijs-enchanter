@@ -7,4 +7,6 @@ export interface Fighter {
   emoji: string;
   hp: number;
   maxHp: number;
+  // 1-indexed phase indices that have already triggered (boss phase spawns).
+  triggeredPhases?: number[];
 }

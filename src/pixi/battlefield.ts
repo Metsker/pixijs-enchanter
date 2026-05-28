@@ -196,18 +196,32 @@ export class Battlefield {
     ]);
 
     // Spawn views for any state fighters that don't yet have one (new fight
-    // room entered).
-    let added = false;
+    // room entered OR a boss phase-spawn during combat).
+    const newlyAdded: FighterView[] = [];
     for (const fighter of [state.player, ...state.enemies]) {
       if (this.views.has(fighter.id)) continue;
       const view = this.makeView(fighter);
       this.views.set(fighter.id, view);
       this.app.stage.addChild(view.container);
-      added = true;
+      newlyAdded.push(view);
     }
-    if (added) {
-      this.cooldown = this.profile.interval;
+    if (newlyAdded.length > 0) {
       this.layout(state);
+      // Mid-fight spawns (boss adds) get a fade + scale-in flourish so they
+      // don't pop in stiffly. Initial fight build also runs this but with the
+      // same nice entrance - cheap and consistent.
+      for (const view of newlyAdded) {
+        if (view.fighter.kind !== 'enemy') continue;
+        view.container.alpha = 0;
+        view.container.scale.set(0.4, 0.4);
+        gsap.to(view.container, { alpha: 1, duration: 0.3, ease: 'power2.out' });
+        gsap.to(view.container.scale, {
+          x: 1,
+          y: 1,
+          duration: 0.45,
+          ease: 'back.out(2.2)',
+        });
+      }
     }
 
     for (const view of this.views.values()) {
