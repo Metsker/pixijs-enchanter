@@ -48,6 +48,11 @@ interface FighterView {
   emojiText: Text;
   hpBg: Graphics;
   hpFill: Graphics;
+  // Anchor position set by layout(). Lunge/knockback tweens move
+  // container.x off this anchor, but the target ring (and anything else
+  // that should sit still) reads from here so it doesn't bug out.
+  homeX: number;
+  homeY: number;
 }
 
 export class Battlefield {
@@ -134,7 +139,7 @@ export class Battlefield {
       container.on('pointertap', () => setTarget(fighter.id));
     }
 
-    return { fighter, container, emojiText, hpBg, hpFill };
+    return { fighter, container, emojiText, hpBg, hpFill, homeX: 0, homeY: 0 };
   }
 
   private onTick = (ticker: Ticker): void => {
@@ -432,8 +437,10 @@ export class Battlefield {
 
     const player = this.views.get(state.player.id);
     if (player) {
-      player.container.x = w * 0.2;
-      player.container.y = groundY;
+      player.homeX = w * 0.2;
+      player.homeY = groundY;
+      player.container.x = player.homeX;
+      player.container.y = player.homeY;
     }
 
     const enemyCount = state.enemies.length;
@@ -442,11 +449,13 @@ export class Battlefield {
     state.enemies.forEach((enemy, i) => {
       const view = this.views.get(enemy.id);
       if (!view) return;
-      view.container.x =
+      view.homeX =
         enemyCount === 1
           ? (startX + endX) / 2
           : startX + ((endX - startX) / (enemyCount - 1)) * i;
-      view.container.y = groundY;
+      view.homeY = groundY;
+      view.container.x = view.homeX;
+      view.container.y = view.homeY;
     });
 
     for (const view of this.views.values()) {
@@ -478,8 +487,11 @@ export class Battlefield {
     const view = this.views.get(state.targetId);
     if (!view || view.container.destroyed) return;
 
+    // Anchor to the view's home position so attack-swing lunges and
+    // knockbacks slide the enemy off the ring instead of dragging the
+    // ring around with them.
     this.targetRing
-      .ellipse(view.container.x, view.container.y + 6, 62, 14)
+      .ellipse(view.homeX, view.homeY + 6, 62, 14)
       .stroke({ color: 0xffcc44, width: 3, alpha: 0.9 });
   }
 
