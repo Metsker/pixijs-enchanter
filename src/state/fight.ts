@@ -5,6 +5,8 @@ import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
 import { randomItem } from '../domain/random';
 import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
 import { playerProfile } from './player-profile';
+import type { StatusType } from '../domain/enchant';
+import { STATUS_DEFS, type DoTEvent } from '../domain/status';
 
 // Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
 // HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
@@ -165,6 +167,89 @@ export function removeEnemy(id: string): void {
     }
     return { ...state, enemies, targetId };
   });
+}
+
+// === Statuses ========================================================
+// Re-applying the same status refreshes its duration but preserves
+// the dripping DoT accumulator. One instance per status per fighter
+// (no stacks); shock/freeze are non-DoT, just enable their multiplier
+// while the timer runs.
+function withStatus(f: Fighter, status: StatusType): Fighter {
+  const def = STATUS_DEFS[status];
+  const existing = f.statuses?.[status];
+  return {
+    ...f,
+    statuses: {
+      ...f.statuses,
+      [status]: {
+        remainingSec: def.durationSec,
+        accumulatedDmg: existing?.accumulatedDmg ?? 0,
+      },
+    },
+  };
+}
+
+export function applyStatusToEnemy(id: string, status: StatusType): void {
+  fight.update((state) => ({
+    ...state,
+    enemies: state.enemies.map((e) => (e.id === id ? withStatus(e, status) : e)),
+  }));
+}
+
+export function applyStatusToPlayer(status: StatusType): void {
+  fight.update((state) => ({ ...state, player: withStatus(state.player, status) }));
+}
+
+// One pass per Battlefield tick: ages every active status, drips
+// DoT damage into a per-status accumulator, and applies whole
+// hp-ticks (floors the accumulator). Returns a list of DoT events
+// so the view layer can paint coloured damage numbers - we don't
+// want the fight store to know about Pixi.
+export function tickStatuses(dt: number): DoTEvent[] {
+  const events: DoTEvent[] = [];
+  fight.update((state) => ({
+    ...state,
+    player: tickFighterStatuses(state.player, dt, events),
+    enemies: state.enemies.map((e) => tickFighterStatuses(e, dt, events)),
+  }));
+  return events;
+}
+
+function tickFighterStatuses(f: Fighter, dt: number, events: DoTEvent[]): Fighter {
+  if (!f.statuses) return f;
+  if (f.hp <= 0) {
+    // Dead fighters drop their statuses so corpses don't keep
+    // ticking and the next-fight reset starts clean.
+    return f.statuses ? { ...f, statuses: undefined } : f;
+  }
+
+  let hp = f.hp;
+  const next: Partial<Record<StatusType, typeof f.statuses[StatusType]>> = {};
+  let mutated = false;
+  for (const [key, inst] of Object.entries(f.statuses) as [
+    StatusType,
+    NonNullable<typeof f.statuses[StatusType]>,
+  ][]) {
+    const def = STATUS_DEFS[key];
+    if (!def || !inst) continue;
+    const remainingSec = inst.remainingSec - dt;
+    if (remainingSec <= 0) {
+      mutated = true;
+      continue;
+    }
+    let acc = inst.accumulatedDmg + def.dmgPerSec * dt;
+    if (acc >= 1) {
+      const damage = Math.min(hp, Math.floor(acc));
+      acc -= damage;
+      hp -= damage;
+      events.push({ targetId: f.id, status: key, amount: damage });
+      mutated = true;
+    }
+    next[key] = { remainingSec, accumulatedDmg: acc };
+    if (remainingSec !== inst.remainingSec) mutated = true;
+  }
+  if (!mutated && hp === f.hp) return f;
+  return { ...f, hp, statuses: next };
 }
 
 // === Loot ============================================================

@@ -14,15 +14,20 @@ import {
   setTarget,
   applyDamage,
   applyDamageToPlayer,
+  applyStatusToEnemy,
+  applyStatusToPlayer,
   healPlayer,
   killEnemy,
+  tickStatuses,
   type FightState,
 } from '../state/fight';
-import { playerProfile } from '../state/player-profile';
+import { playerEnchants, playerProfile } from '../state/player-profile';
 import type { AttackProfile } from '../domain/attack-profile';
 import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
+import type { StatusType } from '../domain/enchant';
+import { STATUS_DEFS } from '../domain/status';
 
 const EMOJI_FONT_STACK = [
   'Noto Color Emoji',
@@ -162,11 +167,12 @@ export class Battlefield {
 
     const dt = ticker.deltaMS / 1000;
 
-    // Player auto-attack
+    // Player auto-attack. A frozen player swings slower per
+     // STATUS_DEFS.freeze.attackIntervalMul.
     this.cooldown -= dt;
     if (this.cooldown <= 0) {
       this.fireAttack(state);
-      this.cooldown = this.attack.interval;
+      this.cooldown = this.attack.interval * this.freezeMulFor(state.player);
     }
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
@@ -180,6 +186,17 @@ export class Battlefield {
       }
     }
 
+    // Statuses: age every active burn/bleed/poison/freeze/shock,
+    // apply whole-hp DoT ticks, and float a coloured number on the
+    // target view for each tick that landed.
+    const events = tickStatuses(dt);
+    for (const ev of events) {
+      const view = this.views.get(ev.targetId);
+      if (!view || view.container.destroyed) continue;
+      const def = STATUS_DEFS[ev.status];
+      this.spawnFloatNumber(view, `${def.emoji} -${ev.amount}`, def.color, 22);
+    }
+
     // Per-enemy attacks: each enemy fires on its own catalogue-defined
     // interval, dealing its catalogue damage to the player.
     for (const enemy of state.enemies) {
@@ -189,8 +206,8 @@ export class Battlefield {
       const current = this.enemyCooldowns.get(enemy.id) ?? def.interval;
       const next = current - dt;
       if (next <= 0) {
-        this.fireEnemyAttack(enemy, def.damage);
-        this.enemyCooldowns.set(enemy.id, def.interval);
+        this.fireEnemyAttack(enemy, def);
+        this.enemyCooldowns.set(enemy.id, def.interval * this.freezeMulFor(enemy));
       } else {
         this.enemyCooldowns.set(enemy.id, next);
       }
@@ -229,9 +246,11 @@ export class Battlefield {
     // Crit roll: multiplies damage by critMultiplier. Crits get a
     // bigger / yellower damage number to telegraph the impact.
     const isCrit = this.attack.critChance > 0 && Math.random() < this.attack.critChance;
-    const damage = Math.round(
-      isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage,
-    );
+    const base = isCrit ? this.attack.damage * this.attack.critMultiplier : this.attack.damage;
+    // Shocked targets take takeDamageMul more damage from every
+    // source. Stacks multiplicatively with crit.
+    const shockMul = target.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
+    const damage = Math.round(base * shockMul);
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
@@ -242,6 +261,19 @@ export class Battlefield {
     this.playHitReact(view);
     this.spawnSlash(view);
     applyDamage(state.targetId, damage);
+
+    // Weapon status-on-hit (Pyroclasm burn, Frostbite freeze, etc.).
+    // Independent rolls per effect; landed statuses get a tiny icon
+    // float on the target so the proc reads.
+    for (const enchant of get(playerEnchants)) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'status-on-hit' && Math.random() < eff.chance) {
+          applyStatusToEnemy(state.targetId, eff.status);
+          const def = STATUS_DEFS[eff.status];
+          this.spawnFloatNumber(view, def.emoji, def.color, 28);
+        }
+      }
+    }
 
     // Vampiric / Lifedrain: heal the player by a fraction of damage
     // dealt. Numbers float green above the player so the heal is
@@ -260,8 +292,13 @@ export class Battlefield {
 
   // Symmetric to fireAttack: an enemy lands a hit on the Player. Applies
   // damage, plays the same flash + recoil + slash + floating number combo
-  // on the Player's view.
-  private fireEnemyAttack(enemy: Fighter, damage: number): void {
+  // on the Player's view. Takes the full EnemyDef so this method can
+  // read appliesStatus (Slime's poison) along with damage.
+  private fireEnemyAttack(
+    enemy: Fighter,
+    def: { damage: number; appliesStatus?: StatusType },
+  ): void {
+    const damage = def.damage;
     const state = get(fight);
     if (state.player.hp <= 0) return;
     // Re-check the enemy against the LIVE store: the snapshot in onTick may
@@ -290,10 +327,12 @@ export class Battlefield {
       return;
     }
 
-    // Flat damage reduction from Fortitude etc. Resists / status /
-    // big-hit / low-hp modifiers will plug in here in a follow-up
-    // depth pass.
-    let incoming = damage;
+    // Flat damage reduction from Fortitude etc. Shock on the player
+    // amplifies the incoming hit before DR is applied. Resists / big-
+    // hit / low-hp modifiers will plug in here in a follow-up depth
+    // pass.
+    const playerShockMul = state.player.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
+    let incoming = Math.round(damage * playerShockMul);
     if (this.defence.damageReduction > 0) {
       incoming = Math.max(1, Math.round(incoming * (1 - this.defence.damageReduction)));
     }
@@ -304,6 +343,28 @@ export class Battlefield {
     this.spawnSlash(playerView);
     applyDamageToPlayer(incoming);
 
+    // Enemy-applied status (e.g. Slime's poison): roll a flat 30%
+    // chance per hit, respecting player's Hex Ward / Eternal Vigil.
+    if (def.appliesStatus && Math.random() < 0.3 && this.playerCanBeStatused(def.appliesStatus)) {
+      applyStatusToPlayer(def.appliesStatus);
+      const sd = STATUS_DEFS[def.appliesStatus];
+      this.spawnFloatNumber(playerView, sd.emoji, sd.color, 28);
+    }
+
+    // Armor aura-on-hit (Burn Aura, Frost Aura, etc.): each rolls
+    // independently and inflicts its status on the attacking enemy.
+    if (enemyView && !enemyView.container.destroyed) {
+      for (const enchant of get(playerEnchants)) {
+        for (const eff of enchant.effects) {
+          if (eff.kind === 'aura-on-hit' && Math.random() < eff.chance) {
+            applyStatusToEnemy(enemy.id, eff.status);
+            const sd = STATUS_DEFS[eff.status];
+            this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
+          }
+        }
+      }
+    }
+
     // Thorns: flat reflect to the attacker. The attacker's hit flash
     // + damage number play so the player sees the reflect land.
     if (this.defence.thornsFlat > 0 && enemyView && !enemyView.container.destroyed) {
@@ -312,6 +373,27 @@ export class Battlefield {
       this.playHitFlash(enemyView);
       applyDamage(enemy.id, reflect);
     }
+  }
+
+  // Status resist roll for the player: Eternal Vigil makes them
+  // immune outright; otherwise sum every Hex Ward stack and roll.
+  // Returns true if the status should land.
+  private playerCanBeStatused(_status: StatusType): boolean {
+    let totalResist = 0;
+    for (const enchant of get(playerEnchants)) {
+      for (const eff of enchant.effects) {
+        if (eff.kind === 'status-immune') return false;
+        if (eff.kind === 'status-resist-chance') totalResist += eff.chance;
+      }
+    }
+    if (totalResist <= 0) return true;
+    return Math.random() >= Math.min(1, totalResist);
+  }
+
+  // Multiplier on `interval` for an attacker who's currently frozen.
+  // 1.0 = unaffected; 1.6 = swings 60% slower while the freeze lasts.
+  private freezeMulFor(f: Fighter): number {
+    return f.statuses?.freeze ? STATUS_DEFS.freeze.attackIntervalMul ?? 1 : 1;
   }
 
   // Quick lunge of the Player container toward the target, then snap back.

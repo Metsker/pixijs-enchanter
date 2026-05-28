@@ -30,3 +30,9 @@ export const playerProfile = derived(equipped, ($eq): PlayerProfile => {
     defence: resolveDefence(enchants),
   };
 });
+
+// Flat list of every enchant on every equipped item. Combat hooks
+// that need to scan for specific effect kinds (status-on-hit,
+// aura-on-hit, knockback-on-hit, etc.) read from here so they don't
+// have to walk the EquippedItems map themselves.
+export const playerEnchants = derived(equipped, ($eq) => collectEnchants($eq));
