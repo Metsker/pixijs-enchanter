@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
   import { equipFromBackpack, equipped, unequipToBackpack } from '../state/inventory';
   import { backpack } from '../state/backpack';
@@ -176,9 +177,36 @@
     const subject = $inspector;
     if (!subject) return;
     if (subject.source === 'backpack') {
-      if (equipFromBackpack(subject.index) !== null) closeInspector();
+      const landedSlot = equipFromBackpack(subject.index);
+      if (landedSlot !== null) {
+        // Follow the item to its new home: Inspector stays open, source
+        // flips backpack -> inventory, CTA flips Equip -> Unequip. The
+        // Backpack tile's inspecting border vanishes; the Inventory slot
+        // lights up. Keyboard focus also moves to the slot for a11y.
+        const newItem = get(equipped)[landedSlot];
+        if (newItem) {
+          inspector.set({ source: 'inventory', slotId: landedSlot, item: newItem });
+        }
+        queueMicrotask(() => {
+          document
+            .querySelector<HTMLElement>(`.inventory [data-slot-id="${landedSlot}"]`)
+            ?.focus();
+        });
+      }
     } else if (subject.source === 'inventory') {
-      if (unequipToBackpack(subject.slotId)) closeInspector();
+      const landedIndex = unequipToBackpack(subject.slotId);
+      if (landedIndex !== -1) {
+        // Symmetric: Inspector follows the item back into the Backpack.
+        const newItem = get(backpack)[landedIndex];
+        if (newItem) {
+          inspector.set({ source: 'backpack', index: landedIndex, item: newItem });
+        }
+        queueMicrotask(() => {
+          document
+            .querySelector<HTMLElement>(`.backpack [data-cell-index="${landedIndex}"]`)
+            ?.focus();
+        });
+      }
     } else {
       buyItem(subject.index);
     }

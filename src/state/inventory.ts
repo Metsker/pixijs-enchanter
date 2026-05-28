@@ -57,15 +57,15 @@ export function updateEquippedAt(
 }
 
 // Unequip per CONTEXT.md § Inventory: the item returns to the Backpack;
-// refused if the Backpack is full. Returns true on success.
-export function unequipToBackpack(slotId: EquipmentSlotId): boolean {
+// refused if the Backpack is full. Returns the backpack index the item
+// landed at, or -1 on refusal.
+export function unequipToBackpack(slotId: EquipmentSlotId): number {
   const currentEquipped = get(equipped);
   const item = currentEquipped[slotId];
-  if (!item) return false;
+  if (!item) return -1;
 
-  if (!get(backpack).includes(null)) return false;
+  if (!get(backpack).includes(null)) return -1;
 
   equipped.update((eq) => ({ ...eq, [slotId]: null }));
-  addItem(item);
-  return true;
+  return addItem(item);
 }

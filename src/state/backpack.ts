@@ -49,16 +49,17 @@ function makeInitial(): (Item | null)[] {
 export const backpack = writable<(Item | null)[]>(makeInitial());
 
 // Drop placement: new acquisitions go to the first empty slot in reading
-// order. Returns true if placed, false if the Backpack was full (per spec
-// the dropped item is destroyed with no refund or notification).
-export function addItem(item: Item): boolean {
-  let placed = false;
+// order. Returns the index the item landed at, or -1 if the Backpack was
+// full (per spec the dropped item is destroyed with no refund or
+// notification).
+export function addItem(item: Item): number {
+  let placed = -1;
   backpack.update((slots) => {
     const idx = slots.findIndex((s) => s === null);
     if (idx === -1) return slots;
     const next = slots.slice();
     next[idx] = item;
-    placed = true;
+    placed = idx;
     return next;
   });
   return placed;

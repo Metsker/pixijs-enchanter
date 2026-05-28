@@ -32,6 +32,7 @@
         class:inspecting={isInspecting(slotId)}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
+        data-slot-id={slotId}
         onclick={() => inspectItem({ source: 'inventory', slotId, item })}
       >
         <span class="emoji">{itemEmoji(item)}</span>
