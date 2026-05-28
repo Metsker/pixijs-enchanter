@@ -424,7 +424,7 @@
     background: #1c1c24;
     border-left: 1px solid #2a2a34;
     box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
-    z-index: 90;
+    z-index: 110;
     display: flex;
     flex-direction: column;
     user-select: none;

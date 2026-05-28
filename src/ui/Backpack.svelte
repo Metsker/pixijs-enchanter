@@ -1,4 +1,20 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+
+  // Custom pop-in/out: preserves the .backpack's translate(-50%, -50%)
+  // centering transform while animating scale and opacity. svelte's built-in
+  // `scale` transition replaces transform entirely and would un-center us.
+  function popPanel(_node: Element, { duration = 180 }: { duration?: number } = {}) {
+    return {
+      duration,
+      easing: cubicOut,
+      css: (t: number) => `
+        transform: translate(-50%, -50%) scale(${0.94 + 0.06 * t});
+        opacity: ${t};
+      `,
+    };
+  }
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { backpackOpen, toggleBackpack } from '../state/ui';
   import { itemEmoji, tierOf } from '../domain/item';
@@ -80,7 +96,20 @@
 </script>
 
 {#if $backpackOpen}
-  <div class="backpack" role="dialog" aria-modal="false" aria-label={t('backpack.title')}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="backpack-scrim"
+    transition:fade={{ duration: 150 }}
+    onclick={toggleBackpack}
+  ></div>
+  <div
+    class="backpack"
+    role="dialog"
+    aria-modal="false"
+    aria-label={t('backpack.title')}
+    transition:popPanel
+  >
     <header class="toolbar">
       <h2>{t('backpack.title')}</h2>
       <div class="actions">
@@ -148,6 +177,17 @@
 {/if}
 
 <style>
+  .backpack-scrim {
+    position: fixed;
+    top: 56px; /* below the TopBar */
+    bottom: 0;
+    left: 80px; /* clear the InventoryColumn */
+    right: 0;
+    background: rgba(8, 8, 12, 0.45);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 95;
+  }
   .backpack {
     position: fixed;
     top: 50%;
