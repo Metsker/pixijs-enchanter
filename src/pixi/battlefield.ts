@@ -204,46 +204,42 @@ export class Battlefield {
     tl.to(view.emojiText, { x: 0, duration: 0.3, ease: 'elastic.out(1, 0.5)' });
   }
 
-  // Diagonal slash mark drawn over the target: scales in from a small
-  // size, then fades out. Reads as a quick sword swing landing.
+  // Vertical slash: the line redraws each tween tick growing from the
+  // top point downward, then fades out. Looks like a slash being struck
+  // through the character in one swift motion.
   private spawnSlash(view: FighterView): void {
     if (view.container.destroyed) return;
     const cx = view.container.x;
     const cy = view.container.y - view.emojiText.height * 0.5;
-    const size = view.emojiText.height * 0.5;
+    const halfH = view.emojiText.height * 0.55;
 
     const slash = new Graphics();
     slash.eventMode = 'none';
-    // Outer glow + crisp inner line, both centred around (0,0) so the
-    // scale tween radiates from the slash's middle.
-    slash.moveTo(-size, size * 0.6).lineTo(size, -size * 0.6).stroke({
-      color: 0xffeebb,
-      width: 8,
-      cap: 'round',
-      alpha: 0.9,
-    });
-    slash.moveTo(-size, size * 0.6).lineTo(size, -size * 0.6).stroke({
-      color: 0xffffff,
-      width: 2,
-      cap: 'round',
-      alpha: 1,
-    });
-
     slash.x = cx;
     slash.y = cy;
-    slash.rotation = -0.18;
-    slash.scale.set(0.45);
-    slash.alpha = 0;
     this.app.stage.addChild(slash);
+
+    const state = { progress: 0 };
+    const redraw = (): void => {
+      slash.clear();
+      const endY = -halfH + state.progress * (halfH * 2);
+      slash
+        .moveTo(0, -halfH)
+        .lineTo(0, endY)
+        .stroke({ color: 0xffeebb, width: 8, cap: 'round', alpha: 0.85 });
+      slash
+        .moveTo(0, -halfH)
+        .lineTo(0, endY)
+        .stroke({ color: 0xffffff, width: 2, cap: 'round', alpha: 1 });
+    };
 
     const tl = gsap.timeline({
       onComplete: () => {
         if (!slash.destroyed) slash.destroy();
       },
     });
-    tl.to(slash, { alpha: 1, duration: 0.04 }, 0);
-    tl.to(slash.scale, { x: 1.25, y: 1.25, duration: 0.14, ease: 'power2.out' }, 0);
-    tl.to(slash, { alpha: 0, duration: 0.22, ease: 'power2.in' }, 0.15);
+    tl.to(state, { progress: 1, duration: 0.12, ease: 'power2.out', onUpdate: redraw });
+    tl.to(slash, { alpha: 0, duration: 0.22, ease: 'power2.in' });
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
