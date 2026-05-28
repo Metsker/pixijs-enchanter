@@ -109,6 +109,23 @@ function groupKey(item: Item): string {
   return item.itemType;
 }
 
+// Apply a mutator to the item at `index`. Pass `null` from the mutator to
+// remove the item (slot becomes empty). Returns the new item (or null) for
+// the caller's convenience.
+export function updateItemAt(index: number, mutate: (item: Item) => Item | null): Item | null {
+  let result: Item | null = null;
+  backpack.update((slots) => {
+    if (index < 0 || index >= slots.length) return slots;
+    const current = slots[index];
+    if (!current) return slots;
+    result = mutate(current);
+    const next = slots.slice();
+    next[index] = result;
+    return next;
+  });
+  return result;
+}
+
 export function sortBackpack(): void {
   backpack.update((slots) => {
     const filled = slots.filter((s): s is Item => s !== null);

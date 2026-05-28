@@ -19,3 +19,27 @@ const initial: TopbarState = {
 };
 
 export const topbar = writable<TopbarState>(initial);
+
+export function spendCrystals(amount: number): boolean {
+  let ok = false;
+  topbar.update((s) => {
+    if (s.crystals < amount) return s;
+    ok = true;
+    return { ...s, crystals: s.crystals - amount };
+  });
+  return ok;
+}
+
+export function refundCrystals(amount: number): void {
+  topbar.update((s) => ({ ...s, crystals: s.crystals + amount }));
+}
+
+export function spendSeals(amount: number): boolean {
+  let ok = false;
+  topbar.update((s) => {
+    if (s.seals < amount) return s;
+    ok = true;
+    return { ...s, seals: s.seals - amount };
+  });
+  return ok;
+}

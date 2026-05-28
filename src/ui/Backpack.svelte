@@ -14,7 +14,8 @@
     7: '#fbbf24',
   };
 
-  import { inspectItem, inspector } from '../state/inspector';
+  import { inspector } from '../state/inspector';
+  import { clickItem } from '../state/workbench';
 
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
@@ -63,7 +64,7 @@
         // No drag - treat as a tile click: open the Inspector.
         const item = $backpack[dragging];
         if (item) {
-          inspectItem({ source: 'backpack', index: dragging, item });
+          clickItem({ source: 'backpack', index: dragging, item });
         }
       }
     }

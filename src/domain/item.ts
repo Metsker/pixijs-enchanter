@@ -15,6 +15,14 @@ export interface Item {
   // Slot 1 sits at the base; later slots alternate main / utility.
   // Tier 7 adds a Unique-slot enchant - separate from this list; modelled later.
   enchants: Enchantment[];
+  // 1-indexed slot positions that have been Lock-selected. Sealed slots are
+  // protected from Reroll All / Reroll Mains / Reroll Utilities / Disenchant
+  // top / Remove selected. Only Destroy pops a sealed slot.
+  sealedSlots?: number[];
+}
+
+export function isSealed(item: Item, slotIndex1Based: number): boolean {
+  return item.sealedSlots?.includes(slotIndex1Based) ?? false;
 }
 
 // Enchant-stack alternation per CONTEXT.md § Enchant stack:

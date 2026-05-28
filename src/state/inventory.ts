@@ -40,6 +40,22 @@ export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null
   return null;
 }
 
+// Apply a mutator to the item in `slotId`. Pass `null` from the mutator to
+// unequip (slot becomes empty). Returns the new item (or null).
+export function updateEquippedAt(
+  slotId: EquipmentSlotId,
+  mutate: (item: Item) => Item | null,
+): Item | null {
+  let result: Item | null = null;
+  equipped.update((eq) => {
+    const current = eq[slotId];
+    if (!current) return eq;
+    result = mutate(current);
+    return { ...eq, [slotId]: result };
+  });
+  return result;
+}
+
 // Unequip per CONTEXT.md § Inventory: the item returns to the Backpack;
 // refused if the Backpack is full. Returns true on success.
 export function unequipToBackpack(slotId: EquipmentSlotId): boolean {

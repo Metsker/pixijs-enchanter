@@ -42,6 +42,7 @@ export class Battlefield {
   private resizeListener?: () => void;
   private profile!: AttackProfile;
   private cooldown = 0;
+  private damageNumbers = new Set<Text>();
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -150,13 +151,17 @@ export class Battlefield {
     text.x = view.container.x + (Math.random() - 0.5) * 40;
     text.y = view.container.y - view.emojiText.height - 24;
     this.app.stage.addChild(text);
+    this.damageNumbers.add(text);
 
     gsap.to(text, {
       y: text.y - 70,
       alpha: 0,
       duration: DAMAGE_NUMBER_DURATION,
       ease: 'power2.out',
-      onComplete: () => text.destroy(),
+      onComplete: () => {
+        this.damageNumbers.delete(text);
+        if (!text.destroyed) text.destroy();
+      },
     });
   }
 
@@ -284,6 +289,10 @@ export class Battlefield {
       gsap.killTweensOf(view.container);
       gsap.killTweensOf(view.container.scale);
     }
+    for (const text of this.damageNumbers) {
+      gsap.killTweensOf(text);
+    }
+    this.damageNumbers.clear();
     this.app.destroy(true, { children: true, texture: true });
     this.views.clear();
   }

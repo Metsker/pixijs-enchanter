@@ -2,7 +2,8 @@
   import { equipped } from '../state/inventory';
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
   import { itemEmoji, tierOf } from '../domain/item';
-  import { inspectItem, inspector } from '../state/inspector';
+  import { inspector } from '../state/inspector';
+  import { clickItem } from '../state/workbench';
   import { t } from '../i18n';
 
   function isInspecting(slotId: EquipmentSlotId): boolean {
@@ -32,7 +33,7 @@
         class:inspecting={isInspecting(slotId)}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
-        onclick={() => inspectItem({ source: 'inventory', slotId, item })}
+        onclick={() => clickItem({ source: 'inventory', slotId, item })}
       >
         <span class="emoji">{itemEmoji(item)}</span>
         <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
