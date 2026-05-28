@@ -1,5 +1,6 @@
 import {
   Application,
+  ColorMatrixFilter,
   Container,
   Graphics,
   Text,
@@ -141,8 +142,42 @@ export class Battlefield {
     const view = this.views.get(state.targetId);
     if (!view || view.container.destroyed) return;
 
+    this.playAttackSwing(view);
     this.spawnDamageNumber(view, this.profile.damage);
+    this.playHitFlash(view);
     applyDamage(state.targetId, this.profile.damage);
+  }
+
+  // Quick lunge of the Player container toward the target, then snap back.
+  // Cheap "I just swung" beat without any animation framework.
+  private playAttackSwing(targetView: FighterView): void {
+    const playerView = this.views.get(get(fight).player.id);
+    if (!playerView || playerView.container.destroyed) return;
+    const originalX = playerView.container.x;
+    const dx = targetView.container.x > originalX ? 28 : -28;
+    gsap.killTweensOf(playerView.container, 'x');
+    const tl = gsap.timeline();
+    tl.to(playerView.container, { x: originalX + dx, duration: 0.08, ease: 'power2.out' });
+    tl.to(playerView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
+  }
+
+  // Brief red tint on the target via a ColorMatrixFilter whose alpha
+  // fades from 1 to 0 over ~200ms. Filter is removed on completion so
+  // it doesn't accumulate.
+  private playHitFlash(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const cm = new ColorMatrixFilter();
+    cm.tint(0xff3030, false);
+    cm.alpha = 1;
+    view.container.filters = [cm];
+    gsap.to(cm, {
+      alpha: 0,
+      duration: 0.2,
+      ease: 'power2.out',
+      onComplete: () => {
+        if (!view.container.destroyed) view.container.filters = [];
+      },
+    });
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
