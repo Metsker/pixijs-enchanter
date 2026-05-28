@@ -3,6 +3,10 @@ import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/m
 import { endFight, fight, startFightWith } from './fight';
 import { closeShop, openShopForFloor } from './shop';
 import { resetPendingRewards } from './rewards';
+import { resetBackpack } from './backpack';
+import { resetEquipped } from './inventory';
+import { resetTopbar } from './topbar';
+import { closeInspector } from './inspector';
 
 export type Screen = 'map' | 'fight' | 'shop' | 'rest' | 'run-complete' | 'run-lost';
 
@@ -73,8 +77,15 @@ export function completeRoom(): void {
 }
 
 export function startNewRun(): void {
+  // Full wipe: nothing carries between runs - same policy on a defeat
+  // and on a boss-clear, so the loot loop starts fresh each time.
   endFight();
   resetPendingRewards();
+  resetBackpack();
+  resetEquipped();
+  resetTopbar();
+  closeInspector();
+  closeShop();
   run.set(makeInitial());
 }
 

@@ -8,11 +8,17 @@ import { addItem, backpack, removeItem } from './backpack';
 
 export type EquippedItems = Record<EquipmentSlotId, Item | null>;
 
-const initial: EquippedItems = Object.fromEntries(
-  EQUIPMENT_SLOT_ORDER.map((slotId) => [slotId, null]),
-) as EquippedItems;
+function makeInitial(): EquippedItems {
+  return Object.fromEntries(
+    EQUIPMENT_SLOT_ORDER.map((slotId) => [slotId, null]),
+  ) as EquippedItems;
+}
 
-export const equipped = writable<EquippedItems>(initial);
+export const equipped = writable<EquippedItems>(makeInitial());
+
+export function resetEquipped(): void {
+  equipped.set(makeInitial());
+}
 
 // Equip flow Path A per CONTEXT.md § Equip flow: take the item out of the
 // Backpack and place it in the FIRST EMPTY legal slot in canonical order

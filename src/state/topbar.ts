@@ -9,16 +9,22 @@ export interface TopbarState {
   floor: number;
 }
 
-const initial: TopbarState = {
-  gold: 250,
-  crystals: 30,
-  emptyScrolls: 2,
-  seals: 1,
-  act: 1,
-  floor: 1,
-};
+function makeInitial(): TopbarState {
+  return {
+    gold: 250,
+    crystals: 30,
+    emptyScrolls: 2,
+    seals: 1,
+    act: 1,
+    floor: 1,
+  };
+}
 
-export const topbar = writable<TopbarState>(initial);
+export const topbar = writable<TopbarState>(makeInitial());
+
+export function resetTopbar(): void {
+  topbar.set(makeInitial());
+}
 
 export function spendCrystals(amount: number): boolean {
   let ok = false;

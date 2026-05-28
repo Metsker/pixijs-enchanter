@@ -9,6 +9,10 @@ function makeInitial(): (Item | null)[] {
 
 export const backpack = writable<(Item | null)[]>(makeInitial());
 
+export function resetBackpack(): void {
+  backpack.set(makeInitial());
+}
+
 // Drop placement: new acquisitions go to the first empty slot in reading
 // order. Returns the index the item landed at, or -1 if the Backpack was
 // full (per spec the dropped item is destroyed with no refund or
