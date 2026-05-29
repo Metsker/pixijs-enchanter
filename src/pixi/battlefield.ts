@@ -731,6 +731,9 @@ export class Battlefield {
   // landDamage - same spawnFloatNumber + playHitFlash + applyDamage
   // beat per target.
   private fireProc(proc: ResolvedProc, state: FightState): void {
+    // Only damage payloads are wired into the engine so far; heal / shield /
+    // buff / gold payloads land in a later stage (see docs/gem-catalogue.md).
+    if (proc.payload.kind !== 'damage') return;
     const alive = state.enemies.filter((e) => e.hp > 0);
     if (alive.length === 0) return;
 
@@ -760,7 +763,7 @@ export class Battlefield {
       targets = picks;
     }
 
-    const damage = Math.max(1, Math.round(proc.damage));
+    const damage = Math.max(1, Math.round(proc.payload.damage));
     for (const target of targets) {
       const view = this.views.get(target.id);
       if (!view || view.container.destroyed) continue;

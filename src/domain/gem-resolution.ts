@@ -26,15 +26,21 @@
 //   with no effect to its right, so it is inert.
 
 import type { EnchantEffect } from './enchant';
-import type { Gem, ProcDef, SupportMod, GemDef } from './gem';
+import type { Gem, ProcDef, ProcPayload, SupportMod, GemDef } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 
 // A proc after its bound supports are applied: the ProcDef fields plus where it
 // came from (sourceDefId), the resolved crit chance (0 unless a crit support
-// applied), and the riders accumulated from rider supports + the proc's own.
+// applied), the riders accumulated from rider supports + the proc's own, and
+// any extra casts a `repeat` support (Echo) granted. The payload is carried
+// through with its magnitude already scaled.
 export interface ResolvedProc extends ProcDef {
   sourceDefId: string;
   critChance: number;
+  // Extra fires beyond the first, each `repeatDelaySec` after the previous
+  // (Echo: extraCasts 1). 0 means the proc fires once, as normal.
+  extraCasts: number;
+  repeatDelaySec: number;
 }
 
 export interface ResolvedItemGems {
@@ -63,12 +69,31 @@ function scaleEffect(effect: EnchantEffect, factor: number): EnchantEffect {
   return e;
 }
 
-// Apply a support's knob to a proc-in-progress. A knob that does not apply to a
-// proc is ignored for that part (none here - every knob applies to procs).
+// Scale a payload's magnitude by a factor. `scale` (Overload / Amplify)
+// multiplies the damage of a damage payload, or the heal / shield fraction of
+// those payloads; buff and gold payloads carry no scalable magnitude here, so
+// scale leaves them untouched (see docs/gems.md § Support knobs).
+function scalePayload(payload: ProcPayload, factor: number): ProcPayload {
+  switch (payload.kind) {
+    case 'damage':
+      return { ...payload, damage: payload.damage * factor };
+    case 'heal':
+    case 'shield':
+      return { ...payload, fraction: payload.fraction * factor };
+    case 'buff':
+    case 'gold':
+      return payload;
+  }
+}
+
+// Apply a support's knob to a proc-in-progress. `scale` multiplies the payload
+// magnitude; `count` / `crit` / `rider` only carry meaning for a damage
+// payload but are harmless on the others (they tune fields the engine ignores
+// for non-damage procs). `cooldown` applies to every proc.
 function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
   switch (mod.kind) {
     case 'scale':
-      proc.damage *= mod.factor;
+      proc.payload = scalePayload(proc.payload, mod.factor);
       break;
     case 'count':
       proc.count += mod.plus;
@@ -82,6 +107,10 @@ function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
       break;
     case 'rider':
       proc.riders = [...proc.riders, mod.status];
+      break;
+    case 'repeat':
+      proc.extraCasts += mod.times;
+      proc.repeatDelaySec = mod.delaySec;
       break;
   }
 }
@@ -120,9 +149,13 @@ export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
     if ('proc' in def) {
       const resolved: ResolvedProc = {
         ...def.proc,
+        // Clone the payload so scale knobs never mutate the catalogue entry.
+        payload: { ...def.proc.payload },
         riders: [...def.proc.riders],
         sourceDefId: def.id,
         critChance: 0,
+        extraCasts: 0,
+        repeatDelaySec: 0,
       };
       for (const mod of pendingSupports) applyKnobToProc(resolved, mod);
       procs.push(resolved);

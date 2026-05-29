@@ -23,13 +23,33 @@ export type ProcTrigger = 'timer' | 'continuous' | 'on-kill' | 'on-crit' | 'on-h
 // How a firing proc picks its target(s).
 export type ProcTargeting = 'random' | 'all' | 'nearest';
 
-// An active ability: a trigger, a cooldown and a battlefield visual. Procs do
-// not crit by default (canCrit false) - a crit support flips canCrit on.
+// What a proc delivers when it fires. Most procs deal damage, but a few in the
+// catalogue heal, shield, self-buff or grant gold (see docs/gem-catalogue.md):
+//
+//   damage - deal `damage` of `damageType` to the proc's target(s).
+//   heal   - restore `fraction` of the player's max HP.
+//   shield - grant a shield worth `fraction` of the player's max HP.
+//   buff   - self-buff: +`attackSpeedAdd` attack speed for `durationSec`.
+//   gold   - on a kill, `chance` to drop bonus gold.
+//
+// Support knobs that only make sense for damage (count / crit / rider) are
+// inert on the other kinds; `scale` multiplies the payload magnitude (damage,
+// or heal / shield fraction) for every kind that carries one.
+export type ProcPayload =
+  | { kind: 'damage'; damage: number; damageType: DamageType }
+  | { kind: 'heal'; fraction: number }
+  | { kind: 'shield'; fraction: number }
+  | { kind: 'buff'; attackSpeedAdd: number; durationSec: number }
+  | { kind: 'gold'; chance: number };
+
+// An active ability: a trigger, a cooldown and a battlefield visual. The
+// payload (above) decides what firing actually does. Procs do not crit by
+// default (canCrit false) - a crit support flips canCrit on; crit / count /
+// rider only carry meaning for a damage payload.
 export interface ProcDef {
   trigger: ProcTrigger;
   cooldownSec: number;
-  damage: number;
-  damageType: DamageType;
+  payload: ProcPayload;
   targeting: ProcTargeting;
   count: number;
   canCrit: boolean;
@@ -47,12 +67,16 @@ export interface StatDef {
 
 // What a support does when it binds to an effect. A kind that doesn't apply to
 // the bound effect is simply ignored for that part (see docs/gems.md § knobs).
+// Two flavours of rider: a `rider` lands a status on the proc's target
+// (Igniting -> Burn, Chilling -> Freeze); a `repeat` makes the proc fire again
+// after a short delay (Echo -> fires twice).
 export type SupportMod =
   | { kind: 'scale'; factor: number }
   | { kind: 'count'; plus: number }
   | { kind: 'cooldown'; factor: number }
   | { kind: 'crit'; chanceAdd: number }
-  | { kind: 'rider'; status: StatusType };
+  | { kind: 'rider'; status: StatusType }
+  | { kind: 'repeat'; times: number; delaySec: number };
 
 // A gem definition. Discriminated first on role, then (for effects) on whether
 // it carries a proc or a stat.
