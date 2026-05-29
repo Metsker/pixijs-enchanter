@@ -30,6 +30,8 @@ import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
+import { resolveItemGems, type ResolvedProc } from '../domain/gem-resolution';
+import type { Gem } from '../domain/gem';
 import { STATUS_DEFS } from '../domain/status';
 import { playStatusSfx, sfx } from '../audio/sfx';
 
@@ -132,6 +134,13 @@ export class Battlefield {
   // yanks the player's target onto itself and locks it for
   // durationSec via applyTauntLock.
   private tauntCooldowns = new Map<string, number>();
+  // Gem proc engine: the central scheduler for active procs (see
+  // docs/gems.md § The proc engine). Each entry pairs a resolved proc
+  // with its remaining cooldown; in onTick we drain `remaining` by dt
+  // and fire + reset when it reaches 0. Built when a fight becomes
+  // active (buildProcs) and cleared when it ends. This layer handles
+  // the `timer` trigger - the only kind Chain Lightning uses.
+  private activeProcs: { proc: ResolvedProc; remaining: number }[] = [];
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -255,6 +264,18 @@ export class Battlefield {
       const adrenalineMul =
         performance.now() / 1000 < this.adrenalineUntil ? 1 - this.adrenalineBonus : 1;
       this.cooldown = this.attack.interval * adrenalineMul;
+    }
+
+    // Gem proc engine: drain each active timer proc's cooldown by dt
+    // and fire + reset when it hits 0. Firing picks targets among the
+    // alive enemies and deals damage via the existing damage path.
+    for (const entry of this.activeProcs) {
+      if (entry.proc.trigger !== 'timer') continue;
+      entry.remaining -= dt;
+      if (entry.remaining <= 0) {
+        this.fireProc(entry.proc, state);
+        entry.remaining += entry.proc.cooldownSec;
+      }
     }
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
@@ -709,6 +730,90 @@ export class Battlefield {
     }
   }
 
+  // Build the active proc list for a fresh fight: resolve every
+  // equipped item's sockets into procs and seed each timer proc with a
+  // FULL cooldown so the first bolt lands after one interval, not
+  // instantly. Continuous / reactive triggers are out of scope for
+  // this layer - they're carried in the list but only `timer` fires.
+  private buildProcs(): void {
+    this.activeProcs = [];
+
+    // SLICE: the socket / Item UI does not exist yet, so seed the
+    // engine from a hardcoded gem-instance list. Ordering
+    // [overload][chain-lightning] makes Overload bind to Chain
+    // Lightning to its right and scale its damage (200 -> 320),
+    // proving the support pass works end-to-end.
+    const seededSockets: Array<Gem | null> = [
+      { id: 'seed-overload', defId: 'overload' }, // SLICE
+      { id: 'seed-chain-lightning', defId: 'chain-lightning' }, // SLICE
+    ]; // SLICE
+
+    const { procs } = resolveItemGems(seededSockets); // SLICE
+    for (const proc of procs) {
+      this.activeProcs.push({ proc, remaining: proc.cooldownSec });
+    }
+  }
+
+  // Fire one proc: pick its target(s) among the alive enemies per
+  // targeting + count, deal damage via applyDamage, show placeholder
+  // feedback (the real visual is the next layer), apply riders, and
+  // kill any enemy dropped to 0 HP. Mirrors the Conduction chain in
+  // landDamage - same spawnFloatNumber + playHitFlash + applyDamage
+  // beat per target.
+  private fireProc(proc: ResolvedProc, state: FightState): void {
+    const alive = state.enemies.filter((e) => e.hp > 0);
+    if (alive.length === 0) return;
+
+    // Target selection. `all` hits every alive enemy; `nearest` picks
+    // the closest to the player by home X; `random` picks `count`
+    // distinct enemies uniformly at random.
+    let targets: Fighter[];
+    if (proc.targeting === 'all') {
+      targets = alive;
+    } else if (proc.targeting === 'nearest') {
+      const playerX = this.views.get(state.player.id)?.homeX ?? 0;
+      targets = [...alive]
+        .sort(
+          (a, b) =>
+            Math.abs((this.views.get(a.id)?.homeX ?? 0) - playerX) -
+            Math.abs((this.views.get(b.id)?.homeX ?? 0) - playerX),
+        )
+        .slice(0, Math.max(1, proc.count));
+    } else {
+      const pool = [...alive];
+      const picks: Fighter[] = [];
+      const n = Math.min(Math.max(1, proc.count), pool.length);
+      for (let i = 0; i < n; i++) {
+        const idx = Math.floor(Math.random() * pool.length);
+        picks.push(pool.splice(idx, 1)[0]);
+      }
+      targets = picks;
+    }
+
+    const damage = Math.max(1, Math.round(proc.damage));
+    for (const target of targets) {
+      const view = this.views.get(target.id);
+      if (!view || view.container.destroyed) continue;
+
+      // Placeholder feedback: emoji + "-" + number. The dedicated
+      // strike-line visual arrives in the next layer.
+      this.spawnFloatNumber(view, `${proc.emoji}-${damage}`, '#ffd84a', 28);
+      this.playHitFlash(view);
+
+      applyDamage(target.id, damage);
+
+      // Riders: each accumulated status the proc carries lands on the
+      // target (e.g. Igniting's Burn).
+      for (const status of proc.riders) {
+        applyStatusToEnemy(target.id, status);
+      }
+
+      // Killing blow: read the LIVE store - applyDamage just wrote it.
+      const after = get(fight).enemies.find((e) => e.id === target.id);
+      if (after && after.hp <= 0) killEnemy(target.id);
+    }
+  }
+
   // Symmetric to fireAttack: an enemy lands a hit on the Player. Applies
   // damage, plays the same flash + recoil + slash + floating number combo
   // on the Player's view. Takes the full EnemyDef so this method can
@@ -1101,6 +1206,14 @@ export class Battlefield {
       this.delayedPlayerDamage.length = 0;
       this.shakeIntensity = 0;
       this.tauntCooldowns.clear();
+      // Build the gem proc engine from the equipped gear (seeded for
+      // this slice) so timer procs like Chain Lightning start ticking.
+      this.buildProcs();
+    }
+    // Tear down the proc engine the moment the fight ends so no procs
+    // fire into a dead/absent enemy list between fights.
+    if (!state.inFight && this.prevInFight) {
+      this.activeProcs = [];
     }
     this.prevInFight = state.inFight;
 
@@ -1318,6 +1431,7 @@ export class Battlefield {
     gsap.globalTimeline.clear();
     this.damageNumbers.clear();
     this.enemyCooldowns.clear();
+    this.activeProcs = [];
     this.app.destroy(true, { children: true, texture: true });
     this.views.clear();
   }
