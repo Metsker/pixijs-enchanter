@@ -30,9 +30,19 @@ import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
+import type { ProcTrigger } from '../domain/gem';
 import { type ResolvedProc } from '../domain/gem-resolution';
 import { STATUS_DEFS } from '../domain/status';
+import { addRewardGold } from '../state/rewards';
 import { playStatusSfx, sfx } from '../audio/sfx';
+
+// Context for a proc firing: the optional event anchor a reactive
+// trigger carries (the corpse for on-kill, the crit target for on-crit,
+// the attacker for on-hit-taken) so targeting can focus on it. Empty
+// for the self-firing timer / continuous triggers.
+interface ProcContext {
+  anchorId?: string;
+}
 
 const EMOJI_FONT_STACK = [
   'Noto Color Emoji',
@@ -135,11 +145,25 @@ export class Battlefield {
   private tauntCooldowns = new Map<string, number>();
   // Gem proc engine: the central scheduler for active procs (see
   // docs/gems.md § The proc engine). Each entry pairs a resolved proc
-  // with its remaining cooldown; in onTick we drain `remaining` by dt
-  // and fire + reset when it reaches 0. Built when a fight becomes
-  // active (buildProcs) and cleared when it ends. This layer handles
-  // the `timer` trigger - the only kind Chain Lightning uses.
+  // with its remaining cooldown. Built when a fight becomes active
+  // (buildProcs) and cleared when it ends. In onTick the self-driving
+  // triggers run off `remaining`: `timer` drains it and fires + resets
+  // at 0; `continuous` treats cooldownSec as a tick interval and fires
+  // on that cadence. The reactive triggers (`on-kill` / `on-crit` /
+  // `on-hit-taken`) ignore `remaining` and fire from combat events via
+  // fireProcsForTrigger.
   private activeProcs: { proc: ResolvedProc; remaining: number }[] = [];
+  // Player shield (Bulwark): an absorb pool that soaks incoming damage
+  // before it reaches HP. Refilled by shield procs; the damage path in
+  // fireEnemyAttack drains it first, and the death pause leaves it be.
+  private playerShield = 0;
+  // Proc self-buff window (Time Warp): a buff payload sets this to
+  // (now + durationSec) and stores the attack-speed bonus. While now <
+  // value the player's attack interval is scaled by 1/(1 + bonus). Kept
+  // separate from the on-kill adrenaline window so the two stack
+  // cleanly; the strongest buff wins.
+  private procBuffUntil = 0;
+  private procBuffBonus = 0;
 
   async init(parent: HTMLElement): Promise<void> {
     this.app = new Application();
@@ -260,20 +284,26 @@ export class Battlefield {
     this.cooldown -= dt / this.freezeMulFor(state.player);
     if (this.cooldown <= 0) {
       this.fireAttack(state);
-      const adrenalineMul =
-        performance.now() / 1000 < this.adrenalineUntil ? 1 - this.adrenalineBonus : 1;
-      this.cooldown = this.attack.interval * adrenalineMul;
+      const now = performance.now() / 1000;
+      const adrenalineMul = now < this.adrenalineUntil ? 1 - this.adrenalineBonus : 1;
+      // Time Warp buff: +bonus attack speed shortens the interval by
+      // 1/(1 + bonus), stacking multiplicatively with adrenaline.
+      const buffMul = now < this.procBuffUntil ? 1 / (1 + this.procBuffBonus) : 1;
+      this.cooldown = this.attack.interval * adrenalineMul * buffMul;
     }
 
-    // Gem proc engine: drain each active timer proc's cooldown by dt
-    // and fire + reset when it hits 0. Firing picks targets among the
-    // alive enemies and deals damage via the existing damage path.
+    // Gem proc engine: drive the two self-firing triggers. `timer`
+    // procs drain `remaining` by dt and fire + reset when it hits 0;
+    // `continuous` procs (orbit / aura) treat cooldownSec as a tick
+    // interval and fire on that cadence while in combat. Reactive
+    // triggers fire from combat events, not here.
     for (const entry of this.activeProcs) {
-      if (entry.proc.trigger !== 'timer') continue;
+      if (entry.proc.trigger !== 'timer' && entry.proc.trigger !== 'continuous') continue;
+      const interval = Math.max(0.05, entry.proc.cooldownSec);
       entry.remaining -= dt;
       if (entry.remaining <= 0) {
-        this.fireProc(entry.proc, state);
-        entry.remaining += entry.proc.cooldownSec;
+        this.fireProc(entry.proc, state, {});
+        entry.remaining += interval;
       }
     }
 
@@ -593,6 +623,13 @@ export class Battlefield {
       this.shakeKick(6);
     }
 
+    // On-crit trigger: the auto-attack crit fires on-crit procs (Vault
+    // Strike echoes the crit). Anchored on the struck target so a
+    // nearest-targeting echo focuses there.
+    if (isCrit) {
+      this.fireProcsForTrigger('on-crit', get(fight), { anchorId: target.id });
+    }
+
     // Knockback: per-effect roll, on proc push the target's next
     // attack out by durationSec.
     for (const eff of effects) {
@@ -708,83 +745,247 @@ export class Battlefield {
   }
 
   // Build the active proc list for a fresh fight: resolve every
-  // equipped item's sockets into procs and seed each timer proc with a
-  // FULL cooldown so the first bolt lands after one interval, not
-  // instantly. Continuous / reactive triggers are out of scope for
-  // this layer - they're carried in the list but only `timer` fires.
+  // equipped item's sockets into procs and seed each with a FULL
+  // cooldown so timer procs land their first cast after one interval
+  // (not instantly) and continuous procs wait one tick before their
+  // first hit. Reactive procs (on-kill / on-crit / on-hit-taken) carry
+  // their cooldown too but ignore it - they fire from combat events.
   private buildProcs(): void {
     this.activeProcs = [];
 
     // Seed the engine from the player's currently-equipped gems: every
-    // item's sockets resolve to procs (player-profile.ts § playerProcs)
-    // and each timer proc starts at a FULL cooldown so the first cast
-    // lands after one interval, not instantly.
+    // item's sockets resolve to procs (player-profile.ts § playerProcs).
     for (const proc of get(playerProcs)) {
-      this.activeProcs.push({ proc, remaining: proc.cooldownSec });
+      this.activeProcs.push({ proc, remaining: Math.max(0.05, proc.cooldownSec) });
     }
   }
 
-  // Fire one proc: pick its target(s) among the alive enemies per
-  // targeting + count, deal damage via applyDamage, show placeholder
-  // feedback (the real visual is the next layer), apply riders, and
-  // kill any enemy dropped to 0 HP. Mirrors the Conduction chain in
-  // landDamage - same spawnFloatNumber + playHitFlash + applyDamage
-  // beat per target.
-  private fireProc(proc: ResolvedProc, state: FightState): void {
-    // Only damage payloads are wired into the engine so far; heal / shield /
-    // buff / gold payloads land in a later stage (see docs/gem-catalogue.md).
-    if (proc.payload.kind !== 'damage') return;
-    const alive = state.enemies.filter((e) => e.hp > 0);
-    if (alive.length === 0) return;
+  // Fire every active proc bound to a given trigger. The reactive
+  // triggers (on-kill / on-crit / on-hit-taken) route through here from
+  // their combat-event sites; they ignore their own cooldown (the
+  // catalogue defines them cooldown 0 anyway). `ctx` carries the event
+  // anchor - the corpse for on-kill, the crit target for on-crit, the
+  // attacker for on-hit-taken - so targeting can prefer it.
+  private fireProcsForTrigger(trigger: ProcTrigger, state: FightState, ctx: ProcContext): void {
+    for (const entry of this.activeProcs) {
+      if (entry.proc.trigger !== trigger) continue;
+      this.fireProc(entry.proc, state, ctx);
+    }
+  }
 
-    // Target selection. `all` hits every alive enemy; `nearest` picks
-    // the closest to the player by home X; `random` picks `count`
-    // distinct enemies uniformly at random.
-    let targets: Fighter[];
-    if (proc.targeting === 'all') {
-      targets = alive;
-    } else if (proc.targeting === 'nearest') {
-      const playerX = this.views.get(state.player.id)?.homeX ?? 0;
-      targets = [...alive]
-        .sort(
-          (a, b) =>
-            Math.abs((this.views.get(a.id)?.homeX ?? 0) - playerX) -
-            Math.abs((this.views.get(b.id)?.homeX ?? 0) - playerX),
-        )
-        .slice(0, Math.max(1, proc.count));
-    } else {
-      const pool = [...alive];
-      const picks: Fighter[] = [];
-      const n = Math.min(Math.max(1, proc.count), pool.length);
-      for (let i = 0; i < n; i++) {
-        const idx = Math.floor(Math.random() * pool.length);
-        picks.push(pool.splice(idx, 1)[0]);
-      }
-      targets = picks;
+  // Fire one proc. Damage payloads pick target(s) and deal damage (with
+  // an optional crit roll + riders + kill); heal / shield / buff / gold
+  // payloads act on the player. Each payload kind owns its visual.
+  // `extraCasts` (Echo) reschedules the whole fire after repeatDelaySec.
+  // `ctx` is the reactive event anchor (see fireProcsForTrigger).
+  private fireProc(proc: ResolvedProc, state: FightState, ctx: ProcContext): void {
+    switch (proc.payload.kind) {
+      case 'damage':
+        this.fireDamageProc(proc, proc.payload.damage, state, ctx);
+        break;
+      case 'heal':
+        this.fireHealProc(proc, proc.payload.fraction, state);
+        break;
+      case 'shield':
+        this.fireShieldProc(proc, proc.payload.fraction, state);
+        break;
+      case 'buff':
+        this.fireBuffProc(proc, proc.payload.attackSpeedAdd, proc.payload.durationSec, state);
+        break;
+      case 'gold':
+        this.fireGoldProc(proc, proc.payload.chance, state);
+        break;
     }
 
-    const damage = Math.max(1, Math.round(proc.payload.damage));
+    // Echo: fire the proc again after repeatDelaySec, once per extra
+    // cast. The follow-ups re-read the live fight state so they target
+    // whatever is still alive at the time.
+    for (let i = 1; i <= proc.extraCasts; i++) {
+      const single: ResolvedProc = { ...proc, extraCasts: 0 };
+      gsap.delayedCall(proc.repeatDelaySec * i, () => {
+        const live = get(fight);
+        if (!live.inFight || live.player.hp <= 0) return;
+        this.fireProc(single, live, ctx);
+      });
+    }
+  }
+
+  // Select the proc's target(s) among alive enemies per targeting +
+  // count. A reactive anchor (corpse / crit target / attacker) is
+  // preferred when present: `nearest` ranks distance from it, the
+  // others still honour their mode but treat it as the natural focus.
+  private selectTargets(proc: ResolvedProc, state: FightState, ctx: ProcContext): Fighter[] {
+    const alive = state.enemies.filter((e) => e.hp > 0);
+    if (alive.length === 0) return [];
+
+    const anchorX =
+      (ctx.anchorId ? this.views.get(ctx.anchorId)?.homeX : undefined) ??
+      this.views.get(state.player.id)?.homeX ??
+      0;
+
+    if (proc.targeting === 'all') return alive;
+    if (proc.targeting === 'nearest') {
+      return [...alive]
+        .sort(
+          (a, b) =>
+            Math.abs((this.views.get(a.id)?.homeX ?? 0) - anchorX) -
+            Math.abs((this.views.get(b.id)?.homeX ?? 0) - anchorX),
+        )
+        .slice(0, Math.max(1, proc.count));
+    }
+    // random: distinct uniform picks.
+    const pool = [...alive];
+    const picks: Fighter[] = [];
+    const n = Math.min(Math.max(1, proc.count), pool.length);
+    for (let i = 0; i < n; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(idx, 1)[0]);
+    }
+    return picks;
+  }
+
+  // Damage payload: hit each selected target, rolling crit if the proc
+  // is critable (Lethal), applying riders, and killing on a lethal
+  // blow. Mirrors the Conduction chain in landDamage - spawnFloatNumber
+  // + playHitFlash + applyDamage per target - plus the proc's visual.
+  private fireDamageProc(
+    proc: ResolvedProc,
+    baseDamage: number,
+    state: FightState,
+    ctx: ProcContext,
+  ): void {
+    const targets = this.selectTargets(proc, state, ctx);
+    if (targets.length === 0) return;
+
+    const playerView = this.views.get(state.player.id);
+    const originX = playerView?.homeX ?? 0;
+    const originY = (playerView?.homeY ?? 0) - EMOJI_SIZE * 0.5;
+
     for (const target of targets) {
       const view = this.views.get(target.id);
       if (!view || view.container.destroyed) continue;
 
-      // Strike-line visual: a jagged lightning bolt drops onto the
-      // target, with the damage number floating alongside it.
-      this.spawnStrikeLine(view);
-      this.spawnFloatNumber(view, `${proc.emoji}-${damage}`, '#ffd84a', 28);
+      // Crit roll: procs only crit when a crit support (Lethal) granted
+      // canCrit. The auto-attack's crit multiplier is reused.
+      const isCrit = proc.canCrit && proc.critChance > 0 && Math.random() < proc.critChance;
+      const damage = Math.max(1, Math.round(baseDamage * (isCrit ? this.attack.critMultiplier : 1)));
+
+      this.spawnProcVisual(proc, view, originX, originY);
+      this.spawnFloatNumber(
+        view,
+        `${proc.emoji}-${damage}${isCrit ? '!' : ''}`,
+        isCrit ? '#ffd84a' : '#ffe08a',
+        isCrit ? 38 : 28,
+      );
       this.playHitFlash(view);
 
       applyDamage(target.id, damage);
 
       // Riders: each accumulated status the proc carries lands on the
-      // target (e.g. Igniting's Burn).
+      // target (e.g. Igniting's Burn, Chilling's Freeze).
       for (const status of proc.riders) {
         applyStatusToEnemy(target.id, status);
       }
 
-      // Killing blow: read the LIVE store - applyDamage just wrote it.
-      const after = get(fight).enemies.find((e) => e.id === target.id);
-      if (after && after.hp <= 0) killEnemy(target.id);
+      // Lethal blow handling is centralised in playDeath: applyDamage's
+      // store write fires the sync subscriber synchronously, which sees
+      // the enemy at 0 HP and runs playDeath -> killEnemy + the on-kill
+      // trigger. So we don't call killEnemy here (it would be a no-op
+      // on an already-removed enemy).
+    }
+  }
+
+  // Heal payload (Sanctuary): restore a fraction of the player's max HP
+  // and float a green number + soft glow on the player.
+  private fireHealProc(proc: ResolvedProc, fraction: number, state: FightState): void {
+    if (state.player.hp <= 0) return;
+    const heal = Math.round(state.player.maxHp * fraction);
+    if (heal <= 0) return;
+    healPlayer(heal);
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      this.spawnGlow(playerView, 0x7fe57f);
+      this.spawnFloatNumber(playerView, `${proc.emoji}+${heal}`, '#7fe57f', 30);
+      sfx.heal();
+    }
+  }
+
+  // Shield payload (Bulwark): top the absorb pool up to a fraction of
+  // max HP (never lowers an already-larger pool) and glow the player.
+  private fireShieldProc(proc: ResolvedProc, fraction: number, state: FightState): void {
+    if (state.player.hp <= 0) return;
+    const amount = Math.round(state.player.maxHp * fraction);
+    if (amount <= 0) return;
+    this.playerShield = Math.max(this.playerShield, amount);
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      this.spawnGlow(playerView, 0x6fb8ff);
+      this.spawnFloatNumber(playerView, `${proc.emoji}+${amount}`, '#6fb8ff', 30);
+    }
+  }
+
+  // Buff payload (Time Warp): arm the proc-buff attack-speed window for
+  // durationSec. Strongest bonus / longest window wins, like adrenaline.
+  private fireBuffProc(
+    proc: ResolvedProc,
+    attackSpeedAdd: number,
+    durationSec: number,
+    state: FightState,
+  ): void {
+    const now = performance.now() / 1000;
+    if (attackSpeedAdd >= this.procBuffBonus || now >= this.procBuffUntil) {
+      this.procBuffBonus = attackSpeedAdd;
+    }
+    this.procBuffUntil = Math.max(this.procBuffUntil, now + durationSec);
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      this.spawnGlow(playerView, 0xffe08a);
+      this.spawnFloatNumber(playerView, `${proc.emoji} +${Math.round(attackSpeedAdd * 100)}%`, '#ffe08a', 28);
+    }
+  }
+
+  // Gold payload (Midas Burst): on a `chance` roll, award bonus gold to
+  // the pending-rewards chest and float a coin on the player.
+  private fireGoldProc(proc: ResolvedProc, chance: number, state: FightState): void {
+    if (Math.random() >= chance) return;
+    const bonus = 25 + Math.floor(Math.random() * 26); // 25-50 placeholder
+    addRewardGold(bonus);
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      this.spawnFloatNumber(playerView, `${proc.emoji}+${bonus}`, '#ffd84a', 30);
+    }
+  }
+
+  // Map a proc's visual id to its primitive. Damage procs only - heal /
+  // shield / buff own their glow inline. The strike-line / drifting-orb
+  // primitives travel from the player origin; the rest anchor on the
+  // struck view.
+  private spawnProcVisual(
+    proc: ResolvedProc,
+    view: FighterView,
+    originX: number,
+    originY: number,
+  ): void {
+    switch (proc.visual) {
+      case 'expanding-ring':
+        this.spawnExpandingRing(view);
+        break;
+      case 'falling-body':
+        this.spawnFallingBody(view);
+        break;
+      case 'drifting-orb':
+        this.spawnDriftingOrb(originX, originY, view);
+        break;
+      case 'orbiting-sprite':
+        this.spawnOrbitingSprite(view);
+        break;
+      case 'glow':
+        this.spawnGlow(view, 0xffe08a);
+        break;
+      case 'strike-line':
+      default:
+        this.spawnStrikeLine(view);
+        break;
     }
   }
 
@@ -905,13 +1106,30 @@ export class Battlefield {
       }
     }
 
-    this.spawnDamageNumber(playerView, incoming);
+    // Player shield (Bulwark): the absorb pool soaks the hit before HP.
+    // Whatever the shield can't cover spills through to applyDamageToPlayer.
+    // A fully-absorbed hit shows a blue shield number instead of a red one.
+    if (this.playerShield > 0 && incoming > 0) {
+      const absorbed = Math.min(this.playerShield, incoming);
+      this.playerShield -= absorbed;
+      incoming -= absorbed;
+      this.spawnFloatNumber(playerView, `🛡️-${absorbed}`, '#6fb8ff', 26);
+    }
+
+    if (incoming > 0) {
+      this.spawnDamageNumber(playerView, incoming);
+    }
     this.playHitFlash(playerView);
     this.playHitReact(playerView);
     this.spawnSlash(playerView);
-    applyDamageToPlayer(incoming);
+    if (incoming > 0) applyDamageToPlayer(incoming);
     sfx.hit();
     this.shakeKick(14);
+
+    // On-hit-taken trigger: reactive defence (Retaliate blasts the
+    // attacker). Fires whenever the player actually takes a swing -
+    // even one fully soaked by the shield - anchored on the attacker.
+    this.fireProcsForTrigger('on-hit-taken', get(fight), { anchorId: enemy.id });
 
     // Enemy-applied status (e.g. Slime's poison): roll a flat 30%
     // chance per hit, respecting player's Hex Ward / Eternal Vigil.
@@ -1116,6 +1334,146 @@ export class Battlefield {
     });
   }
 
+  // Expanding ring: a single hollow circle drawn once at the view's
+  // home position, then scaled up + faded out and destroyed. Used by
+  // nova / explosion / aura-pulse procs (Frost Nova, Soul Reap, Searing
+  // Aura, Retaliate). Cheap and self-cleaning - no per-frame redraw.
+  private spawnExpandingRing(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const cx = view.homeX;
+    const cy = view.homeY - view.emojiText.height * 0.5;
+
+    const ring = new Graphics();
+    ring.eventMode = 'none';
+    ring.x = cx;
+    ring.y = cy;
+    ring.circle(0, 0, 30).stroke({ color: 0xbfe0ff, width: 6, alpha: 0.9 });
+    ring.circle(0, 0, 30).stroke({ color: 0xffffff, width: 2, alpha: 1 });
+    ring.scale.set(0.4, 0.4);
+    this.app.stage.addChild(ring);
+
+    gsap.to(ring.scale, { x: 2.6, y: 2.6, duration: 0.35, ease: 'power2.out' });
+    gsap.to(ring, {
+      alpha: 0,
+      duration: 0.35,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!ring.destroyed) ring.destroy();
+      },
+    });
+  }
+
+  // Falling body: a glowing blob drops from above the arena onto the
+  // target, then flashes a quick impact ring and is destroyed. Used by
+  // Meteor's falling-body proc visual.
+  private spawnFallingBody(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const x = view.homeX;
+    const impactY = view.container.y - view.emojiText.height * 0.5;
+    const topY = -EMOJI_SIZE;
+
+    const body = new Graphics();
+    body.eventMode = 'none';
+    body.circle(0, 0, 18).fill({ color: 0xff8c3a, alpha: 0.95 });
+    body.circle(0, 0, 10).fill({ color: 0xffe08a, alpha: 1 });
+    body.x = x;
+    body.y = topY;
+    this.app.stage.addChild(body);
+
+    gsap.to(body, {
+      y: impactY,
+      duration: 0.32,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!body.destroyed) body.destroy();
+        if (!view.container.destroyed) this.spawnExpandingRing(view);
+      },
+    });
+  }
+
+  // Drifting orb: a soft glowing dot travels from (fromX, fromY) - the
+  // player origin - to the target view, then fades on arrival. Used by
+  // homing / spirit procs (Spirit Bolt).
+  private spawnDriftingOrb(fromX: number, fromY: number, view: FighterView): void {
+    if (view.container.destroyed) return;
+    const toX = view.homeX;
+    const toY = view.container.y - view.emojiText.height * 0.5;
+
+    const orb = new Graphics();
+    orb.eventMode = 'none';
+    orb.circle(0, 0, 14).fill({ color: 0xb98cff, alpha: 0.7 });
+    orb.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 1 });
+    orb.x = fromX;
+    orb.y = fromY;
+    this.app.stage.addChild(orb);
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        if (!orb.destroyed) orb.destroy();
+      },
+    });
+    tl.to(orb, { x: toX, y: toY, duration: 0.3, ease: 'power1.in' });
+    tl.to(orb, { alpha: 0, duration: 0.12, ease: 'power2.in' }, '>-0.05');
+  }
+
+  // Orbiting sprite: a blade arc drawn once at a random angle around the
+  // target, swept a quarter-turn and faded out. Stands in for a
+  // persistent orbital weapon on each continuous tick (Whirlblade).
+  // Drawn at the target so each tick reads as the blade biting there.
+  private spawnOrbitingSprite(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const cx = view.homeX;
+    const cy = view.container.y - view.emojiText.height * 0.5;
+    const radius = Math.max(40, view.emojiText.width * 0.6);
+
+    const blade = new Graphics();
+    blade.eventMode = 'none';
+    blade.x = cx;
+    blade.y = cy;
+    blade.rotation = Math.random() * Math.PI * 2;
+    blade.arc(0, 0, radius, -0.5, 0.5).stroke({ color: 0xdfe7ff, width: 7, cap: 'round', alpha: 0.9 });
+    blade.arc(0, 0, radius, -0.5, 0.5).stroke({ color: 0xffffff, width: 2, cap: 'round', alpha: 1 });
+    this.app.stage.addChild(blade);
+
+    gsap.to(blade, { rotation: blade.rotation + Math.PI * 0.6, duration: 0.3, ease: 'power1.out' });
+    gsap.to(blade, {
+      alpha: 0,
+      duration: 0.3,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!blade.destroyed) blade.destroy();
+      },
+    });
+  }
+
+  // Soft glow on the player (or any view): a filled disc behind the
+  // emoji that pulses out and fades. Used by heal / buff / shield procs
+  // (Sanctuary, Time Warp, Bulwark) - tinted per payload by the caller.
+  private spawnGlow(view: FighterView, color: number): void {
+    if (view.container.destroyed) return;
+    const cx = view.homeX;
+    const cy = view.homeY - view.emojiText.height * 0.5;
+
+    const glow = new Graphics();
+    glow.eventMode = 'none';
+    glow.x = cx;
+    glow.y = cy;
+    glow.circle(0, 0, view.emojiText.height * 0.6).fill({ color, alpha: 0.5 });
+    glow.scale.set(0.7, 0.7);
+    // Behind the fighters so the emoji reads on top of the glow.
+    this.app.stage.addChildAt(glow, 0);
+
+    gsap.to(glow.scale, { x: 1.4, y: 1.4, duration: 0.5, ease: 'power2.out' });
+    gsap.to(glow, {
+      alpha: 0,
+      duration: 0.5,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!glow.destroyed) glow.destroy();
+      },
+    });
+  }
+
   private spawnDamageNumber(view: FighterView, amount: number): void {
     this.spawnFloatNumber(view, `-${amount}`, '#ff5252', 32);
   }
@@ -1165,6 +1523,13 @@ export class Battlefield {
     const id = view.fighter.id;
     if (view.fighter.kind === 'enemy') {
       sfx.death();
+      // On-kill trigger: fire BEFORE killEnemy removes the corpse from
+      // the store, anchored on the corpse, so Soul Reap can burst at it
+      // and Midas Burst can roll its gold. The corpse is already at 0
+      // HP so selectTargets skips it and only the remaining live
+      // enemies are eligible. Any further deaths recurse through here
+      // with a shrinking alive list, so it terminates.
+      this.fireProcsForTrigger('on-kill', get(fight), { anchorId: id });
       killEnemy(id);
     } else {
       sfx.playerDeath();
@@ -1215,8 +1580,11 @@ export class Battlefield {
       this.delayedPlayerDamage.length = 0;
       this.shakeIntensity = 0;
       this.tauntCooldowns.clear();
-      // Build the gem proc engine from the equipped gear (seeded for
-      // this slice) so timer procs like Chain Lightning start ticking.
+      this.playerShield = 0;
+      this.procBuffUntil = 0;
+      this.procBuffBonus = 0;
+      // Build the gem proc engine from the equipped gear so its timer /
+      // continuous procs start ticking and reactive procs are armed.
       this.buildProcs();
     }
     // Tear down the proc engine the moment the fight ends so no procs
