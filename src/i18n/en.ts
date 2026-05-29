@@ -6,6 +6,18 @@ export const en: Record<string, string> = {
   'topbar.toggleMute': 'Toggle sound',
   'topbar.restart': 'Restart run',
   'topbar.confirmRestart': 'Click again to confirm restart',
+  'topbar.settings': 'Settings',
+
+  'settings.title': 'Settings',
+  'settings.close': 'Close settings',
+  'settings.difficulty': 'Difficulty',
+  'settings.difficulty.easy': 'Easy',
+  'settings.difficulty.normal': 'Normal',
+  'settings.difficulty.hard': 'Hard',
+  'settings.difficulty.easy.desc': 'Weaker, slower enemies. A gentle run.',
+  'settings.difficulty.normal.desc': 'The intended challenge.',
+  'settings.difficulty.hard.desc': 'Tougher, faster, armored enemies. Richer rewards.',
+  'settings.note': 'Applies to your NEXT run - the current run is locked.',
 
   'inventory.slot.weapon': 'Weapon',
   'inventory.slot.offhand': 'Offhand',

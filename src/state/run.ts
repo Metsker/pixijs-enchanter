@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/map';
-import { endFight, fight, startFightWith } from './fight';
+import { endFight, fight, grantGuaranteedDrop, startFightWith, type RoomKindLoot } from './fight';
 import { closeShop, openShopForFloor } from './shop';
 import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
@@ -153,6 +153,13 @@ let prevPlayerHp = Infinity;
 fight.subscribe((state) => {
   const r = get(run);
   if (r.screen === 'fight' && state.inFight && prevEnemyCount > 0 && state.enemies.length === 0) {
+    // Per-room drop guarantee (Stage 2): the room is cleared, so make
+    // sure at least one pre-socketed item landed in the chest. Common
+    // rooms only roll a 50% per-kill chance, so this is the backstop.
+    const node = r.currentRoomId ? nodeById(r.map, r.currentRoomId) : null;
+    if (node && (node.kind === 'common' || node.kind === 'elite' || node.kind === 'boss')) {
+      grantGuaranteedDrop(node.kind as RoomKindLoot);
+    }
     run.update((s) => ({ ...s, fightWon: true }));
   }
   // Run-lost: player HP just crossed to 0 mid-fight. The overlay

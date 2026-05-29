@@ -11,6 +11,7 @@
   import RoomOverlay from './ui/RoomOverlay.svelte';
   import ItemSelect from './ui/ItemSelect.svelte';
   import ConfirmModal from './ui/ConfirmModal.svelte';
+  import Settings from './ui/Settings.svelte';
   import { toggleBackpack } from './state/ui';
   import { run } from './state/run';
   import { sfx } from './audio/sfx';
@@ -85,6 +86,7 @@
   <Inspector />
   <RoomOverlay />
   <ConfirmModal />
+  <Settings />
   <a
     class="version"
     href="https://github.com/Metsker/pixijs-enchanter/commit/{__COMMIT__}"

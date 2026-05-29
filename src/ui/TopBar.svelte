@@ -3,7 +3,7 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { topbar } from '../state/topbar';
-  import { backpackOpen, toggleBackpack } from '../state/ui';
+  import { backpackOpen, toggleBackpack, settingsOpen, openSettings } from '../state/ui';
   import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
   import { clearSave } from '../state/save';
   import { startNewRun } from '../state/run';
@@ -94,6 +94,18 @@
     title={t('topbar.toggleMute')}
   >
     <span class="emoji">{$audioPrefs.muted ? '🔇' : '🔊'}</span>
+  </button>
+
+  <button
+    type="button"
+    class="backpack-toggle"
+    class:active={$settingsOpen}
+    aria-label={t('topbar.settings')}
+    aria-pressed={$settingsOpen}
+    onclick={openSettings}
+    title={t('topbar.settings')}
+  >
+    <span class="emoji">⚙️</span>
   </button>
 
   <button

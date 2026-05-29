@@ -93,6 +93,12 @@ function makeFighters(defs: EnemyDef[]): Fighter[] {
 // see the player at 0 HP and schedule run-lost.
 let phoenixUsedThisFight = false;
 
+// Per-room drop guarantee (Stage 2): every combat room yields AT LEAST
+// one item. Track whether killEnemy has dropped anything this fight; on
+// victory, grantGuaranteedDrop force-adds one if nothing fell. Reset in
+// startFightWith.
+let itemDroppedThisFight = false;
+
 function preventDeathByPhoenix(player: Fighter): Fighter {
   if (player.hp > 0 || phoenixUsedThisFight) return player;
   for (const eff of get(playerEffects)) {
@@ -124,6 +130,7 @@ export function startFightWith(enemies: EnemyDef[], difficulty: Difficulty = 'no
   // a fresh fight always starts with an empty chest.
   resetPendingRewards();
   phoenixUsedThisFight = false;
+  itemDroppedThisFight = false;
   // Snapshot the player's defence profile from currently-equipped
   // enchants and rebuild player maxHp / hp from it. Equip changes are
   // blocked during combat, so this snapshot is stable for the fight.
@@ -384,7 +391,9 @@ interface DropTable {
   tierMax: number;
 }
 
-const DROP_TABLES: Record<'common' | 'elite' | 'boss', DropTable> = {
+export type RoomKindLoot = 'common' | 'elite' | 'boss';
+
+const DROP_TABLES: Record<RoomKindLoot, DropTable> = {
   common: { goldMin: 20, goldMax: 40, itemChance: 0.5, tierMin: 1, tierMax: 2 },
   elite: { goldMin: 80, goldMax: 150, itemChance: 1.0, tierMin: 2, tierMax: 3 },
   boss: { goldMin: 300, goldMax: 500, itemChance: 1.0, tierMin: 4, tierMax: 5 },
@@ -394,6 +403,15 @@ function rollInt(lo: number, hi: number): number {
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
 
+// Roll one loot item from a drop table and drop it into the chest. All
+// items arrive pre-socketed (randomItem rolls 1-2 gems). Records that an
+// item fell this fight so the per-room guarantee knows it's satisfied.
+function dropItemFromTable(table: DropTable): void {
+  const tier = rollInt(table.tierMin, table.tierMax);
+  addRewardItem(randomItem(tier, 'loot'));
+  itemDroppedThisFight = true;
+}
+
 // Kill an enemy: roll loot into the pending-rewards chest (the player
 // claims it from the victory overlay), then remove the enemy from the
 // fight. Skeleton adds spawned by the Lich count as commons.
@@ -401,7 +419,7 @@ export function killEnemy(id: string): void {
   const enemy = get(fight).enemies.find((e) => e.id === id);
   if (enemy) {
     const def = ENEMY_CATALOGUE[enemy.name];
-    const kind = (def?.kind ?? 'common') as 'common' | 'elite' | 'boss';
+    const kind = (def?.kind ?? 'common') as RoomKindLoot;
     const table = DROP_TABLES[kind];
 
     // Treasure Hunter / gold-find: stacks additively across every
@@ -418,9 +436,18 @@ export function killEnemy(id: string): void {
 
     addRewardGold(Math.round(rollInt(table.goldMin, table.goldMax) * goldMul));
     if (Math.random() < table.itemChance + itemBonus) {
-      const tier = rollInt(table.tierMin, table.tierMax);
-      addRewardItem(randomItem(tier, 'loot'));
+      dropItemFromTable(table);
     }
   }
   removeEnemy(id);
+}
+
+// Per-room drop guarantee: called on victory with the room's loot kind.
+// If the per-kill rolls dropped nothing this fight, force one pre-socketed
+// item from the room's table so EVERY combat room yields at least one
+// item. Gold/quality still flow through the difficulty multipliers and
+// per-kill rolls; this never adds crystals (docs/adr/0003).
+export function grantGuaranteedDrop(kind: RoomKindLoot): void {
+  if (itemDroppedThisFight) return;
+  dropItemFromTable(DROP_TABLES[kind]);
 }
