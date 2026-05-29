@@ -361,8 +361,10 @@ export class Battlefield {
       if (enemy.hp <= 0) continue;
       const def = ENEMY_CATALOGUE[enemy.name];
       if (!def) continue;
-      const cd = this.enemyCooldowns.get(enemy.id) ?? def.interval;
-      const interval = Math.max(0.01, def.interval);
+      // Match the cooldown ring to the difficulty-scaled attack cadence.
+      const cdInterval = enemy.interval ?? def.interval;
+      const cd = this.enemyCooldowns.get(enemy.id) ?? cdInterval;
+      const interval = Math.max(0.01, cdInterval);
       const progress = Math.max(0, Math.min(1, 1 - cd / interval));
       const ev = this.views.get(enemy.id);
       if (ev && !ev.container.destroyed) this.drawCooldownBar(ev, progress, 0xff5252);
@@ -417,13 +419,16 @@ export class Battlefield {
       if (enemy.hp <= 0) continue;
       const def = ENEMY_CATALOGUE[enemy.name];
       if (!def) continue;
-      const current = this.enemyCooldowns.get(enemy.id) ?? def.interval;
+      // Difficulty-scaled interval is baked onto the Fighter at creation
+      // (makeFighters); fall back to the catalogue for any unscaled enemy.
+      const interval = enemy.interval ?? def.interval;
+      const current = this.enemyCooldowns.get(enemy.id) ?? interval;
       // Frozen enemies drain their cooldown at 1/freezeMul rate so
       // the slowdown is continuous, not just on the next reset.
       const next = current - dt / this.freezeMulFor(enemy);
       if (next <= 0) {
         this.fireEnemyAttack(enemy, def);
-        this.enemyCooldowns.set(enemy.id, def.interval);
+        this.enemyCooldowns.set(enemy.id, interval);
       } else {
         this.enemyCooldowns.set(enemy.id, next);
       }
@@ -592,7 +597,9 @@ export class Battlefield {
       }
     }
     convertedFraction = Math.min(1, convertedFraction);
-    const enemyResist = ENEMY_CATALOGUE[target.name]?.resist ?? 0;
+    // Difficulty-scaled resist is baked onto the Fighter (makeFighters);
+    // fall back to the catalogue value for any unscaled enemy.
+    const enemyResist = target.resist ?? ENEMY_CATALOGUE[target.name]?.resist ?? 0;
     const resistMul = 1 - (1 - convertedFraction) * enemyResist;
 
     const damage = Math.max(1, Math.round(dmg * shockMul * resistMul));
@@ -999,7 +1006,9 @@ export class Battlefield {
     enemy: Fighter,
     def: { damage: number; appliesStatus?: StatusType },
   ): void {
-    const damage = def.damage;
+    // Difficulty-scaled damage is baked onto the Fighter (makeFighters);
+    // fall back to the catalogue value for any unscaled enemy.
+    const damage = enemy.damage ?? def.damage;
     const state = get(fight);
     if (state.player.hp <= 0) return;
     // Re-check the enemy against the LIVE store: the snapshot in onTick may

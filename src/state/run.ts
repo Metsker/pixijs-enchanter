@@ -13,6 +13,7 @@ import { equipped } from './inventory';
 import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
 import type { Item } from '../domain/item';
 import { closeItemOffer, openItemOffer } from './item-offer';
+import { settings, type Difficulty } from './settings';
 
 export type Screen =
   | 'item-select'
@@ -31,6 +32,10 @@ export interface RunState {
   // True once all enemies in the current fight room are dead; the player
   // sees a victory overlay with a Continue button that calls completeRoom().
   fightWon: boolean;
+  // Difficulty captured (LOCKED) at run start per docs/adr/0009. Enemy
+  // stat scaling reads this, not the live settings store, so changing
+  // the setting mid-run only affects the NEXT run.
+  difficulty: Difficulty;
 }
 
 function makeInitial(): RunState {
@@ -40,6 +45,8 @@ function makeInitial(): RunState {
     currentRoomId: null,
     screen: 'map',
     fightWon: false,
+    // Lock in the player's currently-chosen difficulty for this run.
+    difficulty: get(settings).difficulty,
   };
 }
 
@@ -83,7 +90,7 @@ export function enterRoom(roomId: string): void {
   }));
 
   if (screen === 'fight' && node.enemies) {
-    startFightWith(node.enemies);
+    startFightWith(node.enemies, state.difficulty);
   }
   if (screen === 'shop') {
     openShopForFloor(node.floor);

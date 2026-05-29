@@ -7,6 +7,11 @@ import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
 import { playerEffects, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
+import {
+  multipliersFor,
+  type Difficulty,
+  type DifficultyMultipliers,
+} from './settings';
 
 // Lich phase-spawn config per docs/enemies.md: "Spawns 2 Skeleton adds when
 // HP crosses 66% and 33% thresholds." Group cap: 1 Lich + up to 2 active
@@ -52,15 +57,34 @@ function nextInstanceId(prefix: string): string {
   return `${prefix}#${enemyCounter}`;
 }
 
+// Resist can't be scaled past a sane cap or hard mode would make some
+// enemies near-immune to physical damage.
+const RESIST_CAP = 0.9;
+
+// Difficulty multipliers locked for the current fight. Set by
+// startFightWith from the run's locked difficulty; reused when the Lich
+// spawns Skeleton adds mid-fight so the phase spawns scale identically.
+let activeMultipliers: DifficultyMultipliers = multipliersFor('normal');
+
+// Bake difficulty-scaled stats onto each Fighter at creation (docs/adr/
+// 0009). HP rounds; damage/interval/resist are stored so battlefield.ts
+// reads the scaled value instead of the raw ENEMY_CATALOGUE entry.
 function makeFighters(defs: EnemyDef[]): Fighter[] {
-  return defs.map((e) => ({
-    id: nextInstanceId(e.id),
-    kind: 'enemy',
-    name: e.id,
-    emoji: e.emoji,
-    hp: e.hp,
-    maxHp: e.hp,
-  }));
+  const mul = activeMultipliers;
+  return defs.map((e) => {
+    const hp = Math.max(1, Math.round(e.hp * mul.hp));
+    return {
+      id: nextInstanceId(e.id),
+      kind: 'enemy',
+      name: e.id,
+      emoji: e.emoji,
+      hp,
+      maxHp: hp,
+      damage: Math.max(1, Math.round(e.damage * mul.damage)),
+      interval: e.interval * mul.interval,
+      resist: Math.min(RESIST_CAP, e.resist * mul.resist),
+    } satisfies Fighter;
+  });
 }
 
 // Phoenix Form / revive-on-death is once per fight. Tracked here
@@ -84,7 +108,17 @@ function preventDeathByPhoenix(player: Fighter): Fighter {
   return player;
 }
 
-export function startFightWith(enemies: EnemyDef[]): void {
+// Re-prime the locked multipliers after a save load: the restored fight
+// keeps its already-baked Fighter stats, but a mid-fight Lich phase
+// spawn needs the run's locked difficulty to scale new Skeleton adds.
+export function primeDifficulty(difficulty: Difficulty): void {
+  activeMultipliers = multipliersFor(difficulty);
+}
+
+export function startFightWith(enemies: EnemyDef[], difficulty: Difficulty = 'normal'): void {
+  // Capture the run's locked difficulty for this fight so makeFighters
+  // (here and on Lich phase spawns) scales every enemy consistently.
+  activeMultipliers = multipliersFor(difficulty);
   const fighters = makeFighters(enemies);
   // Loot from a previous fight that the player never claimed is gone -
   // a fresh fight always starts with an empty chest.

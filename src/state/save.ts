@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { run, type RunState } from './run';
-import { fight, type FightState } from './fight';
+import { fight, primeDifficulty, type FightState } from './fight';
 import { topbar, type TopbarState } from './topbar';
 import { backpack } from './backpack';
 import { equipped, type EquippedItems } from './inventory';
@@ -72,7 +72,11 @@ export function loadSave(): boolean {
     pendingRewards.set(data.pendingRewards);
     shopStock.set(data.shopStock);
     itemOffer.set(data.itemOffer);
-    run.set(data.run);
+    // Older v2 saves predate run-locked difficulty; default to normal so
+    // a mid-fight Lich phase spawn still scales its adds correctly.
+    const restoredRun: RunState = { ...data.run, difficulty: data.run.difficulty ?? 'normal' };
+    primeDifficulty(restoredRun.difficulty);
+    run.set(restoredRun);
     fight.set(data.fight);
     return true;
   } catch {
