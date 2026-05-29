@@ -3,7 +3,7 @@ import type { Gem } from '../domain/gem';
 import type { Item } from '../domain/item';
 import { gemFitsSocketOf } from '../domain/gem-fit';
 import { equipped, updateEquippedAt } from './inventory';
-import { updateItemAt } from './backpack';
+import { findBackpackItemById, updateBackpackItemById } from './backpack';
 import { inspector, type InspectorSubject } from './inspector';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
 
@@ -34,13 +34,25 @@ export interface HeldGem {
 
 export const heldGem = writable<HeldGem | null>(null);
 
+// Drop any held gem WITHOUT trying to return it to an origin. Used on a full
+// run wipe (startNewRun), where the origin item and the stash are being reset
+// anyway - cancelHeld would otherwise dump the gem into the freshly-reset
+// stash and leak it into the new run.
+export function resetHeldGem(): void {
+  heldGem.set(null);
+}
+
 // --- item write-back ----------------------------------------------------
 
 // Rewrite `item`'s socket list and persist the result to wherever the item
 // currently lives, keeping the open Inspector subject pointed at the fresh
-// item. We locate the item by id against the equipped slots and the open
-// inspector subject; an item not found in either is edited in place only on
-// the returned value (no store touched) so callers stay total.
+// item. We locate the item BY ID against the equipped slots and the backpack
+// store (not the inspector subject), so an edit lands on the right store even
+// when the currently-inspected item is a DIFFERENT one - which happens during
+// a cross-item move (pick from item A, switch the Inspector to item B, place,
+// and the displaced occupant flows back to A). An item not found in either
+// store is edited only on the returned value (no store touched) so callers
+// stay total.
 function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
   const next: Item = { ...item, sockets };
 
@@ -55,10 +67,10 @@ function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
     }
   }
 
-  // Backpack: find the tile holding this item id and mutate it there.
-  const subj = get(inspector);
-  if (subj && subj.source === 'backpack' && subj.item.id === item.id) {
-    updateItemAt(subj.index, () => next);
+  // Backpack: find the tile holding this item id (wherever it sits) and mutate
+  // it there. By-id so it works for any backpack item, not just the inspected
+  // one, and survives backpack reorders / sorts mid-move.
+  if (updateBackpackItemById(item.id, () => next)) {
     syncInspector(next);
     return next;
   }
@@ -188,14 +200,14 @@ export function cancelHeld(): void {
 
 // --- helpers ------------------------------------------------------------
 
-// Find an item by id across the equipped slots and the open inspector subject
-// (which covers a backpack item being edited). Returns null if not found.
+// Find an item by id across the equipped slots and the backpack store.
+// Addressed by id (not by inspector subject / tile index) so an origin item
+// stays resolvable after the Inspector has switched to a different item during
+// a cross-item move. Returns null if the item is in neither store.
 function findItemById(itemId: string): Item | null {
   const eq = get(equipped);
   for (const eqItem of Object.values(eq)) {
     if (eqItem && eqItem.id === itemId) return eqItem;
   }
-  const subj = get(inspector);
-  if (subj && subj.item.id === itemId) return subj.item;
-  return null;
+  return findBackpackItemById(itemId);
 }

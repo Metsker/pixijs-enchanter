@@ -6,6 +6,7 @@ import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetStash } from './gem-stash';
+import { resetHeldGem } from './gem-move';
 import { resetTopbar } from './topbar';
 import { closeInspector, inspectItem } from './inspector';
 import { equipped } from './inventory';
@@ -127,6 +128,9 @@ export function startNewRun(): void {
   resetBackpack();
   resetEquipped();
   resetStash();
+  // Drop any in-flight held gem before the stash reset settles, so the
+  // Inspector's close-effect can't dump it back into the new run's stash.
+  resetHeldGem();
   resetTopbar();
   closeInspector();
   closeShop();
