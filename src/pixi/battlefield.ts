@@ -795,8 +795,9 @@ export class Battlefield {
       const view = this.views.get(target.id);
       if (!view || view.container.destroyed) continue;
 
-      // Placeholder feedback: emoji + "-" + number. The dedicated
-      // strike-line visual arrives in the next layer.
+      // Strike-line visual: a jagged lightning bolt drops onto the
+      // target, with the damage number floating alongside it.
+      this.spawnStrikeLine(view);
       this.spawnFloatNumber(view, `${proc.emoji}-${damage}`, '#ffd84a', 28);
       this.playHitFlash(view);
 
@@ -1105,6 +1106,53 @@ export class Battlefield {
     });
     tl.to(state, { progress: 1, duration: 0.12, ease: 'power2.out', onUpdate: redraw });
     tl.to(slash, { alpha: 0, duration: 0.22, ease: 'power2.in' });
+  }
+
+  // Lightning bolt: a jagged Graphics polyline struck from above the
+  // arena straight down onto the target view, then faded out and
+  // destroyed. Used by Chain Lightning's strike-line proc visual.
+  // Mirrors spawnSlash's conventions - a transient Graphics parented to
+  // the stage, eventMode none, killed by a short gsap tween. The bolt
+  // anchors to the view's homeX so a target mid-lunge still gets struck
+  // where it stands.
+  private spawnStrikeLine(view: FighterView): void {
+    if (view.container.destroyed) return;
+    const x = view.homeX;
+    // Strike from well above the arena down to roughly head height.
+    const topY = -EMOJI_SIZE;
+    const bottomY = view.container.y - view.emojiText.height * 0.5;
+
+    const bolt = new Graphics();
+    bolt.eventMode = 'none';
+    this.app.stage.addChild(bolt);
+
+    // Pre-bake a jagged path top -> bottom with random horizontal
+    // jitter at each segment so every strike reads a little different.
+    const segments = 8;
+    const points: { x: number; y: number }[] = [{ x, y: topY }];
+    for (let i = 1; i < segments; i++) {
+      const t = i / segments;
+      points.push({ x: x + (Math.random() - 0.5) * 36, y: topY + (bottomY - topY) * t });
+    }
+    points.push({ x, y: bottomY });
+
+    bolt.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) bolt.lineTo(points[i].x, points[i].y);
+    // Wide soft underglow first, bright thin core on top - same
+    // two-pass stroke trick as spawnSlash.
+    bolt.stroke({ color: 0xaad4ff, width: 9, cap: 'round', join: 'round', alpha: 0.7 });
+    bolt.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) bolt.lineTo(points[i].x, points[i].y);
+    bolt.stroke({ color: 0xffffff, width: 3, cap: 'round', join: 'round', alpha: 1 });
+
+    gsap.to(bolt, {
+      alpha: 0,
+      duration: 0.22,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!bolt.destroyed) bolt.destroy();
+      },
+    });
   }
 
   private spawnDamageNumber(view: FighterView, amount: number): void {
