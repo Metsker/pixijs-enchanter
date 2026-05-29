@@ -1,15 +1,7 @@
 import type { ArmorSlot, Item, ItemType } from './item';
 import type { Gem, GemClass } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
-
-// Item-class mapping (see docs/gems.md § Gems): a gem only fits a socket of
-// its own class. weapon / shield -> weapon-class gems; armor -> armor-class;
-// ring / amulet -> jewelry-class.
-export function itemGemClass(itemType: string): GemClass {
-  if (itemType === 'weapon' || itemType === 'shield') return 'weapon';
-  if (itemType === 'armor') return 'armor';
-  return 'jewelry';
-}
+import { gemClassForItemType } from './gem-fit';
 
 const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
 const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
@@ -91,7 +83,7 @@ export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
 function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
   const capacity = Math.max(1, tier);
-  const sockets = rollSockets(capacity, itemGemClass(itemType));
+  const sockets = rollSockets(capacity, gemClassForItemType(itemType));
   const icon = iconFor(itemType, armorSlot);
   return { id: nextItemId(idPrefix), itemType, armorSlot, sockets, icon };
 }

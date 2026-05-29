@@ -5,6 +5,7 @@ import { closeShop, openShopForFloor } from './shop';
 import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
+import { resetStash } from './gem-stash';
 import { resetTopbar } from './topbar';
 import { closeInspector, inspectItem } from './inspector';
 import { equipped } from './inventory';
@@ -125,6 +126,7 @@ export function startNewRun(): void {
   resetPendingRewards();
   resetBackpack();
   resetEquipped();
+  resetStash();
   resetTopbar();
   closeInspector();
   closeShop();

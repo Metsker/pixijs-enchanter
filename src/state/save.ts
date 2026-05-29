@@ -7,7 +7,9 @@ import { equipped, type EquippedItems } from './inventory';
 import { pendingRewards, type PendingRewards } from './rewards';
 import { shopStock } from './shop';
 import { itemOffer, type ItemOffer } from './item-offer';
+import { gemStash } from './gem-stash';
 import type { Item } from '../domain/item';
+import type { Gem } from '../domain/gem';
 import type { ShopStock } from '../domain/shop';
 
 // Single-slot save in localStorage. Schema is versioned so we can
@@ -24,6 +26,7 @@ interface SaveSnapshot {
   topbar: TopbarState;
   backpack: (Item | null)[];
   equipped: EquippedItems;
+  gemStash: Gem[];
   pendingRewards: PendingRewards;
   shopStock: ShopStock | null;
   itemOffer: ItemOffer | null;
@@ -37,6 +40,7 @@ function snapshot(): SaveSnapshot {
     topbar: get(topbar),
     backpack: get(backpack),
     equipped: get(equipped),
+    gemStash: get(gemStash),
     pendingRewards: get(pendingRewards),
     shopStock: get(shopStock),
     itemOffer: get(itemOffer),
@@ -64,6 +68,7 @@ export function loadSave(): boolean {
     topbar.set(data.topbar);
     backpack.set(data.backpack);
     equipped.set(data.equipped);
+    gemStash.set(data.gemStash ?? []);
     pendingRewards.set(data.pendingRewards);
     shopStock.set(data.shopStock);
     itemOffer.set(data.itemOffer);
@@ -105,6 +110,7 @@ export function startAutoSave(): void {
   topbar.subscribe(scheduleSave);
   backpack.subscribe(scheduleSave);
   equipped.subscribe(scheduleSave);
+  gemStash.subscribe(scheduleSave);
   pendingRewards.subscribe(scheduleSave);
   shopStock.subscribe(scheduleSave);
   itemOffer.subscribe(scheduleSave);
