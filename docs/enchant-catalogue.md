@@ -1,5 +1,10 @@
 # Enchantment catalogue
 
+> **Superseded by the gems redesign.** Enchantments are becoming free-floating
+> **gems** in ordered sockets - see [gems.md](gems.md) (system) and
+> [gem-catalogue.md](gem-catalogue.md) (v1 pool). This file is kept as the
+> source for the effect *payloads* that gem effects reuse, not as the live design.
+
 54 enchants across 4 pools × 2 layers (+ Unique). Numbers are placeholders for balancing; lock the EFFECTS now, tune the values during playtesting.
 
 Notation: `Pools = {Weapons, Armor, Jewelry, Unique}`. Layer is strict (Main XOR Utility). Unique enchants only fit the tier-7 unique slot.
