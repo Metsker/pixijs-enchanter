@@ -23,8 +23,19 @@
     tierOf,
     type Item,
   } from '../domain/item';
-  import type { Gem, GemDef } from '../domain/gem';
-  import { GEM_CATALOGUE } from '../domain/gem-catalogue';
+  import type { Gem } from '../domain/gem';
+  import { gemDisplay } from '../domain/gem-display';
+  import { computeBindings } from '../domain/gem-resolution';
+  import { gemFitsSocketOf } from '../domain/gem-fit';
+  import {
+    cancelHeld,
+    heldGem,
+    pickUpFromSocket,
+    pickUpFromStash,
+    placeIntoSocket,
+    placeIntoStash,
+  } from '../state/gem-move';
+  import { gemStash } from '../state/gem-stash';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
@@ -38,15 +49,71 @@
     7: '#fbbf24',
   };
 
-  // Look up a placed gem's catalogue definition (emoji + role), or null
-  // for an empty socket / unknown defId.
-  function gemDef(gem: Gem | null): GemDef | null {
-    if (!gem) return null;
-    return GEM_CATALOGUE[gem.defId] ?? null;
+  // Display info (emoji + name + one-line summary + role) for a placed gem,
+  // or null for an empty socket / unknown defId.
+  function display(gem: Gem | null) {
+    return gem ? gemDisplay(gem) : null;
   }
 
-  function roleLabel(def: GemDef): string {
-    return def.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect');
+  // === Interactive sockets + binding hints =========================
+  // Socket editing is only meaningful when the player OWNS the item - i.e.
+  // it is equipped or sits in the backpack. Shop / rewards / item-offer
+  // items are previews; their sockets stay read-only.
+  const socketsEditable = $derived(
+    $inspector !== null &&
+      ($inspector.source === 'inventory' || $inspector.source === 'backpack'),
+  );
+
+  // The support -> effect binding map for the open item's sockets, recomputed
+  // whenever the sockets change. Drives the connector hints and inert dimming.
+  const bindings = $derived(
+    $inspector ? computeBindings($inspector.item.sockets) : null,
+  );
+
+  // True if the currently held gem may be dropped into the open item (class
+  // fits). Used to highlight valid drop targets; a class mismatch makes every
+  // socket of this item an invalid target.
+  const heldFitsItem = $derived.by(() => {
+    const held = $heldGem;
+    const subj = $inspector;
+    if (!held || !subj) return false;
+    return gemFitsSocketOf(held.gem, subj.item);
+  });
+
+  // Tap handler for a socket cell. With nothing held: pick up the gem (no-op
+  // on an empty socket). With a gem held: place it here if it fits (an
+  // occupied socket swaps); a class mismatch is a no-op.
+  function onSocketTap(item: Item, index: number): void {
+    if (!socketsEditable) return;
+    const held = $heldGem;
+    if (!held) {
+      pickUpFromSocket(item, index);
+      return;
+    }
+    placeIntoSocket(item, index);
+  }
+
+  function onStashTap(gemId: string): void {
+    if ($heldGem) {
+      placeIntoStash();
+      return;
+    }
+    pickUpFromStash(gemId);
+  }
+
+  // Tooltip for a socket cell, reflecting what a tap would do right now.
+  function socketTitle(
+    d: ReturnType<typeof display>,
+    holding: boolean,
+    dropTarget: boolean,
+    incompatible: boolean,
+  ): string {
+    if (!socketsEditable) return d ? `${d.name} - ${d.summary}` : t('inspector.socket.empty');
+    if (holding) {
+      if (incompatible) return t('inspector.socket.incompatible');
+      if (dropTarget) return d ? t('inspector.socket.swapHere') : t('inspector.socket.placeHere');
+    }
+    return d ? t('inspector.socket.pickUp') : t('inspector.socket.empty');
   }
 
   // === Equip / Unequip CTA =========================================
@@ -73,6 +140,12 @@
   // clickOutside or the X.
   $effect(() => {
     if (!$inspector && $displacementPick) cancelDisplacementPick();
+  });
+
+  // A held gem has been lifted out of its socket; if the Inspector closes
+  // while one is held, return it to its origin so it can never be stranded.
+  $effect(() => {
+    if (!$inspector && $heldGem) cancelHeld();
   });
 
   const ctaDisabledReason = $derived.by((): string | null => {
@@ -215,19 +288,119 @@
       </div>
     {/if}
 
-    <!-- Read-only socket list (full interactive socket UI lands in a
-         later phase). Each socket shows its gem emoji + role, or an
-         empty-dot for an open socket. -->
-    <div class="body">
+    {#if $heldGem}
+      {@const held = display($heldGem.gem)}
+      <div class="held-banner">
+        <span class="held-emoji">{held?.emoji ?? '?'}</span>
+        <span class="held-text">
+          <span class="held-label">{t('inspector.held.label')}</span>
+          <span class="held-name">{held?.name ?? ''}</span>
+        </span>
+        <button
+          type="button"
+          class="held-cancel"
+          onclick={cancelHeld}
+        >
+          {t('inspector.held.cancel')}
+        </button>
+      </div>
+    {/if}
+
+    <!-- Interactive socket list. Each socket is a tap target when the item is
+         owned (equipped / backpack): tap a gem to pick it up, tap a socket to
+         place / swap the held gem. Bound supports show a "binds to" connector
+         to their effect; inert supports are dimmed. -->
+    <div class="body" data-gem-zone>
       <div class="sockets-label">{t('inspector.sockets')}</div>
       <div class="sockets">
         {#each item.sockets as gem, i (i)}
-          {@const def = gemDef(gem)}
-          <div class="socket" class:filled={def !== null}>
-            <span class="socket-emoji">{def ? def.emoji : '·'}</span>
-            <span class="socket-role">{def ? roleLabel(def) : t('inspector.socket.empty')}</span>
-          </div>
+          {@const d = display(gem)}
+          {@const isSupport = d?.role === 'support'}
+          {@const boundEffect =
+            isSupport && bindings ? bindings.supportToEffect.get(i) ?? null : null}
+          {@const inert = isSupport && bindings ? bindings.inertSupports.has(i) : false}
+          {@const boundName =
+            boundEffect !== null ? display(item.sockets[boundEffect])?.name ?? '' : ''}
+          {@const isHeldOrigin =
+            $heldGem !== null &&
+            $heldGem.from.kind === 'socket' &&
+            $heldGem.from.itemId === item.id &&
+            $heldGem.from.index === i}
+          {@const dropTarget = socketsEditable && $heldGem !== null && heldFitsItem}
+          {@const incompatible =
+            socketsEditable && $heldGem !== null && !heldFitsItem}
+          <button
+            type="button"
+            class="socket"
+            class:filled={d !== null}
+            class:support={isSupport}
+            class:effect={d?.role === 'effect'}
+            class:inert
+            class:bound={boundEffect !== null}
+            class:drop-target={dropTarget}
+            class:incompatible
+            class:held-origin={isHeldOrigin}
+            class:interactive={socketsEditable}
+            disabled={!socketsEditable || (incompatible && d === null)}
+            title={socketTitle(d, !!$heldGem, dropTarget, incompatible)}
+            onclick={() => onSocketTap(item, i)}
+          >
+            <span class="socket-emoji">{d ? d.emoji : '·'}</span>
+            <span class="socket-info">
+              {#if d}
+                <span class="socket-name">{d.name}</span>
+                <span class="socket-summary">{d.summary}</span>
+                {#if isSupport && boundEffect !== null}
+                  <span class="socket-bind">↳ {boundName}</span>
+                {:else if inert}
+                  <span class="socket-bind inert-note">{t('inspector.socket.inert')}</span>
+                {/if}
+              {:else}
+                <span class="socket-name empty">{t('inspector.socket.empty')}</span>
+              {/if}
+            </span>
+            <span class="socket-role">
+              {#if d}{d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}{/if}
+            </span>
+          </button>
         {/each}
+      </div>
+
+      <!-- Gem stash strip: pick a loose gem up, or drop the held gem here. -->
+      <div class="stash" class:drop-armed={$heldGem !== null}>
+        <div class="sockets-label stash-label">{t('inspector.stash.title')}</div>
+        {#if $gemStash.length === 0}
+          {#if $heldGem}
+            <button type="button" class="stash-drop" onclick={() => onStashTap('')}>
+              {t('inspector.stash.drop')}
+            </button>
+          {:else}
+            <div class="stash-empty">{t('inspector.stash.empty')}</div>
+          {/if}
+        {:else}
+          <div class="stash-grid">
+            {#each $gemStash as g (g.id)}
+              {@const sd = display(g)}
+              <button
+                type="button"
+                class="stash-gem"
+                class:support={sd?.role === 'support'}
+                class:effect={sd?.role === 'effect'}
+                title={sd ? `${sd.name} - ${sd.summary}` : ''}
+                onclick={() => onStashTap(g.id)}
+              >
+                <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
+                <span class="stash-gem-name">{sd?.name ?? ''}</span>
+              </button>
+            {/each}
+            {#if $heldGem}
+              <button type="button" class="stash-gem stash-drop-tile" onclick={() => onStashTap('')}>
+                <span class="socket-emoji">⬇️</span>
+                <span class="stash-gem-name">{t('inspector.stash.drop')}</span>
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -385,17 +558,70 @@
     gap: 4px;
   }
   .socket {
+    width: 100%;
+    text-align: left;
+    appearance: none;
     display: grid;
-    grid-template-columns: 28px 1fr;
+    grid-template-columns: 28px 1fr auto;
     align-items: center;
-    gap: 8px;
-    padding: 7px 9px;
+    gap: 10px;
+    padding: 8px 10px;
     border: 1px solid #2a2a34;
     border-radius: 6px;
     background: #14141a;
+    color: inherit;
+    min-height: 44px;
+    transition: border-color 100ms ease, background-color 100ms ease,
+      box-shadow 100ms ease, opacity 100ms ease;
   }
-  .socket:not(.filled) {
-    opacity: 0.55;
+  .socket:not(.filled) .socket-name.empty {
+    color: #667;
+  }
+  .socket:not(.filled):not(.drop-target) {
+    opacity: 0.6;
+  }
+  .socket.interactive:not(:disabled) {
+    cursor: pointer;
+  }
+  .socket.interactive:not(:disabled):hover {
+    border-color: #4a4a58;
+    background: #181820;
+  }
+  /* Role accents: a left edge so effect vs support reads at a glance. */
+  .socket.effect.filled {
+    border-left: 3px solid #f6a;
+  }
+  .socket.support.filled {
+    border-left: 3px solid #6ad;
+  }
+  /* A bound support and the connector below it share the support accent. */
+  .socket.inert {
+    opacity: 0.5;
+  }
+  /* Held origin: the socket the held gem was lifted from sits empty + outlined. */
+  .socket.held-origin {
+    border-style: dashed;
+    border-color: #6ad;
+  }
+  /* Valid drop targets glow while a compatible gem is held. */
+  .socket.drop-target {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.5);
+    opacity: 1;
+  }
+  .socket.drop-target:hover {
+    background: #2a2410;
+  }
+  /* Incompatible item while holding: every socket reads as a dead end. */
+  .socket.incompatible {
+    opacity: 0.4;
+  }
+  .socket:disabled {
+    cursor: not-allowed;
+  }
+  .socket:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
   }
   .socket-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -403,11 +629,171 @@
     line-height: 1;
     justify-self: center;
   }
+  .socket-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .socket-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #e6e6ee;
+  }
+  .socket-summary {
+    font-size: 0.74rem;
+    color: #9aa;
+    line-height: 1.25;
+  }
+  /* Binding hint: "↳ bound effect name" under a support, or the inert note. */
+  .socket-bind {
+    font-size: 0.72rem;
+    color: #6ad;
+    font-weight: 600;
+    margin-top: 1px;
+  }
+  .socket-bind.inert-note {
+    color: #c77;
+    font-weight: 500;
+  }
   .socket-role {
-    font-size: 0.78rem;
+    font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    color: #788;
+    align-self: start;
+  }
+
+  /* === Held banner ============================================== */
+  .held-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: #2a2410;
+    border-bottom: 1px solid #5a4a18;
+    color: #ffd866;
+  }
+  .held-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  .held-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .held-label {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #c8a84a;
+  }
+  .held-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .held-cancel {
+    appearance: none;
+    background: transparent;
+    border: 1px solid #5a4a18;
+    color: #ffd866;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 36px;
+    white-space: nowrap;
+  }
+  .held-cancel:hover {
+    background: #3a3214;
+  }
+
+  /* === Gem stash ================================================ */
+  .stash {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed #2a2a34;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .stash.drop-armed {
+    border-top-color: #ffcc44;
+  }
+  .stash-label {
+    margin-bottom: 0;
+  }
+  .stash-empty {
+    font-size: 0.78rem;
+    color: #667;
+    line-height: 1.3;
+    padding: 2px;
+  }
+  .stash-drop {
+    appearance: none;
+    background: #2a2410;
+    border: 1px dashed #ffcc44;
+    color: #ffd866;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .stash-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .stash-gem {
+    appearance: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 64px;
+    padding: 7px 4px;
+    border: 1px solid #2a2a34;
+    border-radius: 6px;
+    background: #14141a;
+    color: #ccd;
+    cursor: pointer;
+    min-height: 56px;
+    transition: border-color 100ms ease, background-color 100ms ease;
+  }
+  .stash-gem.effect {
+    border-bottom: 2px solid #f6a;
+  }
+  .stash-gem.support {
+    border-bottom: 2px solid #6ad;
+  }
+  .stash-gem:hover {
+    border-color: #4a4a58;
+    background: #181820;
+  }
+  .stash-gem:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
+  }
+  .stash-gem-name {
+    font-size: 0.62rem;
+    text-align: center;
+    line-height: 1.1;
     color: #9aa;
+  }
+  .stash-drop-tile {
+    border-style: dashed;
+    border-color: #ffcc44;
+    background: #2a2410;
+    color: #ffd866;
+  }
+  .stash-drop-tile .stash-gem-name {
+    color: #ffd866;
   }
 
   .footer {

@@ -125,6 +125,54 @@ function applyKnobToStats(effects: EnchantEffect[], mod: SupportMod): EnchantEff
   return effects;
 }
 
+// The binding map for an item's sockets, for the UI to render (connectors /
+// dimming). Mirrors the resolution rule exactly: a support binds to the
+// nearest EFFECT gem to its right, skipping intervening supports; a support
+// with no effect to its right is inert.
+//
+//   - supportToEffect: support socket index -> the effect socket index it
+//     binds to. A support index present here is bound; absent means inert.
+//   - inertSupports: the support socket indices that found no effect (a Set
+//     for cheap membership tests in the render loop).
+//
+// Both are keyed by SOCKET index (including empties / unknown defIds, which
+// are simply never keys), so the UI can map them straight onto its cells.
+export interface SocketBindings {
+  supportToEffect: Map<number, number>;
+  inertSupports: Set<number>;
+}
+
+// Classify a socket by its catalogue role without resolving its payload.
+// Empty sockets and unknown defIds count as neither effect nor support.
+function socketRole(slot: Gem | null): 'effect' | 'support' | null {
+  if (!slot) return null;
+  const def = lookup(slot.defId);
+  if (!def) return null;
+  return def.role;
+}
+
+// Compute the support -> effect binding map for an item's sockets. We scan
+// right to left: each effect becomes the "nearest effect to the right" for
+// every support we encounter until the next effect. Supports seen before any
+// effect (i.e. with no effect further right) stay inert.
+export function computeBindings(sockets: Array<Gem | null>): SocketBindings {
+  const supportToEffect = new Map<number, number>();
+  const inertSupports = new Set<number>();
+
+  let nearestEffectRight = -1;
+  for (let i = sockets.length - 1; i >= 0; i--) {
+    const role = socketRole(sockets[i]);
+    if (role === 'effect') {
+      nearestEffectRight = i;
+    } else if (role === 'support') {
+      if (nearestEffectRight === -1) inertSupports.add(i);
+      else supportToEffect.set(i, nearestEffectRight);
+    }
+  }
+
+  return { supportToEffect, inertSupports };
+}
+
 // Resolve one item's sockets into stats + procs.
 export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
   const stats: EnchantEffect[] = [];
