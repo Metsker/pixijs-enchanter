@@ -3,11 +3,17 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { topbar } from '../state/topbar';
+  import { scrolls } from '../state/scrolls';
   import { backpackOpen, toggleBackpack } from '../state/ui';
   import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
   import { clearSave } from '../state/save';
   import { startNewRun } from '../state/run';
+  import { enchantDescription, enchantName } from '../domain/enchant-display';
   import { t } from '../i18n';
+
+  // Which carried-scroll tile is hovered, so we can pop a Hint-like detail
+  // panel showing its enchant (docs/ux.md § Top bar).
+  let hoveredScrollId = $state<string | null>(null);
 
   // Restart uses a two-click confirm so a stray tap doesn't wipe a
   // run mid-play. First click arms the button (icon flips to ⚠️ and
@@ -76,6 +82,38 @@
       <span class="emoji">⚜️</span>
       <span class="value">{$topbar.seals}</span>
     </div>
+
+    {#if $scrolls.length > 0}
+      <div class="scroll-tiles">
+        {#each $scrolls as scroll (scroll.id)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="scroll-tile"
+            class:unique={scroll.kind === 'unique'}
+            role="img"
+            aria-label="{scroll.kind === 'unique'
+              ? t('topbar.scroll.unique')
+              : t('topbar.scroll.loaded')}: {enchantName(scroll.enchant)}"
+            onmouseenter={() => (hoveredScrollId = scroll.id)}
+            onmouseleave={() => (hoveredScrollId = null)}
+          >
+            <span class="scroll-base">📜</span>
+            <span class="scroll-glyph">{scroll.enchant.emoji}</span>
+            {#if hoveredScrollId === scroll.id}
+              <div class="scroll-hint">
+                <div class="scroll-hint-kind">
+                  {scroll.kind === 'unique'
+                    ? t('topbar.scroll.unique')
+                    : t('topbar.scroll.loaded')}
+                </div>
+                <div class="scroll-hint-name">{enchantName(scroll.enchant)}</div>
+                <div class="scroll-hint-desc">{enchantDescription(scroll.enchant)}</div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="progress">
@@ -191,6 +229,83 @@
       color: #ddd;
       text-shadow: none;
     }
+  }
+
+  .scroll-tiles {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-left: 0.5rem;
+    border-left: 1px solid #2a2a34;
+  }
+  .scroll-tile {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #423a5e;
+    border-radius: 8px;
+    background: #16131f;
+    cursor: default;
+  }
+  .scroll-tile.unique {
+    border-color: #6a5520;
+    background: #1c1810;
+  }
+  .scroll-base {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.25rem;
+    line-height: 1;
+    opacity: 0.5;
+  }
+  .scroll-glyph {
+    position: absolute;
+    bottom: -3px;
+    right: -3px;
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 0.95rem;
+    line-height: 1;
+    background: #16131f;
+    border-radius: 50%;
+    padding: 0 1px;
+  }
+  .scroll-tile.unique .scroll-glyph {
+    background: #1c1810;
+  }
+  .scroll-hint {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 220px;
+    z-index: 220;
+    background: #1c1c24;
+    border: 1px solid #3a3a48;
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    padding: 10px 12px;
+    text-align: left;
+    cursor: default;
+  }
+  .scroll-hint-kind {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9a8fc8;
+  }
+  .scroll-hint-name {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #eee;
+    margin: 2px 0 4px;
+  }
+  .scroll-hint-desc {
+    font-size: 0.78rem;
+    color: #ccc;
+    line-height: 1.4;
+    font-variant-numeric: lining-nums;
   }
 
   .progress {

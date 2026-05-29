@@ -6,6 +6,7 @@ import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetTopbar } from './topbar';
+import { resetScrolls } from './scrolls';
 import { closeInspector, inspectItem } from './inspector';
 import { equipped } from './inventory';
 import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
@@ -126,6 +127,7 @@ export function startNewRun(): void {
   resetBackpack();
   resetEquipped();
   resetTopbar();
+  resetScrolls();
   closeInspector();
   closeShop();
   closeItemOffer();

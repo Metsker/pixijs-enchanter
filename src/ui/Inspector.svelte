@@ -23,14 +23,18 @@
   import {
     ADD_ROLL_COST,
     canAddRoll,
+    canApplyScroll,
     canDisenchantTop,
     canLockSelected,
     canRemoveSelected,
     canRerollAll,
     canRerollLayer,
+    canTransfer,
+    canTransferSlot,
     destroyRefund,
     disenchantTopRefund,
     doAddRoll,
+    doApplyScroll,
     doDestroy,
     doDisenchantTop,
     doLockSelected,
@@ -38,6 +42,8 @@
     doRerollAll,
     doRerollMains,
     doRerollUtilities,
+    doTransfer,
+    legalScrollsFor,
     LOCK_SELECTED_CRYSTAL_COST,
     LOCK_SELECTED_SEAL_COST,
     REMOVE_SELECTED_CRYSTAL_COST,
@@ -46,6 +52,8 @@
     REROLL_LAYER_CRYSTAL_COST,
     REROLL_LAYER_SEAL_COST,
   } from '../state/workbench';
+  import { requestConfirm } from '../state/confirm';
+  import type { CarriedScroll } from '../state/scrolls';
   import {
     isSealed,
     itemEmoji,
@@ -335,7 +343,77 @@
     return $topbar.crystals >= crystals && $topbar.seals >= seals;
   }
 
+  // Apply-scroll picker overlay. Open while the player chooses which held
+  // scroll to engrave onto the inspected item's next slot. Closes on
+  // resolve, click-away, or ESC.
+  let scrollPickerOpen = $state(false);
+
+  // Reset the picker whenever the inspected item changes - a stale picker
+  // would otherwise target the wrong item after a subject switch.
+  $effect(() => {
+    void $inspector?.item.id;
+    scrollPickerOpen = false;
+  });
+
+  function applyScrollPick(scroll: CarriedScroll): void {
+    doApplyScroll(scroll.id);
+    scrollPickerOpen = false;
+  }
+
+  // Confirm-routed irrecoverable actions (docs/ux.md § Confirm modals).
+  function confirmDestroy(target: Item): void {
+    requestConfirm({
+      title: t('confirm.destroy.title'),
+      body: t('confirm.destroy.body', {
+        item: t(`item.type.${target.itemType}`),
+        refund: destroyRefund(target),
+      }),
+      confirmLabel: t('confirm.destroy.confirm'),
+      tone: 'danger',
+      onConfirm: doDestroy,
+    });
+  }
+
+  function confirmRemove(target: Item, slot: number): void {
+    const enchant = target.enchants[slot - 1];
+    if (!enchant) return;
+    requestConfirm({
+      title: t('confirm.remove.title'),
+      body: t('confirm.remove.body', {
+        enchant: enchantName(enchant),
+        tier: tierOf(target) - 1,
+      }),
+      confirmLabel: t('confirm.remove.confirm'),
+      tone: 'danger',
+      onConfirm: () => doRemoveSelected(slot),
+    });
+  }
+
+  function confirmTransfer(target: Item, slot: number): void {
+    const enchant = target.enchants[slot - 1];
+    if (!enchant) return;
+    requestConfirm({
+      title: t('confirm.transfer.title'),
+      body: t('confirm.transfer.body', {
+        enchant: enchantName(enchant),
+        item: t(`item.type.${target.itemType}`),
+      }),
+      confirmLabel: t('confirm.transfer.confirm'),
+      tone: 'danger',
+      onConfirm: () => doTransfer(slot),
+    });
+  }
+
 </script>
+
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && scrollPickerOpen) {
+      e.preventDefault();
+      scrollPickerOpen = false;
+    }
+  }}
+/>
 
 {#if $inspector}
   {@const subject = $inspector}
@@ -349,7 +427,7 @@
     transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
     use:clickOutside={{
       onOutside: closeInspector,
-      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim', '.item-room'],
+      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim', '.item-room', '.scrim'],
     }}
   >
     <header class="header">
@@ -426,20 +504,42 @@
     {/snippet}
 
     {#snippet restActions()}
+      {@const rollLegal = canAddRoll(item)}
+      {@const applyLegal = canApplyScroll(item)}
       <div class="actions-col">
         <div class="actions-group-label">{t('workbench.group.enchant')}</div>
 
-        <button
-          type="button"
-          class="action"
-          disabled={!canAddRoll(item) || !ownsResources(ADD_ROLL_COST, 0)}
-          onclick={doAddRoll}
-          onmouseenter={() => (hoveredAction = 'enchant')}
-          onmouseleave={() => (hoveredAction = null)}
-        >
-          <span class="action-label">{t('workbench.action.add')}</span>
-          {@render costLine(ADD_ROLL_COST, 0, 0)}
-        </button>
+        <!-- Add collapse rule (docs/ux.md): 0 legal sub-actions -> hidden;
+             1 -> the button is that sub-action directly; 2 -> two buttons. -->
+        {#if rollLegal}
+          <button
+            type="button"
+            class="action"
+            disabled={!ownsResources(ADD_ROLL_COST, 0)}
+            onclick={doAddRoll}
+            onmouseenter={() => (hoveredAction = 'enchant')}
+            onmouseleave={() => (hoveredAction = null)}
+          >
+            <span class="action-label"
+              >{applyLegal ? t('workbench.action.addRoll') : t('workbench.action.add')}</span
+            >
+            {@render costLine(ADD_ROLL_COST, 0, 0)}
+          </button>
+        {/if}
+        {#if applyLegal}
+          <button
+            type="button"
+            class="action"
+            onclick={() => (scrollPickerOpen = true)}
+            onmouseenter={() => (hoveredAction = 'enchant')}
+            onmouseleave={() => (hoveredAction = null)}
+          >
+            <span class="action-label">{t('workbench.action.applyScroll')}</span>
+            <span class="cost">
+              <span class="cost-pill scroll">{legalScrollsFor(item).length} 📜</span>
+            </span>
+          </button>
+        {/if}
 
         <button
           type="button"
@@ -498,7 +598,7 @@
           disabled={!canRemoveSelected(item, selSlot) ||
             !ownsResources(REMOVE_SELECTED_CRYSTAL_COST, REMOVE_SELECTED_SEAL_COST)}
           title={selSlot === null ? t('workbench.needSelection') : ''}
-          onclick={() => selSlot !== null && doRemoveSelected(selSlot)}
+          onclick={() => selSlot !== null && confirmRemove(item, selSlot)}
         >
           <span class="action-label">{t('workbench.action.removeSelected')}</span>
           {@render costLine(REMOVE_SELECTED_CRYSTAL_COST, REMOVE_SELECTED_SEAL_COST, 0)}
@@ -507,7 +607,7 @@
         <button
           type="button"
           class="action destroy"
-          onclick={doDestroy}
+          onclick={() => confirmDestroy(item)}
           onmouseenter={() => (hoveredAction = 'destroy')}
           onmouseleave={() => (hoveredAction = null)}
         >
@@ -517,8 +617,19 @@
 
         <div class="actions-group-label">{t('workbench.group.other')}</div>
 
-        <button type="button" class="action" disabled title={t('workbench.notYet')}>
+        <button
+          type="button"
+          class="action"
+          disabled={!canTransfer(item) || !canTransferSlot(item, selSlot)}
+          title={!canTransfer(item)
+            ? t('workbench.transfer.needScroll')
+            : selSlot === null
+              ? t('workbench.transfer.needSelection')
+              : ''}
+          onclick={() => selSlot !== null && confirmTransfer(item, selSlot)}
+        >
           <span class="action-label">{t('workbench.action.transfer')}</span>
+          <span class="cost"><span class="cost-pill">1 📜</span></span>
         </button>
 
         <button
@@ -612,6 +723,57 @@
           </button>
         {/if}
       </footer>
+    {/if}
+
+    {#if scrollPickerOpen && inRest}
+      {@const legal = legalScrollsFor(item)}
+      {@const nextSlot = item.enchants.length + 1}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="scroll-picker" onclick={() => (scrollPickerOpen = false)}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="picker-panel" onclick={(e) => e.stopPropagation()}>
+          <header class="picker-head">
+            <div>
+              <div class="picker-title">{t('workbench.applyScroll.title')}</div>
+              <div class="picker-sub">{t('workbench.applyScroll.subtitle', { slot: nextSlot })}</div>
+            </div>
+            <button
+              type="button"
+              class="close"
+              aria-label={t('confirm.close')}
+              onclick={() => (scrollPickerOpen = false)}
+            >
+              ✕
+            </button>
+          </header>
+          {#if legal.length === 0}
+            <div class="picker-empty">{t('workbench.applyScroll.empty')}</div>
+          {:else}
+            <div class="picker-list">
+              {#each legal as scroll (scroll.id)}
+                <button
+                  type="button"
+                  class="picker-tile"
+                  class:unique={scroll.kind === 'unique'}
+                  onclick={() => applyScrollPick(scroll)}
+                >
+                  <span class="picker-tile-emoji">{scroll.enchant.emoji}</span>
+                  <span class="picker-tile-text">
+                    <span class="picker-tile-name">{enchantName(scroll.enchant)}</span>
+                    <span class="picker-tile-kind"
+                      >{scroll.kind === 'unique'
+                        ? t('workbench.applyScroll.unique')
+                        : t('workbench.applyScroll.loaded')}</span
+                    >
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
     {/if}
   </aside>
 {/if}
@@ -901,6 +1063,107 @@
   .cost-pill.refund {
     color: #88dd88;
     border-color: #2a4a2a;
+  }
+  .cost-pill.scroll {
+    color: #c8b8ff;
+    border-color: #423a5e;
+  }
+
+  .scroll-picker {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    background: rgba(10, 10, 16, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .picker-panel {
+    width: 100%;
+    max-height: 100%;
+    background: #1c1c24;
+    border: 1px solid #3a3a48;
+    border-radius: 10px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .picker-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #2a2a34;
+  }
+  .picker-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #eee;
+  }
+  .picker-sub {
+    font-size: 0.78rem;
+    color: #9aa;
+    margin-top: 2px;
+  }
+  .picker-empty {
+    padding: 16px 14px;
+    color: #788;
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+  .picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    overflow-y: auto;
+  }
+  .picker-tile {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    background: #14141a;
+    border: 1px solid #423a5e;
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .picker-tile:hover {
+    background: #1f1b2c;
+    border-color: #8a7cff;
+  }
+  .picker-tile.unique {
+    border-color: #6a5520;
+  }
+  .picker-tile.unique:hover {
+    border-color: #ffcc44;
+  }
+  .picker-tile-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.4rem;
+    line-height: 1;
+  }
+  .picker-tile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .picker-tile-name {
+    font-size: 0.88rem;
+    color: #ddd;
+    font-weight: 500;
+  }
+  .picker-tile-kind {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #9a8fc8;
   }
 
   .hint {

@@ -7,6 +7,7 @@ import { equipped, type EquippedItems } from './inventory';
 import { pendingRewards, type PendingRewards } from './rewards';
 import { shopStock } from './shop';
 import { itemOffer, type ItemOffer } from './item-offer';
+import { scrolls, type CarriedScroll } from './scrolls';
 import type { Item } from '../domain/item';
 import type { ShopStock } from '../domain/shop';
 
@@ -25,6 +26,7 @@ interface SaveSnapshot {
   pendingRewards: PendingRewards;
   shopStock: ShopStock | null;
   itemOffer: ItemOffer | null;
+  scrolls: CarriedScroll[];
 }
 
 function snapshot(): SaveSnapshot {
@@ -38,6 +40,7 @@ function snapshot(): SaveSnapshot {
     pendingRewards: get(pendingRewards),
     shopStock: get(shopStock),
     itemOffer: get(itemOffer),
+    scrolls: get(scrolls),
   };
 }
 
@@ -65,6 +68,7 @@ export function loadSave(): boolean {
     pendingRewards.set(data.pendingRewards);
     shopStock.set(data.shopStock);
     itemOffer.set(data.itemOffer);
+    scrolls.set(data.scrolls ?? []);
     run.set(data.run);
     fight.set(data.fight);
     return true;
@@ -106,6 +110,7 @@ export function startAutoSave(): void {
   pendingRewards.subscribe(scheduleSave);
   shopStock.subscribe(scheduleSave);
   itemOffer.subscribe(scheduleSave);
+  scrolls.subscribe(scheduleSave);
 
   // Flush on tab close / page hide so the last debounce window
   // doesn't get lost.

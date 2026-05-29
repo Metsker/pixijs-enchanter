@@ -9,10 +9,11 @@ import { inspector } from './inspector';
 import { updateItemAt } from './backpack';
 import { updateEquippedAt } from './inventory';
 import { itemPoolFor, pickRandomEnchant } from '../domain/random';
-import { isSealed, stackLayerAt, type Item } from '../domain/item';
-import type { EnchantLayer } from '../domain/enchant';
+import { isSealed, stackLayerAt, type Item, type StackLayer } from '../domain/item';
+import type { EnchantLayer, EnchantPool } from '../domain/enchant';
 import { refundCrystals, spendCrystals, spendSeals, topbar } from './topbar';
 import { playerEnchants } from './player-profile';
+import { addScroll, removeScroll, scrolls, type CarriedScroll } from './scrolls';
 import type { InspectorSubject } from './inspector';
 
 // Crystal Affinity multiplier on refunds (Disenchant / Destroy).
@@ -246,4 +247,72 @@ export function doDestroy(): void {
   if (!subject) return;
   refundCrystals(destroyRefund(subject.item));
   applyMutation(subject, () => null);
+}
+
+// === Transfer =======================================================
+// Salvages one chosen enchant onto an Empty scroll (turning it into a
+// Loaded scroll the player carries in the Top bar) and destroys the
+// source item entirely - the two halves of the old single-step Transfer
+// are decoupled per ADR-0004; the carried scroll lands on a destination
+// later via Apply scroll. Needs at least one Empty scroll and a filled
+// source slot. Sealed slots are valid sources here (the whole item is
+// destroyed regardless, so the seal is moot).
+export function canTransfer(item: Item): boolean {
+  return get(topbar).emptyScrolls > 0 && item.enchants.length > 0;
+}
+
+export function canTransferSlot(item: Item, slot: number | null): boolean {
+  if (slot === null) return false;
+  return slot >= 1 && slot <= item.enchants.length;
+}
+
+export function doTransfer(slot: number): void {
+  const subject = get(inspector);
+  if (!subject || !canTransfer(subject.item) || !canTransferSlot(subject.item, slot)) return;
+  const enchant = subject.item.enchants[slot - 1];
+  if (!enchant) return;
+  topbar.update((s) => ({ ...s, emptyScrolls: s.emptyScrolls - 1 }));
+  // Transfer can never produce a Unique-carrying scroll (ADR-0004): items in
+  // the loadout / Backpack only hold pool enchants in their 6-stack, so the
+  // salvaged enchant is always a Loaded scroll.
+  addScroll('loaded', enchant);
+  applyMutation(subject, () => null);
+}
+
+// === Add (Apply scroll) =============================================
+// The second Add sub-action. Lands a carried scroll's enchant onto the
+// Item's next open slot, consuming the scroll. Legality filters held
+// scrolls to those whose carried enchant matches the next slot's pool +
+// layer (per docs/ux.md § Apply scroll flow).
+function scrollFitsSlot(scroll: CarriedScroll, layer: StackLayer, pool: EnchantPool): boolean {
+  if (layer === 'unique') return scroll.kind === 'unique';
+  // A Loaded scroll only fits a non-unique slot whose layer matches its
+  // carried enchant's layer and whose Item pool the enchant belongs to.
+  if (scroll.kind !== 'loaded') return false;
+  return scroll.enchant.layer === layer && scroll.enchant.pools.includes(pool);
+}
+
+export function legalScrollsFor(item: Item): CarriedScroll[] {
+  const nextSlot = item.enchants.length + 1;
+  if (nextSlot > 7) return [];
+  const layer = stackLayerAt(nextSlot);
+  const pool = itemPoolFor(item.itemType);
+  return get(scrolls).filter((sc) => scrollFitsSlot(sc, layer, pool));
+}
+
+export function canApplyScroll(item: Item): boolean {
+  return legalScrollsFor(item).length > 0;
+}
+
+export function doApplyScroll(scrollId: string): void {
+  const subject = get(inspector);
+  if (!subject) return;
+  const legal = legalScrollsFor(subject.item);
+  const scroll = legal.find((s) => s.id === scrollId);
+  if (!scroll) return;
+  removeScroll(scrollId);
+  applyMutation(subject, (item) => ({
+    ...item,
+    enchants: [...item.enchants, scroll.enchant],
+  }));
 }
