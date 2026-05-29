@@ -945,13 +945,15 @@ export class Battlefield {
   }
 
   // Gold payload (Midas Burst): on a `chance` roll, award bonus gold to
-  // the pending-rewards chest and float a coin on the player.
+  // the pending-rewards chest and float a coin + gold glow on the player
+  // (the catalogue's ✨ visual for this proc).
   private fireGoldProc(proc: ResolvedProc, chance: number, state: FightState): void {
     if (Math.random() >= chance) return;
     const bonus = 25 + Math.floor(Math.random() * 26); // 25-50 placeholder
     addRewardGold(bonus);
     const playerView = this.views.get(state.player.id);
     if (playerView && !playerView.container.destroyed) {
+      this.spawnGlow(playerView, 0xffd84a);
       this.spawnFloatNumber(playerView, `${proc.emoji}+${bonus}`, '#ffd84a', 30);
     }
   }
