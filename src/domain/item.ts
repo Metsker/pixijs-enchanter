@@ -1,4 +1,4 @@
-import type { Enchantment, EnchantLayer } from './enchant';
+import type { Gem } from './gem';
 import { EQUIPMENT_SLOTS, type EquipmentSlotId } from './equipment';
 
 export type ItemType = 'weapon' | 'shield' | 'armor' | 'ring' | 'amulet';
@@ -11,14 +11,11 @@ export interface Item {
   id: string;
   itemType: ItemType;
   armorSlot?: ArmorSlot;
-  // Length is the item's Tier per ADR-0002 ("tier equals current enchant count").
-  // Slot 1 sits at the base; later slots alternate main / utility.
-  // Tier 7 adds a Unique-slot enchant - separate from this list; modelled later.
-  enchants: Enchantment[];
-  // 1-indexed slot positions that have been Lock-selected. Sealed slots are
-  // protected from Reroll All / Reroll Mains / Reroll Utilities / Disenchant
-  // top / Remove selected. Only Destroy pops a sealed slot.
-  sealedSlots?: number[];
+  // An ordered list of sockets (see docs/gems.md § Sockets). The length is
+  // the item's capacity, replacing the old "tier = enchant count" idea. Each
+  // socket holds a Gem instance of the item's class or is empty (null). Order
+  // is player-controlled and drives the per-item gem resolution.
+  sockets: (Gem | null)[];
   // Per-item visual variant override (e.g. weapons roll a random sword /
   // axe / spear / bow icon at generation time). Purely cosmetic - all
   // weapons share the same combat math regardless of icon. When unset,
@@ -26,21 +23,9 @@ export interface Item {
   icon?: string;
 }
 
-export function isSealed(item: Item, slotIndex1Based: number): boolean {
-  return item.sealedSlots?.includes(slotIndex1Based) ?? false;
-}
-
-// Enchant-stack alternation per CONTEXT.md § Enchant stack:
-// slot 1 = main, 2 = utility, 3 = main, ..., 6 = utility, 7 = unique (tier 7).
-export type StackLayer = EnchantLayer | 'unique';
-export const STACK_HEIGHT = 6;
-export function stackLayerAt(slotIndex1Based: number): StackLayer {
-  if (slotIndex1Based === 7) return 'unique';
-  return slotIndex1Based % 2 === 1 ? 'main' : 'utility';
-}
-
+// Tier is now the socket capacity (how many gems the item can hold).
 export function tierOf(item: Item): number {
-  return item.enchants.length;
+  return item.sockets.length;
 }
 
 export function itemEmoji(item: Item): string {

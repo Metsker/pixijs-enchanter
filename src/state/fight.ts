@@ -4,7 +4,7 @@ import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
 import { randomItem } from '../domain/random';
 import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
-import { playerEnchants, playerProfile } from './player-profile';
+import { playerEffects, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
 
@@ -71,16 +71,14 @@ let phoenixUsedThisFight = false;
 
 function preventDeathByPhoenix(player: Fighter): Fighter {
   if (player.hp > 0 || phoenixUsedThisFight) return player;
-  for (const enchant of get(playerEnchants)) {
-    for (const eff of enchant.effects) {
-      if (eff.kind === 'revive-on-death') {
-        phoenixUsedThisFight = true;
-        return {
-          ...player,
-          hp: Math.max(1, Math.round(player.maxHp * eff.hpFraction)),
-          statuses: undefined,
-        };
-      }
+  for (const eff of get(playerEffects)) {
+    if (eff.kind === 'revive-on-death') {
+      phoenixUsedThisFight = true;
+      return {
+        ...player,
+        hp: Math.max(1, Math.round(player.maxHp * eff.hpFraction)),
+        statuses: undefined,
+      };
     }
   }
   return player;
@@ -373,16 +371,14 @@ export function killEnemy(id: string): void {
     const table = DROP_TABLES[kind];
 
     // Treasure Hunter / gold-find: stacks additively across every
-    // equipped enchant. goldFraction scales rolled gold, itemDropFraction
+    // equipped gem stat. goldFraction scales rolled gold, itemDropFraction
     // bumps the per-kill item chance.
     let goldMul = 1;
     let itemBonus = 0;
-    for (const enchant of get(playerEnchants)) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'gold-find') {
-          goldMul += eff.goldFraction;
-          itemBonus += eff.itemDropFraction;
-        }
+    for (const eff of get(playerEffects)) {
+      if (eff.kind === 'gold-find') {
+        goldMul += eff.goldFraction;
+        itemBonus += eff.itemDropFraction;
       }
     }
 

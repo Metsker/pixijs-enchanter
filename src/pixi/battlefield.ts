@@ -24,14 +24,13 @@ import {
   tickTargetLock,
   type FightState,
 } from '../state/fight';
-import { playerEnchants, playerProfile } from '../state/player-profile';
+import { playerEffects, playerProcs, playerProfile } from '../state/player-profile';
 import type { AttackProfile } from '../domain/attack-profile';
 import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
-import { resolveItemGems, type ResolvedProc } from '../domain/gem-resolution';
-import type { Gem } from '../domain/gem';
+import { type ResolvedProc } from '../domain/gem-resolution';
 import { STATUS_DEFS } from '../domain/status';
 import { playStatusSfx, sfx } from '../audio/sfx';
 
@@ -101,7 +100,7 @@ export class Battlefield {
   // Tracks the previous sync's inFight flag so we can detect the
   // false → true transition and re-snapshot the player profile.
   private prevInFight = false;
-  // Adrenaline / speed-burst-on-kill: any enchant declaring the kind
+  // Adrenaline / speed-burst-on-kill: any gem stat declaring the kind
   // sets this to (now + durationSec) on a kill. While now < value
   // the player's attack interval is scaled by (1 - bonusFraction).
   // Single global window - the strongest burst overrides.
@@ -368,19 +367,17 @@ export class Battlefield {
     }
 
     // Mirror Image: regenerate a decoy charge after intervalSec while
-    // the enchant is equipped (max 1 charge).
-    for (const enchant of get(playerEnchants)) {
-      for (const eff of enchant.effects) {
-        if (eff.kind !== 'mirror-charge') continue;
-        if (this.mirrorCharge >= eff.maxCharges) {
-          this.mirrorChargeTimer = 0;
-          continue;
-        }
-        this.mirrorChargeTimer += dt;
-        if (this.mirrorChargeTimer >= eff.intervalSec) {
-          this.mirrorCharge = Math.min(eff.maxCharges, this.mirrorCharge + 1);
-          this.mirrorChargeTimer = 0;
-        }
+    // the gem is equipped (max 1 charge).
+    for (const eff of get(playerEffects)) {
+      if (eff.kind !== 'mirror-charge') continue;
+      if (this.mirrorCharge >= eff.maxCharges) {
+        this.mirrorChargeTimer = 0;
+        continue;
+      }
+      this.mirrorChargeTimer += dt;
+      if (this.mirrorChargeTimer >= eff.intervalSec) {
+        this.mirrorCharge = Math.min(eff.maxCharges, this.mirrorCharge + 1);
+        this.mirrorChargeTimer = 0;
       }
     }
 
@@ -469,17 +466,15 @@ export class Battlefield {
 
     this.landDamage(state, target, view, /* isExtraStrike */ false);
 
-    // Multistrike: each enchant rolls independently; on a proc the
+    // Multistrike: each effect rolls independently; on a proc the
     // attack fires a second time at the same target. Cheap recursion -
     // the second land skips the swing animation and the dodge / mults
     // roll fresh so the visual reads as a flurry.
-    for (const enchant of get(playerEnchants)) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'multistrike-chance' && Math.random() < eff.chance) {
-          const live = get(fight).enemies.find((e) => e.id === target.id);
-          if (live && live.hp > 0) {
-            this.landDamage(state, live, view, true);
-          }
+    for (const eff of get(playerEffects)) {
+      if (eff.kind === 'multistrike-chance' && Math.random() < eff.chance) {
+        const live = get(fight).enemies.find((e) => e.id === target.id);
+        if (live && live.hp > 0) {
+          this.landDamage(state, live, view, true);
         }
       }
     }
@@ -496,18 +491,16 @@ export class Battlefield {
     view: FighterView,
     isExtraStrike: boolean,
   ): void {
-    const enchants = get(playerEnchants);
+    const effects = get(playerEffects);
 
     // Vorpal Edge: every attack crits, crit multiplier replaced by
-    // the enchant's reduced value. First matching enchant wins.
+    // the effect's reduced value. First matching effect wins.
     let critChance = this.attack.critChance;
     let critMul = this.attack.critMultiplier;
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'all-crit-replace-mul') {
-          critChance = 1;
-          critMul = eff.replacedMul;
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'all-crit-replace-mul') {
+        critChance = 1;
+        critMul = eff.replacedMul;
       }
     }
     const isCrit = critChance > 0 && Math.random() < critChance;
@@ -523,30 +516,28 @@ export class Battlefield {
     const playerFrac =
       state.player.maxHp > 0 ? state.player.hp / state.player.maxHp : 1;
 
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        switch (eff.kind) {
-          case 'damage-vs-high-hp':
-            if (targetFrac >= eff.threshold) bonusFraction += eff.bonusFraction;
-            break;
-          case 'damage-vs-low-hp':
-            if (targetFrac <= eff.threshold) bonusFraction += eff.bonusFraction;
-            break;
-          case 'damage-mul-low-hp': {
-            // Berserker: +perPercentMissing per 10% HP missing, capped.
-            const missing = Math.max(0, 1 - playerFrac);
-            const stacks = Math.floor(missing * 10);
-            bonusFraction += Math.min(eff.cap, stacks * eff.perPercentMissing);
-            break;
-          }
-          case 'damage-from-max-hp':
-            flatBonus += state.player.maxHp * eff.fractionOfMaxHp;
-            break;
-          case 'damage-per-max-hp':
-            // Doryani's Heart: +eff.perHundred per +100 max HP.
-            bonusFraction += (state.player.maxHp / 100) * eff.perHundred;
-            break;
+    for (const eff of effects) {
+      switch (eff.kind) {
+        case 'damage-vs-high-hp':
+          if (targetFrac >= eff.threshold) bonusFraction += eff.bonusFraction;
+          break;
+        case 'damage-vs-low-hp':
+          if (targetFrac <= eff.threshold) bonusFraction += eff.bonusFraction;
+          break;
+        case 'damage-mul-low-hp': {
+          // Berserker: +perPercentMissing per 10% HP missing, capped.
+          const missing = Math.max(0, 1 - playerFrac);
+          const stacks = Math.floor(missing * 10);
+          bonusFraction += Math.min(eff.cap, stacks * eff.perPercentMissing);
+          break;
         }
+        case 'damage-from-max-hp':
+          flatBonus += state.player.maxHp * eff.fractionOfMaxHp;
+          break;
+        case 'damage-per-max-hp':
+          // Doryani's Heart: +eff.perHundred per +100 max HP.
+          bonusFraction += (state.player.maxHp / 100) * eff.perHundred;
+          break;
       }
     }
     // Razor Wit: while the post-dodge window is active, every hit
@@ -565,11 +556,9 @@ export class Battlefield {
     // enemy's flat physical resist. Enemy resist applies only to the
     // unconverted physical portion.
     let convertedFraction = 0;
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'convert-physical-rolled' || eff.kind === 'convert-physical-random') {
-          convertedFraction += eff.fraction;
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'convert-physical-rolled' || eff.kind === 'convert-physical-random') {
+        convertedFraction += eff.fraction;
       }
     }
     convertedFraction = Math.min(1, convertedFraction);
@@ -604,29 +593,25 @@ export class Battlefield {
       this.shakeKick(6);
     }
 
-    // Knockback: per-enchant roll, on proc push the target's next
+    // Knockback: per-effect roll, on proc push the target's next
     // attack out by durationSec.
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'knockback-on-hit' && Math.random() < eff.chance) {
-          const current = this.enemyCooldowns.get(target.id) ?? 0;
-          this.enemyCooldowns.set(target.id, current + eff.durationSec);
-          this.spawnFloatNumber(view, '👊', '#aaaaaa', 28);
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'knockback-on-hit' && Math.random() < eff.chance) {
+        const current = this.enemyCooldowns.get(target.id) ?? 0;
+        this.enemyCooldowns.set(target.id, current + eff.durationSec);
+        this.spawnFloatNumber(view, '👊', '#aaaaaa', 28);
       }
     }
 
     // Weapon status-on-hit (Pyroclasm burn, Frostbite freeze, etc.).
     // Independent rolls per effect; landed statuses get a tiny icon
     // float on the target so the proc reads.
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'status-on-hit' && Math.random() < eff.chance) {
-          applyStatusToEnemy(target.id, eff.status);
-          const def = STATUS_DEFS[eff.status];
-          this.spawnFloatNumber(view, def.emoji, def.color, 28);
-          playStatusSfx(eff.status);
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'status-on-hit' && Math.random() < eff.chance) {
+        applyStatusToEnemy(target.id, eff.status);
+        const def = STATUS_DEFS[eff.status];
+        this.spawnFloatNumber(view, def.emoji, def.color, 28);
+        playStatusSfx(eff.status);
       }
     }
 
@@ -648,43 +633,39 @@ export class Battlefield {
     // Splash (Sweeping Edge): a fraction of the landed damage hits
     // every other alive enemy. The grounded-only flag skips flying
     // enemies like Harpy.
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind !== 'splash-add') continue;
-        const splash = Math.max(1, Math.round(damage * eff.fraction));
-        for (const other of state.enemies) {
-          if (other.id === target.id || other.hp <= 0) continue;
-          if (eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying') {
-            continue;
-          }
-          const otherView = this.views.get(other.id);
-          if (!otherView || otherView.container.destroyed) continue;
-          this.spawnFloatNumber(otherView, `-${splash}`, '#cbd5ff', 26);
-          this.playHitFlash(otherView);
-          applyDamage(other.id, splash);
+    for (const eff of effects) {
+      if (eff.kind !== 'splash-add') continue;
+      const splash = Math.max(1, Math.round(damage * eff.fraction));
+      for (const other of state.enemies) {
+        if (other.id === target.id || other.hp <= 0) continue;
+        if (eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying') {
+          continue;
         }
+        const otherView = this.views.get(other.id);
+        if (!otherView || otherView.container.destroyed) continue;
+        this.spawnFloatNumber(otherView, `-${splash}`, '#cbd5ff', 26);
+        this.playHitFlash(otherView);
+        applyDamage(other.id, splash);
       }
     }
 
     // Chain (Conduction): a flat-damage bolt jumps from the target
     // to up to N nearest OTHER alive enemies, ranked by horizontal
     // distance from the target's home position.
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind !== 'chain-add') continue;
-        const targetHomeX = this.views.get(target.id)?.homeX ?? 0;
-        const candidates = state.enemies
-          .filter((e) => e.id !== target.id && e.hp > 0)
-          .map((e) => ({ e, dx: Math.abs((this.views.get(e.id)?.homeX ?? 0) - targetHomeX) }))
-          .sort((a, b) => a.dx - b.dx)
-          .slice(0, eff.targets);
-        for (const { e } of candidates) {
-          const ev = this.views.get(e.id);
-          if (!ev || ev.container.destroyed) continue;
-          this.spawnFloatNumber(ev, `⚡-${eff.damage}`, '#ffd84a', 26);
-          this.playHitFlash(ev);
-          applyDamage(e.id, eff.damage);
-        }
+    for (const eff of effects) {
+      if (eff.kind !== 'chain-add') continue;
+      const targetHomeX = this.views.get(target.id)?.homeX ?? 0;
+      const candidates = state.enemies
+        .filter((e) => e.id !== target.id && e.hp > 0)
+        .map((e) => ({ e, dx: Math.abs((this.views.get(e.id)?.homeX ?? 0) - targetHomeX) }))
+        .sort((a, b) => a.dx - b.dx)
+        .slice(0, eff.targets);
+      for (const { e } of candidates) {
+        const ev = this.views.get(e.id);
+        if (!ev || ev.container.destroyed) continue;
+        this.spawnFloatNumber(ev, `⚡-${eff.damage}`, '#ffd84a', 26);
+        this.playHitFlash(ev);
+        applyDamage(e.id, eff.damage);
       }
     }
 
@@ -695,12 +676,10 @@ export class Battlefield {
     if (after && after.hp <= 0) {
       let bestBonus = 0;
       let bestDuration = 0;
-      for (const enchant of enchants) {
-        for (const eff of enchant.effects) {
-          if (eff.kind === 'speed-burst-on-kill' && eff.bonusFraction > bestBonus) {
-            bestBonus = eff.bonusFraction;
-            bestDuration = eff.durationSec;
-          }
+      for (const eff of effects) {
+        if (eff.kind === 'speed-burst-on-kill' && eff.bonusFraction > bestBonus) {
+          bestBonus = eff.bonusFraction;
+          bestDuration = eff.durationSec;
         }
       }
       if (bestBonus > 0) {
@@ -712,19 +691,17 @@ export class Battlefield {
       // Lichcrown: gain a random aura status for durationSec. While
       // armed, the aura-on-hit pass in fireEnemyAttack inflicts it
       // on attackers at the same rate as armor auras.
-      for (const enchant of enchants) {
-        for (const eff of enchant.effects) {
-          if (eff.kind !== 'on-kill-aura') continue;
-          const all: StatusType[] = ['burn', 'freeze', 'shock', 'poison', 'bleed'];
-          const pick = all[Math.floor(Math.random() * all.length)];
-          this.lichcrownAura = pick;
-          const now = performance.now() / 1000;
-          this.lichcrownUntil = Math.max(this.lichcrownUntil, now + eff.durationSec);
-          const sd = STATUS_DEFS[pick];
-          const playerView = this.views.get(state.player.id);
-          if (playerView && !playerView.container.destroyed) {
-            this.spawnFloatNumber(playerView, `${sd.emoji} aura`, sd.color, 26);
-          }
+      for (const eff of effects) {
+        if (eff.kind !== 'on-kill-aura') continue;
+        const all: StatusType[] = ['burn', 'freeze', 'shock', 'poison', 'bleed'];
+        const pick = all[Math.floor(Math.random() * all.length)];
+        this.lichcrownAura = pick;
+        const now = performance.now() / 1000;
+        this.lichcrownUntil = Math.max(this.lichcrownUntil, now + eff.durationSec);
+        const sd = STATUS_DEFS[pick];
+        const playerView = this.views.get(state.player.id);
+        if (playerView && !playerView.container.destroyed) {
+          this.spawnFloatNumber(playerView, `${sd.emoji} aura`, sd.color, 26);
         }
       }
     }
@@ -738,18 +715,11 @@ export class Battlefield {
   private buildProcs(): void {
     this.activeProcs = [];
 
-    // SLICE: the socket / Item UI does not exist yet, so seed the
-    // engine from a hardcoded gem-instance list. Ordering
-    // [overload][chain-lightning] makes Overload bind to Chain
-    // Lightning to its right and scale its damage (200 -> 320),
-    // proving the support pass works end-to-end.
-    const seededSockets: Array<Gem | null> = [
-      { id: 'seed-overload', defId: 'overload' }, // SLICE
-      { id: 'seed-chain-lightning', defId: 'chain-lightning' }, // SLICE
-    ]; // SLICE
-
-    const { procs } = resolveItemGems(seededSockets); // SLICE
-    for (const proc of procs) {
+    // Seed the engine from the player's currently-equipped gems: every
+    // item's sockets resolve to procs (player-profile.ts § playerProcs)
+    // and each timer proc starts at a FULL cooldown so the first cast
+    // lands after one interval, not instantly.
+    for (const proc of get(playerProcs)) {
       this.activeProcs.push({ proc, remaining: proc.cooldownSec });
     }
   }
@@ -844,7 +814,7 @@ export class Battlefield {
       tl.to(enemyView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
     }
 
-    const enchants = get(playerEnchants);
+    const effects = get(playerEffects);
 
     // Mirror Image: a stored decoy absorbs the next hit outright.
     // Consumed before the dodge/DR/thorns chain so nothing else
@@ -863,18 +833,16 @@ export class Battlefield {
     if (this.defence.dodge > 0 && Math.random() < this.defence.dodge) {
       this.spawnFloatNumber(playerView, 'Dodge', '#aaaaaa', 28);
       sfx.dodge();
-      for (const enchant of enchants) {
-        for (const eff of enchant.effects) {
-          if (eff.kind === 'counter-attack' && enemyView && !enemyView.container.destroyed) {
-            const reflect = Math.max(1, Math.round(this.attack.damage * eff.fraction));
-            this.spawnDamageNumber(enemyView, reflect);
-            this.playHitFlash(enemyView);
-            applyDamage(enemy.id, reflect);
-          }
-          if (eff.kind === 'on-dodge-damage-buff' && eff.bonusFraction > this.dodgeBuffBonus) {
-            this.dodgeBuffBonus = eff.bonusFraction;
-            this.dodgeBuffUntil = performance.now() / 1000 + eff.durationSec;
-          }
+      for (const eff of effects) {
+        if (eff.kind === 'counter-attack' && enemyView && !enemyView.container.destroyed) {
+          const reflect = Math.max(1, Math.round(this.attack.damage * eff.fraction));
+          this.spawnDamageNumber(enemyView, reflect);
+          this.playHitFlash(enemyView);
+          applyDamage(enemy.id, reflect);
+        }
+        if (eff.kind === 'on-dodge-damage-buff' && eff.bonusFraction > this.dodgeBuffBonus) {
+          this.dodgeBuffBonus = eff.bonusFraction;
+          this.dodgeBuffUntil = performance.now() / 1000 + eff.durationSec;
         }
       }
       return;
@@ -888,21 +856,17 @@ export class Battlefield {
     let dr = this.defence.damageReduction;
     const playerHpFrac =
       state.player.maxHp > 0 ? state.player.hp / state.player.maxHp : 1;
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'damage-reduction-low-hp' && playerHpFrac <= eff.threshold) {
-          dr += eff.amount;
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'damage-reduction-low-hp' && playerHpFrac <= eff.threshold) {
+        dr += eff.amount;
       }
     }
     if (dr > 0) {
       incoming = Math.max(1, Math.round(incoming * (1 - Math.min(0.95, dr))));
     }
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'big-hit-reduction' && incoming > eff.threshold) {
-          incoming = Math.max(1, Math.round(incoming * (1 - eff.reductionFraction)));
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'big-hit-reduction' && incoming > eff.threshold) {
+        incoming = Math.max(1, Math.round(incoming * (1 - eff.reductionFraction)));
       }
     }
 
@@ -920,12 +884,10 @@ export class Battlefield {
     // applying instantly. Strongest stoic wins (first match here).
     let stoicShift = 0;
     let stoicDur = 0;
-    for (const enchant of enchants) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'stoic' && eff.fraction > stoicShift) {
-          stoicShift = eff.fraction;
-          stoicDur = eff.durationSec;
-        }
+    for (const eff of effects) {
+      if (eff.kind === 'stoic' && eff.fraction > stoicShift) {
+        stoicShift = eff.fraction;
+        stoicDur = eff.durationSec;
       }
     }
     if (stoicShift > 0 && stoicDur > 0) {
@@ -960,20 +922,18 @@ export class Battlefield {
     // Curse: each rolls independently and inflicts its status on the
     // attacking enemy. Reactive Curse picks a random status type.
     if (enemyView && !enemyView.container.destroyed) {
-      for (const enchant of enchants) {
-        for (const eff of enchant.effects) {
-          if (eff.kind === 'aura-on-hit' && Math.random() < eff.chance) {
-            applyStatusToEnemy(enemy.id, eff.status);
-            const sd = STATUS_DEFS[eff.status];
-            this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
-          }
-          if (eff.kind === 'reactive-status' && Math.random() < eff.chance) {
-            const all = Object.keys(STATUS_DEFS) as StatusType[];
-            const pick = all[Math.floor(Math.random() * all.length)];
-            applyStatusToEnemy(enemy.id, pick);
-            const sd = STATUS_DEFS[pick];
-            this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
-          }
+      for (const eff of effects) {
+        if (eff.kind === 'aura-on-hit' && Math.random() < eff.chance) {
+          applyStatusToEnemy(enemy.id, eff.status);
+          const sd = STATUS_DEFS[eff.status];
+          this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
+        }
+        if (eff.kind === 'reactive-status' && Math.random() < eff.chance) {
+          const all = Object.keys(STATUS_DEFS) as StatusType[];
+          const pick = all[Math.floor(Math.random() * all.length)];
+          applyStatusToEnemy(enemy.id, pick);
+          const sd = STATUS_DEFS[pick];
+          this.spawnFloatNumber(enemyView, sd.emoji, sd.color, 28);
         }
       }
       // Lichcrown active aura: 15% chance per hit (matches armor
@@ -1002,11 +962,9 @@ export class Battlefield {
   // Returns true if the status should land.
   private playerCanBeStatused(_status: StatusType): boolean {
     let totalResist = 0;
-    for (const enchant of get(playerEnchants)) {
-      for (const eff of enchant.effects) {
-        if (eff.kind === 'status-immune') return false;
-        if (eff.kind === 'status-resist-chance') totalResist += eff.chance;
-      }
+    for (const eff of get(playerEffects)) {
+      if (eff.kind === 'status-immune') return false;
+      if (eff.kind === 'status-resist-chance') totalResist += eff.chance;
     }
     if (totalResist <= 0) return true;
     return Math.random() >= Math.min(1, totalResist);

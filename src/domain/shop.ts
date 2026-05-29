@@ -11,8 +11,6 @@ export interface ShopItemSlot {
 
 export interface ShopStock {
   items: (ShopItemSlot | null)[];
-  emptyScrolls: { remaining: number; unitPrice: number };
-  seals: { remaining: number; unitPrice: number };
   crystals: { remaining: number; perPackSize: number; pricePerCrystal: number };
 }
 
@@ -57,8 +55,6 @@ export function generateShopStock(floor: number): ShopStock {
 
   return {
     items,
-    emptyScrolls: { remaining: 3, unitPrice: 75 },
-    seals: { remaining: 3 + (Math.random() < 0.5 ? 0 : 1), unitPrice: 125 },
     crystals: {
       remaining: 50 + Math.floor(Math.random() * 51), // 50..100
       perPackSize: 10,

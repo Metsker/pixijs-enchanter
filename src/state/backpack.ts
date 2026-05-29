@@ -99,7 +99,7 @@ export function sortBackpack(): void {
       const ga = GROUP_RANK[groupKey(a)] ?? 99;
       const gb = GROUP_RANK[groupKey(b)] ?? 99;
       if (ga !== gb) return ga - gb;
-      return b.enchants.length - a.enchants.length;
+      return b.sockets.length - a.sockets.length;
     });
     const next: (Item | null)[] = Array.from({ length: slots.length }, () => null);
     for (let i = 0; i < filled.length; i++) next[i] = filled[i];

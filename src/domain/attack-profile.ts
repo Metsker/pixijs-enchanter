@@ -1,4 +1,4 @@
-import type { DamageType, Enchantment } from './enchant';
+import type { DamageType, EnchantEffect } from './enchant';
 
 export interface AttackProfile {
   damage: number;
@@ -34,7 +34,11 @@ const INTERVAL_FLOOR = 0.3;
 // uniques) are catalogued so the Inspector can show them, but resolveProfile
 // silently passes them through for now. They land in a later combat-depth
 // step.
-export function resolveProfile(enchants: Enchantment[]): AttackProfile {
+//
+// Input is the flat list of gem-resolved stat effects (see
+// player-profile.ts § playerEffects) - one level flatter than the old
+// per-enchant shape.
+export function resolveProfile(effects: EnchantEffect[]): AttackProfile {
   let damage = BASE_DAMAGE;
   let intervalReduction = 0;
   let speedAdd = 0;
@@ -42,31 +46,29 @@ export function resolveProfile(enchants: Enchantment[]): AttackProfile {
   let critMulBonus = 0;
   let lifesteal = 0;
 
-  for (const enchant of enchants) {
-    for (const eff of enchant.effects) {
-      switch (eff.kind) {
-        case 'damage-add':
-        case 'damage-split':
-          damage += eff.amount;
-          break;
-        case 'interval-reduction':
-          intervalReduction += eff.amount;
-          break;
-        case 'attack-speed-add':
-          speedAdd += eff.amount;
-          break;
-        case 'crit-chance-add':
-          critChance += eff.amount;
-          break;
-        case 'crit-mul-add':
-          critMulBonus += eff.amount;
-          break;
-        case 'lifesteal-add':
-          lifesteal += eff.fraction;
-          break;
-        // Everything else: not yet wired into combat. The Inspector still
-        // shows the effect via its description text.
-      }
+  for (const eff of effects) {
+    switch (eff.kind) {
+      case 'damage-add':
+      case 'damage-split':
+        damage += eff.amount;
+        break;
+      case 'interval-reduction':
+        intervalReduction += eff.amount;
+        break;
+      case 'attack-speed-add':
+        speedAdd += eff.amount;
+        break;
+      case 'crit-chance-add':
+        critChance += eff.amount;
+        break;
+      case 'crit-mul-add':
+        critMulBonus += eff.amount;
+        break;
+      case 'lifesteal-add':
+        lifesteal += eff.fraction;
+        break;
+      // Everything else: not yet wired into combat. The Inspector still
+      // shows the effect via its description text.
     }
   }
 

@@ -138,31 +138,7 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
   return landed;
 }
 
-// === Buy a single Empty scroll / Seal / crystal pack ================
-export function buyEmptyScroll(): boolean {
-  const stock = get(shopStock);
-  if (!stock || stock.emptyScrolls.remaining <= 0) return false;
-  if (!spendGold(stock.emptyScrolls.unitPrice)) return false;
-  topbar.update((s) => ({ ...s, emptyScrolls: s.emptyScrolls + 1 }));
-  shopStock.update((s) => {
-    if (!s) return s;
-    return { ...s, emptyScrolls: { ...s.emptyScrolls, remaining: s.emptyScrolls.remaining - 1 } };
-  });
-  return true;
-}
-
-export function buySeal(): boolean {
-  const stock = get(shopStock);
-  if (!stock || stock.seals.remaining <= 0) return false;
-  if (!spendGold(stock.seals.unitPrice)) return false;
-  topbar.update((s) => ({ ...s, seals: s.seals + 1 }));
-  shopStock.update((s) => {
-    if (!s) return s;
-    return { ...s, seals: { ...s.seals, remaining: s.seals.remaining - 1 } };
-  });
-  return true;
-}
-
+// === Buy a crystal pack =============================================
 export function buyCrystalPack(): boolean {
   const stock = get(shopStock);
   if (!stock) return false;

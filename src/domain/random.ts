@@ -1,53 +1,14 @@
-import { ENCHANT_CATALOGUE } from './enchant-catalogue';
-import type { Enchantment, EnchantLayer, EnchantPool } from './enchant';
 import type { ArmorSlot, Item, ItemType } from './item';
-import { stackLayerAt } from './item';
+import type { Gem, GemClass } from './gem';
+import { GEM_CATALOGUE } from './gem-catalogue';
 
-// Item-pool mapping per CONTEXT.md § Equipment slot table:
-// weapon -> Weapons, shield/armor -> Armor, ring/amulet -> Jewelry.
-export function itemPoolFor(itemType: string): EnchantPool {
-  if (itemType === 'weapon') return 'weapons';
-  if (itemType === 'shield' || itemType === 'armor') return 'armor';
+// Item-class mapping (see docs/gems.md § Gems): a gem only fits a socket of
+// its own class. weapon / shield -> weapon-class gems; armor -> armor-class;
+// ring / amulet -> jewelry-class.
+export function itemGemClass(itemType: string): GemClass {
+  if (itemType === 'weapon' || itemType === 'shield') return 'weapon';
+  if (itemType === 'armor') return 'armor';
   return 'jewelry';
-}
-
-// Eligible catalogue entries for a roll: must include the item's pool, match
-// the required layer, and NOT be unique (unique enchants only come from
-// boss-dropped Unique scrolls).
-export function eligibleEnchants(pool: EnchantPool, layer: EnchantLayer): Enchantment[] {
-  return Object.values(ENCHANT_CATALOGUE).filter(
-    (e) => e.pools.includes(pool) && e.layer === layer && !e.pools.includes('unique'),
-  );
-}
-
-// Non-physical element pool for convert-physical-rolled (Avatar of
-// [Element]). Includes the four conversion-eligible types; physical
-// is excluded since the effect converts FROM physical.
-const ROLLED_ELEMENTS = ['fire', 'cold', 'lightning', 'chaos'] as const;
-
-export function pickRandomEnchant(pool: EnchantPool, layer: EnchantLayer): Enchantment {
-  const choices = eligibleEnchants(pool, layer);
-  const base = choices[Math.floor(Math.random() * choices.length)];
-  return materializeRolled(base);
-}
-
-// Some enchants carry a per-instance rolled parameter that must be
-// frozen at gen time (Avatar of [Element] rolls one of four non-
-// physical types). Without this clone, every Avatar share would
-// point at the catalogue's placeholder toType. Clone defensively
-// only when needed.
-function materializeRolled(enchant: Enchantment): Enchantment {
-  let mutated = false;
-  const nextEffects = enchant.effects.map((eff) => {
-    if (eff.kind === 'convert-physical-rolled') {
-      const rolled = ROLLED_ELEMENTS[Math.floor(Math.random() * ROLLED_ELEMENTS.length)];
-      mutated = true;
-      return { ...eff, toType: rolled };
-    }
-    return eff;
-  });
-  if (!mutated) return enchant;
-  return { ...enchant, effects: nextEffects };
 }
 
 const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
@@ -85,6 +46,37 @@ function nextItemId(prefix: string): string {
   return `${prefix}-${Date.now()}-${itemCounter}`;
 }
 
+let gemCounter = 0;
+function nextGemId(): string {
+  gemCounter += 1;
+  return `gem-${Date.now()}-${gemCounter}`;
+}
+
+// Catalogue defIds grouped by class, computed once. Used to pre-socket
+// freshly-dropped items with a couple of class-matched gems.
+const GEM_IDS_BY_CLASS: Record<GemClass, string[]> = (() => {
+  const acc: Record<GemClass, string[]> = { weapon: [], armor: [], jewelry: [] };
+  for (const def of Object.values(GEM_CATALOGUE)) {
+    acc[def.class].push(def.id);
+  }
+  return acc;
+})();
+
+// Build the item's socket list: a capacity-length (Gem | null)[] where
+// 1-2 leading sockets carry random class-matched gem instances and the
+// rest are empty. Pre-socketing gives a freshly-dropped item something
+// to do in combat until the player rearranges it at Rest (a later phase).
+function rollSockets(capacity: number, gemClass: GemClass): (Gem | null)[] {
+  const sockets: (Gem | null)[] = Array.from({ length: capacity }, () => null);
+  const pool = GEM_IDS_BY_CLASS[gemClass];
+  if (pool.length === 0) return sockets;
+  const count = Math.min(capacity, 1 + Math.floor(Math.random() * 2)); // 1 or 2
+  for (let i = 0; i < count; i++) {
+    sockets[i] = { id: nextGemId(), defId: pick(pool) };
+  }
+  return sockets;
+}
+
 export function randomItem(tier: number, idPrefix = 'item'): Item {
   const itemType = pick(ALL_ITEM_TYPES);
   return buildItem(itemType, tier, idPrefix);
@@ -94,13 +86,12 @@ export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
   return buildItem('weapon', tier, idPrefix);
 }
 
+// Tier is the socket capacity (clamped to at least 1 so every item has
+// room for a gem).
 function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
-  const pool = itemPoolFor(itemType);
-  const enchants = Array.from({ length: tier }, (_, i) => {
-    const layer = stackLayerAt(i + 1) as EnchantLayer;
-    return pickRandomEnchant(pool, layer);
-  });
+  const capacity = Math.max(1, tier);
+  const sockets = rollSockets(capacity, itemGemClass(itemType));
   const icon = iconFor(itemType, armorSlot);
-  return { id: nextItemId(idPrefix), itemType, armorSlot, enchants, icon };
+  return { id: nextItemId(idPrefix), itemType, armorSlot, sockets, icon };
 }

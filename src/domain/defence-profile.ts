@@ -1,4 +1,4 @@
-import type { DamageType, Enchantment } from './enchant';
+import type { DamageType, EnchantEffect } from './enchant';
 
 // The "you take damage" half of the player's stat block. Mirrors
 // attack-profile.ts in shape so combat code can read both via the
@@ -39,7 +39,10 @@ const DODGE_CAP = 0.95;
 const DR_CAP = 0.95;
 const RESIST_CAP = 0.95;
 
-export function resolveDefence(enchants: Enchantment[]): DefenceProfile {
+// Input is the flat list of gem-resolved stat effects (see
+// player-profile.ts § playerEffects) - one level flatter than the old
+// per-enchant shape.
+export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
   let maxHp = BASE_MAX_HP;
   let maxHpMul = 1;
   let dodge = 0;
@@ -48,39 +51,37 @@ export function resolveDefence(enchants: Enchantment[]): DefenceProfile {
   let thorns = 0;
   const resists: Partial<Record<DamageType, number>> = {};
 
-  for (const enchant of enchants) {
-    for (const eff of enchant.effects) {
-      switch (eff.kind) {
-        case 'hp-max-add':
-          maxHp += eff.amount;
-          break;
-        case 'hp-max-mul':
-          maxHpMul *= eff.factor;
-          break;
-        case 'dodge-add':
-          dodge += eff.amount;
-          break;
-        case 'regen':
-          regen += eff.amount;
-          break;
-        case 'damage-reduction':
-          dr += eff.amount;
-          break;
-        case 'thorns-flat':
-          thorns += eff.amount;
-          break;
-        case 'resist-add':
-          // "rolled" type is decided at item-gen time (not yet wired);
-          // treat unrolled as physical-only for now so the field at
-          // least stacks somewhere visible.
-          if (eff.type && eff.type !== 'rolled') {
-            resists[eff.type] = (resists[eff.type] ?? 0) + eff.amount;
-          }
-          break;
-        // Conditional / reactive / status / unique kinds: silently
-        // pass through. The Inspector still surfaces them via the
-        // description text.
-      }
+  for (const eff of effects) {
+    switch (eff.kind) {
+      case 'hp-max-add':
+        maxHp += eff.amount;
+        break;
+      case 'hp-max-mul':
+        maxHpMul *= eff.factor;
+        break;
+      case 'dodge-add':
+        dodge += eff.amount;
+        break;
+      case 'regen':
+        regen += eff.amount;
+        break;
+      case 'damage-reduction':
+        dr += eff.amount;
+        break;
+      case 'thorns-flat':
+        thorns += eff.amount;
+        break;
+      case 'resist-add':
+        // "rolled" type is decided at item-gen time (not yet wired);
+        // treat unrolled as physical-only for now so the field at
+        // least stacks somewhere visible.
+        if (eff.type && eff.type !== 'rolled') {
+          resists[eff.type] = (resists[eff.type] ?? 0) + eff.amount;
+        }
+        break;
+      // Conditional / reactive / status / unique kinds: silently
+      // pass through. The Inspector still surfaces them via the
+      // description text.
     }
   }
 

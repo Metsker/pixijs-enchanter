@@ -6,7 +6,6 @@ import { resetPendingRewards } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetTopbar } from './topbar';
-import { resetScrolls } from './scrolls';
 import { closeInspector, inspectItem } from './inspector';
 import { equipped } from './inventory';
 import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
@@ -52,7 +51,7 @@ function screenFor(kind: RoomKind): Screen {
 }
 
 // Walks the equipped slots and inspects the item with the most
-// enchants (ties broken by canonical slot order). Used to auto-pop
+// sockets (ties broken by canonical slot order). Used to auto-pop
 // the Inspector on the player's "best" gear at room entry so the
 // fight / rest / shop opens with their key item already in focus.
 function inspectHighestTierEquipped(): void {
@@ -61,7 +60,7 @@ function inspectHighestTierEquipped(): void {
   for (const slotId of EQUIPMENT_SLOT_ORDER) {
     const item = eq[slotId];
     if (!item) continue;
-    if (!best || item.enchants.length > best.item.enchants.length) {
+    if (!best || item.sockets.length > best.item.sockets.length) {
       best = { slotId, item };
     }
   }
@@ -127,7 +126,6 @@ export function startNewRun(): void {
   resetBackpack();
   resetEquipped();
   resetTopbar();
-  resetScrolls();
   closeInspector();
   closeShop();
   closeItemOffer();

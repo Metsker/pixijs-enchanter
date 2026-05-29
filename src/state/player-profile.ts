@@ -1,6 +1,7 @@
 import { derived } from 'svelte/store';
 import { equipped, type EquippedItems } from './inventory';
-import type { Enchantment } from '../domain/enchant';
+import type { EnchantEffect } from '../domain/enchant';
+import { resolveItemGems, type ResolvedProc } from '../domain/gem-resolution';
 import { resolveProfile, type AttackProfile } from '../domain/attack-profile';
 import { resolveDefence, type DefenceProfile } from '../domain/defence-profile';
 
@@ -9,30 +10,46 @@ export interface PlayerProfile {
   defence: DefenceProfile;
 }
 
-function collectEnchants(eq: EquippedItems): Enchantment[] {
-  const all: Enchantment[] = [];
+// Resolve every equipped item's sockets and flat-map the two parallel
+// outputs (see docs/gems.md § Resolution / Aggregation):
+//   - stats -> EnchantEffect[] feeding the attack / defence profiles
+//   - procs -> ResolvedProc[] feeding the battlefield proc engine
+function collectEffects(eq: EquippedItems): EnchantEffect[] {
+  const all: EnchantEffect[] = [];
   for (const item of Object.values(eq)) {
     if (!item) continue;
-    for (const e of item.enchants) all.push(e);
+    all.push(...resolveItemGems(item.sockets).stats);
   }
   return all;
 }
 
-// Live snapshot of what the player's equipped enchants currently
-// translate to in combat math. Battlefield reads this via get() on
-// every attack/tick instead of caching its own copy, so swapping gear
-// in a Rest/Map (out-of-combat) is reflected immediately when the
-// next fight starts.
+function collectProcs(eq: EquippedItems): ResolvedProc[] {
+  const all: ResolvedProc[] = [];
+  for (const item of Object.values(eq)) {
+    if (!item) continue;
+    all.push(...resolveItemGems(item.sockets).procs);
+  }
+  return all;
+}
+
+// Flat list of every gem-resolved stat effect on every equipped item.
+// Combat hooks that need to scan for specific effect kinds
+// (status-on-hit, aura-on-hit, knockback-on-hit, etc.) read from here so
+// they don't have to walk the EquippedItems map themselves.
+export const playerEffects = derived(equipped, ($eq) => collectEffects($eq));
+
+// Flat list of every gem-resolved proc on every equipped item. The
+// battlefield proc engine seeds activeProcs from here at fight start.
+export const playerProcs = derived(equipped, ($eq) => collectProcs($eq));
+
+// Live snapshot of what the player's equipped gems currently translate to
+// in combat math. Battlefield reads this via get() on every attack/tick
+// instead of caching its own copy, so swapping gear in a Rest/Map
+// (out-of-combat) is reflected immediately when the next fight starts.
 export const playerProfile = derived(equipped, ($eq): PlayerProfile => {
-  const enchants = collectEnchants($eq);
+  const effects = collectEffects($eq);
   return {
-    attack: resolveProfile(enchants),
-    defence: resolveDefence(enchants),
+    attack: resolveProfile(effects),
+    defence: resolveDefence(effects),
   };
 });
-
-// Flat list of every enchant on every equipped item. Combat hooks
-// that need to scan for specific effect kinds (status-on-hit,
-// aura-on-hit, knockback-on-hit, etc.) read from here so they don't
-// have to walk the EquippedItems map themselves.
-export const playerEnchants = derived(equipped, ($eq) => collectEnchants($eq));

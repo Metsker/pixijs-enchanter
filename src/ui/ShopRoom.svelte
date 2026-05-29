@@ -1,6 +1,6 @@
 <script lang="ts">
   import { completeRoom } from '../state/run';
-  import { buyCrystalPack, buyEmptyScroll, buySeal, shopStock } from '../state/shop';
+  import { buyCrystalPack, shopStock } from '../state/shop';
   import { topbar } from '../state/topbar';
   import { backpack } from '../state/backpack';
   import { inspectItem, inspector } from '../state/inspector';
@@ -73,34 +73,6 @@
 
       <div class="consumables">
         <div class="items-label">{t('shop.consumables')}</div>
-
-        <button
-          type="button"
-          class="consumable"
-          disabled={stock.emptyScrolls.remaining <= 0 || $topbar.gold < stock.emptyScrolls.unitPrice}
-          onclick={buyEmptyScroll}
-        >
-          <div class="row">
-            <span class="emoji">📜</span>
-            <span class="name">{t('topbar.emptyScrolls')}</span>
-            <span class="stock">×{stock.emptyScrolls.remaining}</span>
-          </div>
-          <div class="price">🪙 {stock.emptyScrolls.unitPrice}</div>
-        </button>
-
-        <button
-          type="button"
-          class="consumable"
-          disabled={stock.seals.remaining <= 0 || $topbar.gold < stock.seals.unitPrice}
-          onclick={buySeal}
-        >
-          <div class="row">
-            <span class="emoji">⚜️</span>
-            <span class="name">{t('topbar.seals')}</span>
-            <span class="stock">×{stock.seals.remaining}</span>
-          </div>
-          <div class="price">🪙 {stock.seals.unitPrice}</div>
-        </button>
 
         <button
           type="button"
