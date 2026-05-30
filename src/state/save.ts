@@ -9,8 +9,8 @@ import { shopStock } from './shop';
 import { itemOffer, type ItemOffer } from './item-offer';
 import type { Gem, SocketColor } from '../domain/gem';
 import { isItem, type Item } from '../domain/item';
-import { gemColor, themeColorForItem } from '../domain/gem-fit';
-import { rollSocketColor } from '../domain/random';
+import { gemColor } from '../domain/gem-fit';
+import { rollSocketColorForType } from '../domain/random';
 import type { ShopStock } from '../domain/shop';
 
 // Single-slot save in localStorage. Schema is versioned so we can
@@ -57,15 +57,14 @@ function snapshot(): SaveSnapshot {
 // Items from pre-colour saves carry `sockets` but no `socketColors`. Build a
 // parallel colour list of the right length: a socket holding a gem takes that
 // gem's colour (so the existing gem stays a legal fit), an empty socket gets a
-// type-biased colour rolled toward the item's theme. Items already carrying a
-// well-formed socketColors array are returned untouched. Idempotent.
+// colour rolled from the item type's socket-colour pool. Items already carrying
+// a well-formed socketColors array are returned untouched. Idempotent.
 function backfillItemColors(item: Item): Item {
   const len = item.sockets.length;
   const existing = item.socketColors;
   if (Array.isArray(existing) && existing.length === len) return item;
-  const theme = themeColorForItem(item);
   const socketColors: SocketColor[] = item.sockets.map(
-    (gem) => (gem ? gemColor(gem) : null) ?? rollSocketColor(theme),
+    (gem) => (gem ? gemColor(gem) : null) ?? rollSocketColorForType(item.itemType),
   );
   return { ...item, socketColors };
 }

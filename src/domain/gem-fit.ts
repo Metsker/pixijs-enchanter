@@ -3,26 +3,19 @@
 // PoE-style: a gem carries a colour (derived from its class) and a socket
 // carries a colour (item.socketColors[i]). A gem fits a socket iff their
 // colours match - fit follows the SOCKET, not the item type. The item type
-// still picks a THEME colour, used to bias drop / add-socket colour rolls
-// (random.ts, rest.ts) so an item leans toward its natural colour without
-// gating which gems can ever go in.
+// drives only the drop / add-socket socket-colour POOLS (random.ts), which
+// exclude some colours per type without gating which gems can ever go in.
 
 import { colorForClass, type Gem, type GemClass, type GemDef, type SocketColor } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import type { Item, ItemType } from './item';
 
 // The raw item-type -> gem-class mapping. weapon / shield lean red; ring /
-// amulet lean blue; armor leans green. No longer a fit gate - only a theme.
+// amulet lean blue; armor leans green. No longer a fit gate.
 export function gemClassForItemType(itemType: ItemType): GemClass {
   if (itemType === 'weapon' || itemType === 'shield') return 'weapon';
   if (itemType === 'armor') return 'armor';
   return 'jewelry';
-}
-
-// An item's THEME colour: the colour its socket-colour rolls are biased toward
-// (drops, add-socket). Derived from the item type via its old gem class.
-export function themeColorForItem(item: Item): SocketColor {
-  return colorForClass(gemClassForItemType(item.itemType));
 }
 
 // The catalogue definition a placed gem instance refers to (undefined for an

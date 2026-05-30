@@ -5,12 +5,10 @@
 // shop crystal pack; crystals are NOT dropped anywhere else (ADR 0003).
 
 import { get } from 'svelte/store';
-import type { Gem, GemDef, SocketColor } from '../domain/gem';
+import type { Gem, GemDef } from '../domain/gem';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
 import { tierOf, type Item } from '../domain/item';
-import { gemColor, themeColorForItem } from '../domain/gem-fit';
-import { rollSocketColor } from '../domain/random';
-import { addGemToBackpack, backpack } from './backpack';
+import { rollSocketColorForType } from '../domain/random';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
 import { writeItem } from './gem-move';
 import { refundCrystals, spendCrystals, topbar } from './topbar';
@@ -126,63 +124,17 @@ export function canAffordAddSocket(item: Item): boolean {
 // Add one empty socket to `item`: spend the tier-scaled crystal cost and
 // persist through the shared item write-back (so it lands on the equipped /
 // backpack store and the open Inspector re-derives). The new socket's colour
-// is rolled type-biased toward the item's theme (same roll as drops). No-op
+// is rolled from the item type's socket-colour pool (same roll as drops). No-op
 // (returns false) if the item is at the tier cap or the player can't afford it
 // - no crystals are spent in either case.
 export function addSocketToItem(item: Item): boolean {
   if (!canAddSocket(item)) return false;
   if (!spendCrystals(addSocketCost(item))) return false;
-  const color = rollSocketColor(themeColorForItem(item));
+  const color = rollSocketColorForType(item.itemType);
   writeItem({
     ...item,
     sockets: [...item.sockets, null],
     socketColors: [...item.socketColors, color],
   });
-  return true;
-}
-
-// --- Re-colour a socket (targeted craft at Rest) -----------------------
-//
-// Set ONE socket's colour to a chosen colour for crystals (placeholder cost
-// RECOLOR_COST). If the socket holds a gem whose colour no longer matches the
-// new colour, the gem is EJECTED to the backpack; if the backpack is full the
-// re-colour is BLOCKED (returns false, no crystals spent) so the gem can never
-// be lost. A no-op re-colour (same colour) is rejected. Only meaningful for an
-// OWNED item (equipped / backpack) - the UI gates that.
-
-// Crystal cost to re-colour a single socket (placeholder, tuned in playtesting).
-export const RECOLOR_COST = 20;
-
-// True if the player can currently afford a single socket re-colour.
-export function canAffordRecolor(): boolean {
-  return get(topbar).crystals >= RECOLOR_COST;
-}
-
-// Re-colour `item`'s socket `index` to `color`. Spends RECOLOR_COST, sets
-// socketColors[index] = color, and persists via the shared item write-back. A
-// gem in that socket whose colour no longer fits is ejected to the backpack;
-// if the backpack is full the re-colour is blocked (false, no spend). Returns
-// true on success. No-op (false, no spend) when the colour is unchanged, the
-// index is out of range, or the item can't be afforded.
-export function recolorSocket(item: Item, index: number, color: SocketColor): boolean {
-  if (index < 0 || index >= item.socketColors.length) return false;
-  if (item.socketColors[index] === color) return false; // no-op re-colour.
-
-  // If a gem sits here and would no longer fit, it must move to the backpack.
-  // Check capacity BEFORE spending so a full backpack blocks cleanly.
-  const occupant = item.sockets[index];
-  const ejects = occupant !== null && gemColor(occupant) !== color;
-  if (ejects && !get(backpack).includes(null)) return false; // no room: block.
-
-  if (!spendCrystals(RECOLOR_COST)) return false;
-
-  const socketColors = item.socketColors.slice();
-  socketColors[index] = color;
-  const sockets = item.sockets.slice();
-  if (ejects && occupant) {
-    sockets[index] = null;
-    addGemToBackpack(occupant);
-  }
-  writeItem({ ...item, sockets, socketColors });
   return true;
 }

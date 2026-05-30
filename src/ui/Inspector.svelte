@@ -4,13 +4,7 @@
   import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
   import { completeRoom, run } from '../state/run';
-  import {
-    RECOLOR_COST,
-    addSocketCost,
-    addSocketToItem,
-    canAddSocket,
-    recolorSocket,
-  } from '../state/rest';
+  import { addSocketCost, addSocketToItem, canAddSocket } from '../state/rest';
   import { topbar } from '../state/topbar';
   import {
     canEquipDirect,
@@ -32,7 +26,7 @@
     tierOf,
     type Item,
   } from '../domain/item';
-  import type { Gem, SocketColor } from '../domain/gem';
+  import type { Gem } from '../domain/gem';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { computeBindings } from '../domain/gem-resolution';
   import { gemFitsSocketAt } from '../domain/gem-fit';
@@ -90,26 +84,6 @@
     const subj = $inspector;
     if (!subj) return;
     addSocketToItem(subj.item);
-  }
-
-  // === Re-colour a socket (Rest only) ==============================
-  // At Rest, an owned item's sockets each expose a small R/G/B chooser that
-  // re-colours that socket for crystals. The buttons read the live crystal
-  // balance so they disable when unaffordable, and a no-op (same colour) is
-  // simply the already-active swatch.
-  const ALL_SOCKET_COLORS: SocketColor[] = ['red', 'green', 'blue'];
-  const canRecolorHere = $derived(
-    $inspector !== null && $run.screen === 'rest' && socketsEditable,
-  );
-  // Read $topbar.crystals so affordability re-derives on every spend.
-  const recolorAffordable = $derived(
-    $inspector !== null && $topbar.crystals >= RECOLOR_COST,
-  );
-
-  function onRecolor(index: number, color: SocketColor): void {
-    const subj = $inspector;
-    if (!subj) return;
-    recolorSocket(subj.item, index, color);
   }
 
   // The support -> effect binding map for the open item's sockets, recomputed
@@ -420,33 +394,6 @@
               {#if d}{d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}{/if}
             </span>
           </button>
-          <!-- Re-colour chooser (Rest only, owned item). Pick a colour for THIS
-               socket; the cost shows on the row label. A gem that no longer
-               fits the new colour is ejected to the backpack. -->
-          {#if canRecolorHere}
-            <div
-              class="recolor"
-              title={recolorAffordable
-                ? t('inspector.recolor.hint', { cost: RECOLOR_COST })
-                : t('rest.craft.notEnough')}
-            >
-              <span class="recolor-label">{t('inspector.recolor', { cost: RECOLOR_COST })}</span>
-              <div class="recolor-swatches">
-                {#each ALL_SOCKET_COLORS as c (c)}
-                  <button
-                    type="button"
-                    class="swatch"
-                    class:active={socketColor === c}
-                    style="--swatch-color: {SOCKET_COLOR_HEX[c]}"
-                    disabled={!recolorAffordable || socketColor === c}
-                    aria-label={t(`inspector.recolor.${c}`)}
-                    title={t(`inspector.recolor.${c}`)}
-                    onclick={() => onRecolor(i, c)}
-                  ></button>
-                {/each}
-              </div>
-            </div>
-          {/if}
           </div>
         {/each}
       </div>
@@ -670,7 +617,7 @@
     flex-direction: column;
     gap: 4px;
   }
-  /* A socket plus its (Rest-only) re-colour chooser, stacked. */
+  /* Row wrapper around a single socket button. */
   .socket-row {
     display: flex;
     flex-direction: column;
@@ -831,55 +778,6 @@
     color: #cfe6ff;
     background: rgba(102, 170, 221, 0.18);
     border: 1px solid #6ad;
-  }
-
-  /* === Re-colour chooser (Rest only) =========================== */
-  .recolor {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 2px 4px 4px 10px;
-  }
-  .recolor-label {
-    font-size: 0.72rem;
-    color: #889;
-    font-variant-numeric: lining-nums;
-  }
-  .recolor-swatches {
-    display: flex;
-    gap: 6px;
-  }
-  .swatch {
-    appearance: none;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 2px solid #2a2a34;
-    background: var(--swatch-color, #666);
-    cursor: pointer;
-    padding: 0;
-    transition: transform 80ms ease, border-color 80ms ease, box-shadow 80ms ease;
-  }
-  .swatch:hover:not(:disabled) {
-    transform: scale(1.15);
-    border-color: #fff;
-  }
-  /* The currently-active colour reads as selected (ring), and is disabled (a
-     re-colour to the same colour is a no-op). */
-  .swatch.active {
-    border-color: #fff;
-    box-shadow: 0 0 0 2px var(--swatch-color, #666);
-    cursor: default;
-  }
-  /* Unaffordable swatches dim, but the active one keeps its selected ring. */
-  .swatch:disabled:not(.active) {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
-  .swatch:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
   }
 
   /* Add-socket action (Rest only). Crystal-tinted to read as a tier upgrade,

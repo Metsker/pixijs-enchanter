@@ -79,9 +79,9 @@ function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
 
 // Persist a fully-updated Item (any fields) to wherever it lives, keeping the
 // open Inspector in sync. Used by writeBackSockets and by editors that change
-// more than the socket list in one step - e.g. recolouring a socket, which
-// rewrites socketColors AND may eject a now-mismatched gem (sockets), so both
-// must land in one transition (see rest.ts § recolorSocket).
+// more than the socket list in one step - e.g. adding a socket, which appends
+// to socketColors AND sockets together, so both must land in one transition
+// (see rest.ts § addSocketToItem).
 //
 // We locate the item BY ID against the equipped slots and the backpack store
 // (not the inspector subject), so an edit lands on the right store even when
