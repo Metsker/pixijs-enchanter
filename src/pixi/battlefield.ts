@@ -34,7 +34,7 @@ import type { ProcTrigger } from '../domain/gem';
 import { type ResolvedProc } from '../domain/gem-resolution';
 import { STATUS_DEFS } from '../domain/status';
 import { addRewardGold } from '../state/rewards';
-import { playStatusSfx, sfx } from '../audio/sfx';
+import { playProcSfx, playStatusSfx, sfx } from '../audio/sfx';
 
 // Context for a proc firing: the optional event anchor a reactive
 // trigger carries (the corpse for on-kill, the crit target for on-crit,
@@ -864,6 +864,9 @@ export class Battlefield {
     const targets = this.selectTargets(proc, state, ctx);
     if (targets.length === 0) return;
 
+    // One sound per proc fire (not per target), mapped to the proc's visual.
+    playProcSfx(proc.visual);
+
     const playerView = this.views.get(state.player.id);
     const originX = playerView?.homeX ?? 0;
     const originY = (playerView?.homeY ?? 0) - EMOJI_SIZE * 0.5;
@@ -928,6 +931,7 @@ export class Battlefield {
     if (playerView && !playerView.container.destroyed) {
       this.spawnGlow(playerView, 0x6fb8ff);
       this.spawnFloatNumber(playerView, `${proc.emoji}+${amount}`, '#6fb8ff', 30);
+      sfx.shimmer();
     }
   }
 
@@ -948,6 +952,7 @@ export class Battlefield {
     if (playerView && !playerView.container.destroyed) {
       this.spawnGlow(playerView, 0xffe08a);
       this.spawnFloatNumber(playerView, `${proc.emoji} +${Math.round(attackSpeedAdd * 100)}%`, '#ffe08a', 28);
+      sfx.powerup();
     }
   }
 
@@ -962,6 +967,7 @@ export class Battlefield {
     if (playerView && !playerView.container.destroyed) {
       this.spawnGlow(playerView, 0xffd84a);
       this.spawnFloatNumber(playerView, `${proc.emoji}+${bonus}`, '#ffd84a', 30);
+      sfx.coin();
     }
   }
 
