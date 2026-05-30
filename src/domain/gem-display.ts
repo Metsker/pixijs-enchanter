@@ -17,12 +17,22 @@ import type {
   ProcDef,
   ProcPayload,
   ProcTrigger,
+  SocketColor,
   StatDef,
   SupportMod,
 } from './gem';
-import { gemLevel } from './gem';
+import { colorForClass, gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import { mag, cooldownAt } from './gem-level';
+
+// The single source of truth for socket / gem colour hex, used by every UI
+// surface that paints a socket ring or a gem tile (Inspector, Backpack). Tuned
+// to read clearly on the dark theme.
+export const SOCKET_COLOR_HEX: Record<SocketColor, string> = {
+  red: '#e0524f',
+  green: '#4fcf6f',
+  blue: '#5aa0ff',
+};
 
 export interface GemDisplay {
   emoji: string;
@@ -32,6 +42,9 @@ export interface GemDisplay {
   // level - the numbers here match what gem-resolution.ts feeds combat.
   summary: string;
   role: 'effect' | 'support';
+  // The gem's socket colour (red / green / blue), derived from its class. Lets
+  // a tile / socket paint the colour that decides what fits where.
+  color: SocketColor;
   // The gem's combine level (1 for a base gem). The UI shows a "Lv{n}" badge
   // when this is above 1.
   level: number;
@@ -242,6 +255,7 @@ export function gemDisplayForDef(def: GemDef, level = 1): GemDisplay {
     name: GEM_NAMES[def.id] ?? def.id,
     summary: defSummary(def, level),
     role: def.role,
+    color: colorForClass(def.class),
     level,
   };
 }

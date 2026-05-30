@@ -19,7 +19,7 @@
   import { backpackOpen, toggleBackpack } from '../state/ui';
   import { isItem, itemEmoji, socketSummary, tierOf, type Item } from '../domain/item';
   import { isGem } from '../domain/gem';
-  import { gemDisplay } from '../domain/gem-display';
+  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { equipFromBackpackToSlot, itemDrag, itemFitsSlot } from '../state/inventory';
   import { disenchantItemFromBackpack, gemRefund, itemRefund } from '../state/disenchant';
@@ -228,7 +228,7 @@
           class:combine-armed={isGem(slot) && $gemDropZone === `combine:${slot.id}`}
           class:gem-tile={gem !== null}
           class:inspecting={isInspecting(i)}
-          style={gem ? `--gem-color: ${gem.role === 'effect' ? '#f6a' : '#6ad'}` : ''}
+          style={gem ? `--gem-color: ${SOCKET_COLOR_HEX[gem.color]}` : ''}
           title={isItem(slot)
             ? `🗑️ 💎 ${itemRefund(slot)}`
             : isGem(slot)
