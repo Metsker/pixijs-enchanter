@@ -7,7 +7,15 @@
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
   import { itemEmoji, tierOf } from '../domain/item';
   import { inspector, inspectItem } from '../state/inspector';
+  import { gemDropZone } from '../state/gem-drag';
   import { t } from '../i18n';
+
+  // True while a dragged gem is hovering THIS equipped item (auto-socket
+  // target). gemDropZone carries `slot:<itemId>` for a valid equipped-slot
+  // drop, so the slot can highlight as the live target.
+  function isGemTarget(itemId: string | undefined): boolean {
+    return itemId !== undefined && $gemDropZone === `slot:${itemId}`;
+  }
 
   function isInspecting(slotId: EquipmentSlotId): boolean {
     const s = $inspector;
@@ -59,6 +67,7 @@
         class="slot filled"
         class:inspecting={isInspecting(slotId)}
         class:pick-target={pickTarget}
+        class:gem-target={isGemTarget(item.id)}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
         data-slot-id={slotId}
@@ -128,6 +137,13 @@
   .slot.filled.inspecting {
     border-color: #ffcc44;
     box-shadow: inset 0 0 0 1px #ffcc44;
+  }
+  /* Live auto-socket target while a compatible gem is dragged over this
+     equipped item. */
+  .slot.filled.gem-target {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 2px #ffcc44;
+    background: #2a2410;
   }
   .slot.pick-target {
     animation: pick-pulse 900ms ease-in-out infinite;

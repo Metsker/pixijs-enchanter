@@ -17,7 +17,10 @@
   }
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { backpackOpen, toggleBackpack } from '../state/ui';
-  import { itemEmoji, tierOf } from '../domain/item';
+  import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
+  import { isGem } from '../domain/gem';
+  import { gemDisplay } from '../domain/gem-display';
+  import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -42,7 +45,15 @@
   const DRAG_THRESHOLD_SQ = 100;
 
   function onPointerDown(e: PointerEvent, index: number): void {
-    if ($backpack[index] === null) return;
+    const slot = $backpack[index];
+    if (slot === null) return;
+    // A loose gem in the grid drags via the global gem-drag controller (it
+    // can drop onto sockets / equipped items / back into the backpack). Items
+    // keep the local reorder drag below.
+    if (isGem(slot)) {
+      startGemDrag({ kind: 'backpack', gemId: slot.id }, e);
+      return;
+    }
     dragging = index;
     pointerStart = { x: e.clientX, y: e.clientY };
     didDrag = false;
@@ -85,19 +96,20 @@
             const slots = get(backpack);
             if (ins.index === from) {
               const moved = slots[to];
-              if (moved) inspector.set({ source: 'backpack', index: to, item: moved });
+              if (isItem(moved)) inspector.set({ source: 'backpack', index: to, item: moved });
               else closeInspector();
             } else if (ins.index === to) {
               const moved = slots[from];
-              if (moved) inspector.set({ source: 'backpack', index: from, item: moved });
+              if (isItem(moved)) inspector.set({ source: 'backpack', index: from, item: moved });
               else closeInspector();
             }
           }
         }
       } else {
-        // No drag - treat as a tile click: open the Inspector.
+        // No drag - treat as a tile click: open the Inspector. Only items are
+        // inspectable; gems never reach here (they start a gem-drag instead).
         const item = $backpack[dragging];
-        if (item) {
+        if (isItem(item)) {
           inspectItem({ source: 'backpack', index: dragging, item });
         }
       }
@@ -145,15 +157,19 @@
     </header>
 
     <div class="grid" role="grid">
-      {#each $backpack as item, i (i)}
+      {#each $backpack as slot, i (i)}
+        {@const gem = isGem(slot) ? gemDisplay(slot) : null}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="cell"
           role="gridcell"
-          tabindex={item ? 0 : -1}
+          tabindex={slot ? 0 : -1}
           class:dragging={didDrag && dragging === i}
           class:over={dragOver === i && didDrag && dragging !== i}
+          class:stash-armed={$gemDropZone === 'stash'}
+          class:gem-tile={gem !== null}
           class:inspecting={isInspecting(i)}
+          style={gem ? `--gem-color: ${gem.role === 'effect' ? '#f6a' : '#6ad'}` : ''}
           data-cell-index={i}
           data-inspector-source="backpack"
           onpointerdown={(e) => onPointerDown(e, i)}
@@ -161,14 +177,22 @@
           onpointerup={onPointerUp}
           onpointercancel={onPointerUp}
         >
-          {#if item}
-            <span class="emoji">{itemEmoji(item)}</span>
+          {#if isItem(slot)}
+            <span class="emoji">{itemEmoji(slot)}</span>
             <span
               class="tier"
-              style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}"
+              style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#666'}"
             >
-              T{tierOf(item)}
+              T{tierOf(slot)}
             </span>
+          {:else if gem}
+            <span class="emoji">{gem.emoji}</span>
+            <span
+              class="gem-badge"
+              class:effect={gem.role === 'effect'}
+              class:support={gem.role === 'support'}
+              title={`${gem.name} - ${gem.summary}`}
+            >💠</span>
           {/if}
         </div>
       {/each}
@@ -177,8 +201,8 @@
     <footer class="hint">{t('backpack.hint')}</footer>
   </div>
 
-  {#if dragging !== null && ghostPos && $backpack[dragging]}
-    {@const ghostItem = $backpack[dragging]!}
+  {#if dragging !== null && ghostPos && isItem($backpack[dragging])}
+    {@const ghostItem = $backpack[dragging] as Item}
     <div
       class="drag-ghost"
       style="left: {ghostPos.x}px; top: {ghostPos.y}px;"
@@ -313,6 +337,18 @@
     background: #2a2a34;
     border-color: #ffcc44;
   }
+  /* Armed while a dragged gem hovers the grid: the whole backpack reads as a
+     stash drop target. */
+  .cell.stash-armed {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
+  }
+  /* A cell holding a loose gem: a role-tinted ring distinguishes it from an
+     item tile without resorting to a T# tier badge. */
+  .cell.gem-tile {
+    border-color: var(--gem-color, #6ad);
+    box-shadow: inset 0 0 0 1px var(--gem-color, #6ad);
+  }
   .cell.inspecting {
     border-color: #ffcc44;
     box-shadow: inset 0 0 0 1px #ffcc44;
@@ -339,6 +375,24 @@
     background: rgba(0, 0, 0, 0.4);
     pointer-events: none;
     font-variant-numeric: lining-nums;
+  }
+
+  /* Gem marker: a small badge in the corner (NOT a tier badge), tinted by the
+     gem's role so a loose gem reads distinctly from an item at a glance. */
+  .gem-badge {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    font-size: 0.7rem;
+    line-height: 1;
+    pointer-events: none;
+    filter: drop-shadow(0 0 2px #6ad);
+  }
+  .gem-badge.effect {
+    filter: drop-shadow(0 0 3px #f6a);
+  }
+  .gem-badge.support {
+    filter: drop-shadow(0 0 3px #6ad);
   }
 
   .hint {

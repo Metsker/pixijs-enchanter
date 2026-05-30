@@ -31,7 +31,7 @@ export const en: Record<string, string> = {
   'backpack.title': 'Backpack',
   'backpack.sort': 'Sort',
   'backpack.close': 'Close backpack',
-  'backpack.hint': 'Drag a tile to reorder. Click to inspect. Press B to close.',
+  'backpack.hint': 'Drag items to reorder, gems onto an item or socket. Tap an item to inspect. Press B to close.',
 
   'inspector.title': 'Inspector',
   'inspector.close': 'Close inspector',

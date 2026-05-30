@@ -16,6 +16,8 @@
   import { run } from './state/run';
   import { sfx } from './audio/sfx';
   import { loadSave, startAutoSave } from './state/save';
+  import { activeGemDrag } from './state/gem-drag';
+  import { gemDisplay } from './domain/gem-display';
 
   // Load any prior run before the subscribers attach so the first
   // save (debounced 600ms after mount) just rewrites the same state.
@@ -87,6 +89,21 @@
   <RoomOverlay />
   <ConfirmModal />
   <Settings />
+
+  <!-- Single floating ghost for the active gem drag. Mounted once at the app
+       root, driven by the gem-drag controller; follows the pointer and reads
+       go / no-go from `valid`. -->
+  {#if $activeGemDrag}
+    {@const gd = gemDisplay($activeGemDrag.gem)}
+    <div
+      class="gem-drag-ghost"
+      class:invalid={!$activeGemDrag.valid}
+      style="left: {$activeGemDrag.x}px; top: {$activeGemDrag.y}px;"
+      aria-hidden="true"
+    >
+      <span class="gem-drag-emoji">{gd?.emoji ?? '💎'}</span>
+    </div>
+  {/if}
   <a
     class="version"
     href="https://github.com/Metsker/pixijs-enchanter/commit/{__COMMIT__}"
@@ -135,5 +152,32 @@
   }
   .version:hover {
     color: #ffcc44;
+  }
+
+  .gem-drag-ghost {
+    position: fixed;
+    width: 56px;
+    height: 56px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 300;
+    background: #14141a;
+    border: 2px solid #ffcc44;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+    opacity: 0.96;
+  }
+  /* No-go: the gem can't drop where the pointer currently is. */
+  .gem-drag-ghost.invalid {
+    border-color: #c55;
+    opacity: 0.8;
+  }
+  .gem-drag-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.8rem;
+    line-height: 1;
   }
 </style>

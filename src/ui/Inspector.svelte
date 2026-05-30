@@ -18,6 +18,7 @@
   import { removeRewardItem } from '../state/rewards';
   import { canPickItem, pickItem } from '../state/item-offer';
   import {
+    isItem,
     itemEmoji,
     legalEquipmentSlots,
     tierOf,
@@ -27,14 +28,8 @@
   import { gemDisplay } from '../domain/gem-display';
   import { computeBindings } from '../domain/gem-resolution';
   import { gemFitsSocketOf } from '../domain/gem-fit';
-  import {
-    cancelHeld,
-    heldGem,
-    pickUpFromSocket,
-    pickUpFromStash,
-    placeIntoSocket,
-    placeIntoStash,
-  } from '../state/gem-move';
+  import { cancelHeld, heldGem } from '../state/gem-move';
+  import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { gemStash } from '../state/gem-stash';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
@@ -80,28 +75,29 @@
     return gemFitsSocketOf(held.gem, subj.item);
   });
 
-  // Tap handler for a socket cell. With nothing held: pick up the gem (no-op
-  // on an empty socket). With a gem held: place it here if it fits (an
-  // occupied socket swaps); a class mismatch is a no-op.
-  function onSocketTap(item: Item, index: number): void {
+  // Pointer-down on a FILLED socket starts a gem drag (drag it out to a stash /
+  // another socket / an equipped item). Empty sockets and read-only previews
+  // are inert. The gem-drag controller gates on a move threshold, so a tap that
+  // doesn't move neither lifts the gem nor opens anything.
+  function onSocketPointerDown(e: PointerEvent, item: Item, index: number): void {
     if (!socketsEditable) return;
-    const held = $heldGem;
-    if (!held) {
-      pickUpFromSocket(item, index);
-      return;
-    }
-    placeIntoSocket(item, index);
+    if (!item.sockets[index]) return; // empty socket: nothing to drag.
+    startGemDrag({ kind: 'socket', item, index }, e);
   }
 
-  function onStashTap(gemId: string): void {
-    if ($heldGem) {
-      placeIntoStash();
-      return;
-    }
-    pickUpFromStash(gemId);
+  // Pointer-down on a loose stash gem starts a drag (into a socket / equipped
+  // item, or back into the backpack).
+  function onStashPointerDown(e: PointerEvent, gemId: string): void {
+    startGemDrag({ kind: 'backpack', gemId }, e);
   }
 
-  // Tooltip for a socket cell, reflecting what a tap would do right now.
+  // True while a dragged gem is hovering THIS open item's socket whose drop
+  // zone id matches, so the socket highlights as the live drop target.
+  function isArmedSocket(itemId: string, index: number): boolean {
+    return $gemDropZone === `socket:${itemId}:${index}`;
+  }
+
+  // Tooltip for a socket cell, reflecting what a drag would do right now.
   function socketTitle(
     d: ReturnType<typeof display>,
     holding: boolean,
@@ -189,7 +185,7 @@
       const landedIndex = unequipToBackpack(subject.slotId);
       if (landedIndex !== -1) {
         const newItem = get(backpack)[landedIndex];
-        if (newItem) {
+        if (isItem(newItem)) {
           inspector.set({ source: 'backpack', index: landedIndex, item: newItem });
         }
         queueMicrotask(() => {
@@ -288,28 +284,11 @@
       </div>
     {/if}
 
-    {#if $heldGem}
-      {@const held = display($heldGem.gem)}
-      <div class="held-banner">
-        <span class="held-emoji">{held?.emoji ?? '?'}</span>
-        <span class="held-text">
-          <span class="held-label">{t('inspector.held.label')}</span>
-          <span class="held-name">{held?.name ?? ''}</span>
-        </span>
-        <button
-          type="button"
-          class="held-cancel"
-          onclick={cancelHeld}
-        >
-          {t('inspector.held.cancel')}
-        </button>
-      </div>
-    {/if}
-
-    <!-- Interactive socket list. Each socket is a tap target when the item is
-         owned (equipped / backpack): tap a gem to pick it up, tap a socket to
-         place / swap the held gem. Bound supports show a "binds to" connector
-         to their effect; inert supports are dimmed. -->
+    <!-- Interactive socket list. When the item is owned (equipped / backpack)
+         each filled socket is DRAGGABLE - drag a gem out to the stash, to
+         another socket, or onto an equipped item - and every socket is a DROP
+         target while a gem is being dragged. Bound supports show a "binds to"
+         connector to their effect; inert supports are dimmed. -->
     <div class="body" data-gem-zone>
       <div class="sockets-label">{t('inspector.sockets')}</div>
       <div class="sockets">
@@ -329,6 +308,7 @@
           {@const dropTarget = socketsEditable && $heldGem !== null && heldFitsItem}
           {@const incompatible =
             socketsEditable && $heldGem !== null && !heldFitsItem}
+          {@const armed = isArmedSocket(item.id, i)}
           <button
             type="button"
             class="socket"
@@ -338,12 +318,17 @@
             class:inert
             class:bound={boundEffect !== null}
             class:drop-target={dropTarget}
+            class:armed
             class:incompatible
             class:held-origin={isHeldOrigin}
             class:interactive={socketsEditable}
-            disabled={!socketsEditable || (incompatible && d === null)}
+            class:draggable={socketsEditable && d !== null}
+            disabled={!socketsEditable}
+            data-gem-socket
+            data-item-id={item.id}
+            data-socket-index={i}
             title={socketTitle(d, !!$heldGem, dropTarget, incompatible)}
-            onclick={() => onSocketTap(item, i)}
+            onpointerdown={(e) => onSocketPointerDown(e, item, i)}
           >
             <span class="socket-emoji">{d ? d.emoji : '·'}</span>
             <span class="socket-info">
@@ -366,39 +351,33 @@
         {/each}
       </div>
 
-      <!-- Gem stash strip: pick a loose gem up, or drop the held gem here. -->
-      <div class="stash" class:drop-armed={$heldGem !== null}>
+      <!-- Gem stash strip (the backpack's loose gems). Drag a gem out to a
+           socket / equipped item, or drag a socketed gem in here to un-socket
+           it. The whole strip is a drop zone (data-gem-stash). -->
+      <div
+        class="stash"
+        class:drop-armed={$gemDropZone === 'stash'}
+        data-gem-stash
+      >
         <div class="sockets-label stash-label">{t('inspector.stash.title')}</div>
         {#if $gemStash.length === 0}
-          {#if $heldGem}
-            <button type="button" class="stash-drop" onclick={() => onStashTap('')}>
-              {t('inspector.stash.drop')}
-            </button>
-          {:else}
-            <div class="stash-empty">{t('inspector.stash.empty')}</div>
-          {/if}
+          <div class="stash-empty">{t('inspector.stash.empty')}</div>
         {:else}
           <div class="stash-grid">
             {#each $gemStash as g (g.id)}
               {@const sd = display(g)}
               <button
                 type="button"
-                class="stash-gem"
+                class="stash-gem draggable"
                 class:support={sd?.role === 'support'}
                 class:effect={sd?.role === 'effect'}
                 title={sd ? `${sd.name} - ${sd.summary}` : ''}
-                onclick={() => onStashTap(g.id)}
+                onpointerdown={(e) => onStashPointerDown(e, g.id)}
               >
                 <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
                 <span class="stash-gem-name">{sd?.name ?? ''}</span>
               </button>
             {/each}
-            {#if $heldGem}
-              <button type="button" class="stash-gem stash-drop-tile" onclick={() => onStashTap('')}>
-                <span class="socket-emoji">⬇️</span>
-                <span class="stash-gem-name">{t('inspector.stash.drop')}</span>
-              </button>
-            {/if}
           </div>
         {/if}
       </div>
@@ -583,6 +562,17 @@
   .socket.interactive:not(:disabled) {
     cursor: pointer;
   }
+  /* Draggable gem socket: suppress browser touch gestures so a touch drag
+     isn't stolen by scroll / pan. */
+  .socket.draggable {
+    touch-action: none;
+  }
+  /* Live drop target under a dragged gem (matched via gemDropZone). */
+  .socket.armed {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 2px #ffcc44;
+    opacity: 1;
+  }
   .socket.interactive:not(:disabled):hover {
     border-color: #4a4a58;
     background: #181820;
@@ -664,54 +654,6 @@
     align-self: start;
   }
 
-  /* === Held banner ============================================== */
-  .held-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    background: #2a2410;
-    border-bottom: 1px solid #5a4a18;
-    color: #ffd866;
-  }
-  .held-emoji {
-    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.5rem;
-    line-height: 1;
-  }
-  .held-text {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .held-label {
-    font-size: 0.66rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #c8a84a;
-  }
-  .held-name {
-    font-size: 0.95rem;
-    font-weight: 600;
-  }
-  .held-cancel {
-    appearance: none;
-    background: transparent;
-    border: 1px solid #5a4a18;
-    color: #ffd866;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 36px;
-    white-space: nowrap;
-  }
-  .held-cancel:hover {
-    background: #3a3214;
-  }
-
   /* === Gem stash ================================================ */
   .stash {
     margin-top: 10px;
@@ -723,6 +665,9 @@
   }
   .stash.drop-armed {
     border-top-color: #ffcc44;
+    background: #2a2410;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
   }
   .stash-label {
     margin-bottom: 0;
@@ -732,18 +677,6 @@
     color: #667;
     line-height: 1.3;
     padding: 2px;
-  }
-  .stash-drop {
-    appearance: none;
-    background: #2a2410;
-    border: 1px dashed #ffcc44;
-    color: #ffd866;
-    border-radius: 6px;
-    padding: 10px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 44px;
   }
   .stash-grid {
     display: flex;
@@ -766,6 +699,9 @@
     min-height: 56px;
     transition: border-color 100ms ease, background-color 100ms ease;
   }
+  .stash-gem.draggable {
+    touch-action: none;
+  }
   .stash-gem.effect {
     border-bottom: 2px solid #f6a;
   }
@@ -786,16 +722,6 @@
     line-height: 1.1;
     color: #9aa;
   }
-  .stash-drop-tile {
-    border-style: dashed;
-    border-color: #ffcc44;
-    background: #2a2410;
-    color: #ffd866;
-  }
-  .stash-drop-tile .stash-gem-name {
-    color: #ffd866;
-  }
-
   .footer {
     padding: 12px 14px;
     border-top: 1px solid #2a2a34;

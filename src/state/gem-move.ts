@@ -113,6 +113,13 @@ export function pickUpFromStash(gemId: string): void {
   heldGem.set({ gem, from: { kind: 'stash' } });
 }
 
+// Pick a loose gem out of the backpack (which is now the stash). Identical to
+// pickUpFromStash - removeGemFromStashById already targets the backpack - but
+// named for the drag layer's source kind for clarity at the call site.
+export function pickUpFromBackpack(gemId: string): void {
+  pickUpFromStash(gemId);
+}
+
 // --- place --------------------------------------------------------------
 
 // Return the held gem's displaced occupant to the held gem's origin. The
@@ -176,6 +183,27 @@ export function placeIntoStash(): void {
   if (!held) return;
   addGemToStash(held.gem);
   heldGem.set(null);
+}
+
+// Auto-socket: place the held gem into `item`'s FIRST EMPTY socket whose class
+// fits the gem, then return true. If the gem's class doesn't fit the item, or
+// the item has no empty socket, the placement is rejected: the held gem is
+// returned to its origin (cancelHeld) and false is returned. Drives the
+// "drag a gem onto an equipped item slot" interaction (decision 2).
+export function placeHeldIntoItemFirstEmpty(item: Item): boolean {
+  const held = get(heldGem);
+  if (!held) return false;
+  if (!gemFitsSocketOf(held.gem, item)) {
+    cancelHeld();
+    return false;
+  }
+  const emptyIndex = item.sockets.findIndex((s) => s === null);
+  if (emptyIndex === -1) {
+    cancelHeld();
+    return false;
+  }
+  placeIntoSocket(item, emptyIndex);
+  return true;
 }
 
 // Return the held gem to wherever it was picked up from, undoing the pickup.
