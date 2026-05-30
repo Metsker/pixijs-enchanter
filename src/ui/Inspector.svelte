@@ -754,19 +754,9 @@
   }
   .socket-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     line-height: 1;
     justify-self: center;
-    /* A colour ring around the gem / empty marker echoes the socket's colour,
-       so the fit colour reads at the gem itself, not just the frame edge. */
-    width: 30px;
-    height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    border: 2px solid var(--socket-color, #666);
-    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.4);
   }
   .socket-info {
     display: flex;
@@ -961,6 +951,8 @@
     width: 64px;
     padding: 7px 4px;
     border: 1px solid #2a2a34;
+    /* Socket colour reads as the left edge, like the sockets (no colour ring). */
+    border-left: 3px solid var(--socket-color, #666);
     border-radius: 6px;
     background: #14141a;
     color: #ccd;
