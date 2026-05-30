@@ -12,10 +12,10 @@
 import { get } from 'svelte/store';
 import { gemLevel, type Gem } from '../domain/gem';
 import { isItem, tierOf, type Item } from '../domain/item';
-import { backpack, removeBackpackGemById, removeItem } from './backpack';
+import { addGemToBackpack, backpack, removeBackpackGemById, removeItem } from './backpack';
 import { equipped, updateEquippedAt } from './inventory';
 import { heldGem } from './gem-move';
-import { pendingRewards, removeRewardItem } from './rewards';
+import { pendingRewards, removeRewardItem, removeRewardGem } from './rewards';
 import { DESTROY_REFUND } from './rest';
 import { refundCrystals } from './topbar';
 import type { EquipmentSlotId } from '../domain/equipment';
@@ -42,6 +42,16 @@ export function disenchantGemFromBackpack(gemId: string): boolean {
   const removed = removeBackpackGemById(gemId);
   if (!removed) return false;
   refundCrystals(gemRefund(removed));
+  return true;
+}
+
+// Disenchant a loose gem in the victory chest, by instance id. Refunds crystals
+// and removes it from the chest. Returns true if a reward gem was scrapped.
+export function disenchantRewardGem(gemId: string): boolean {
+  const gem = get(pendingRewards).gems.find((g) => g.id === gemId);
+  if (!gem) return false;
+  refundCrystals(gemRefund(gem));
+  removeRewardGem(gemId);
   return true;
 }
 
@@ -76,6 +86,41 @@ export function disenchantRewardItem(itemId: string): boolean {
   if (!item) return false;
   refundCrystals(itemRefund(item));
   removeRewardItem(itemId);
+  return true;
+}
+
+// --- "keep the gems" destroy --------------------------------------------
+//
+// When the player destroys an item that still holds gems, they can choose to
+// SAVE the gems: each socketed gem drops loose into the backpack, then only the
+// bare frame is scrapped (so the crystal refund is the tier value alone, since
+// the gems weren't melted down).
+
+// Pull every gem out of `item` into the backpack's loose slots.
+function detachGemsToBackpack(item: Item): void {
+  for (const gem of item.sockets) if (gem) addGemToBackpack(gem);
+}
+
+const bareFrameRefund = (item: Item): number => ITEM_REFUND_PER_TIER * tierOf(item);
+
+// Destroy a backpack item but KEEP its gems (detach to the bag first). Frees the
+// item's tile first so a detached gem can reuse it if the bag is otherwise full.
+export function destroyBackpackItemKeepGems(index: number): boolean {
+  const item = get(backpack)[index];
+  if (!isItem(item)) return false;
+  removeItem(index);
+  detachGemsToBackpack(item);
+  refundCrystals(bareFrameRefund(item));
+  return true;
+}
+
+// Destroy a reward-chest item but KEEP its gems (detach to the bag first).
+export function destroyRewardItemKeepGems(itemId: string): boolean {
+  const item = get(pendingRewards).items.find((it) => it.id === itemId);
+  if (!item) return false;
+  removeRewardItem(itemId);
+  detachGemsToBackpack(item);
+  refundCrystals(bareFrameRefund(item));
   return true;
 }
 
