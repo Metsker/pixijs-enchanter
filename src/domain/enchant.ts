@@ -1,5 +1,3 @@
-export type EnchantPool = 'weapons' | 'armor' | 'jewelry' | 'unique';
-export type EnchantLayer = 'main' | 'utility';
 export type DamageType = 'physical' | 'fire' | 'cold' | 'lightning' | 'chaos';
 export type StatusType = 'bleed' | 'burn' | 'freeze' | 'shock' | 'poison';
 
@@ -58,13 +56,3 @@ export type EnchantEffect =
   | { kind: 'revive-on-death'; hpFraction: number; once: true }
   | { kind: 'all-crit-replace-mul'; replacedMul: number }
   | { kind: 'mirror-charge'; intervalSec: number; maxCharges: number };
-
-export interface Enchantment {
-  id: string;
-  nameKey: string;
-  descriptionKey: string;
-  emoji: string;
-  pools: EnchantPool[];
-  layer: EnchantLayer;
-  effects: EnchantEffect[];
-}
