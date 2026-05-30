@@ -1,9 +1,22 @@
 import type { EnemyDef } from './enemy';
 import { COMMONS, ELITES, LICH, MINOTAUR, SKELETON, GOBLIN, SLIME } from './enemy-catalogue';
 import type { Item } from './item';
-import { randomWeapon } from './random';
+import { randomItem, randomWeapon } from './random';
 
-export type RoomKind = 'item-select' | 'common' | 'elite' | 'shop' | 'rest' | 'boss';
+// 'secret' is drawn as "?" on the map; its true content (an Item room or a
+// common / elite fight) is pre-rolled but hidden until the player enters it.
+export type RoomKind =
+  | 'item-select'
+  | 'common'
+  | 'elite'
+  | 'shop'
+  | 'rest'
+  | 'boss'
+  | 'secret';
+
+// What a 'secret' node resolves to once entered. A subset of RoomKind: a secret
+// is only ever an item room or a fight (never a shop / rest / boss).
+export type SecretKind = 'item-select' | 'common' | 'elite';
 
 export interface MapNode {
   id: string;
@@ -20,6 +33,11 @@ export interface MapNode {
   // floor-1 starter uses 3 T1 weapons; later acts can drop in their
   // own roll (e.g. T3 armor after a boss) by setting this field.
   offerItems?: Item[];
+  // For a 'secret' node only: the room it actually resolves to once entered.
+  // Pre-rolled at generation (with its enemies / offerItems) so the run stays
+  // deterministic per seed, but the map keeps rendering "?" so it reads as a
+  // surprise. resolvedKind(node) reads this for entry + loot.
+  secretKind?: SecretKind;
   // ids of nodes on the next floor that this node connects to.
   children: string[];
 }
@@ -45,8 +63,12 @@ function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set(
     { kind: 'elite', weight: 0.2 },
     { kind: 'shop', weight: 0.15 },
     { kind: 'rest', weight: 0.15 },
+    { kind: 'secret', weight: 0.14 },
   ];
-  const weights = allWeights.filter((c) => !forbidden.has(c.kind));
+  // Fall back to the full set if every kind is forbidden (a heavily-constrained
+  // fork) - a rare repeat beats returning undefined.
+  const filtered = allWeights.filter((c) => !forbidden.has(c.kind));
+  const weights = filtered.length > 0 ? filtered : allWeights;
   const total = weights.reduce((s, c) => s + c.weight, 0);
   let r = rng() * total;
   for (const c of weights) {
@@ -59,7 +81,7 @@ function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set(
 // Encounter size: the first half of the act is solo fights (one common, or a
 // lone elite); the second half RAMPS with depth, growing past the old 2-3 cap
 // toward MAX_ENEMIES on the deepest floors. The boss is always just the Lich.
-const MAX_ENEMIES = 5;
+const MAX_ENEMIES = 3;
 function encounterSize(rng: () => number, floor: number): number {
   const half = Math.floor(FLOORS / 2);
   if (floor <= half) return 1; // first half: solo
@@ -88,6 +110,55 @@ function rollEnemies(kind: RoomKind, rng: () => number, floor: number): EnemyDef
     return [elite, ...escort];
   }
   return [];
+}
+
+// A secret resolves to an Item room, a common fight, or an elite fight - more
+// often a reward than a fight, with elite the rarest of the three.
+const SECRET_WEIGHTS: { kind: SecretKind; weight: number }[] = [
+  { kind: 'item-select', weight: 0.4 },
+  { kind: 'common', weight: 0.35 },
+  { kind: 'elite', weight: 0.25 },
+];
+
+function pickSecretKind(rng: () => number): SecretKind {
+  const total = SECRET_WEIGHTS.reduce((s, c) => s + c.weight, 0);
+  let r = rng() * total;
+  for (const c of SECRET_WEIGHTS) {
+    if (r < c.weight) return c.kind;
+    r -= c.weight;
+  }
+  return SECRET_WEIGHTS[SECRET_WEIGHTS.length - 1].kind;
+}
+
+// Item tier for a secret Item room: scales with depth across the act, so an
+// early secret yields ~T1 gear and a deep one ~T5-6.
+function secretItemTier(floor: number): number {
+  return Math.max(1, Math.min(6, Math.round((floor / FLOORS) * 6)));
+}
+
+// Pre-roll a secret node's hidden content. An Item room offers three
+// random-type items at a floor-scaled tier (reusing the item-offer screen); a
+// fight pre-rolls its encounter like any common / elite.
+function resolveSecret(node: MapNode, rng: () => number): void {
+  const sk = pickSecretKind(rng);
+  node.secretKind = sk;
+  if (sk === 'item-select') {
+    const tier = secretItemTier(node.floor);
+    node.offerItems = [
+      randomItem(tier, 'secret'),
+      randomItem(tier, 'secret'),
+      randomItem(tier, 'secret'),
+    ];
+  } else {
+    node.enemies = rollEnemies(sk, rng, node.floor);
+  }
+}
+
+// The effective room kind for ENTRY and LOOT: a 'secret' node uses its hidden
+// resolved kind; every other node is itself. The map still renders 'secret' as
+// "?" - this only drives screen selection + drop tables once entered.
+export function resolvedKind(node: MapNode): RoomKind {
+  return node.kind === 'secret' && node.secretKind ? node.secretKind : node.kind;
 }
 
 export function generateMap(seed: number = Date.now()): MapGraph {
@@ -215,6 +286,10 @@ export function generateMap(seed: number = Date.now()): MapGraph {
   for (let floor = 1; floor <= FLOORS; floor++) {
     const floorNodes = byFloor[floor - 1];
     const parents = floor > 1 ? byFloor[floor - 2] : [];
+    // Kinds already committed on THIS floor, so a fork never offers two children
+    // of the same kind (no "shop or shop"). We assign left-to-right and forbid a
+    // node's already-assigned siblings (other children of a shared parent).
+    const assignedOnFloor = new Set<string>();
     for (const node of floorNodes) {
       if (floor === 1) {
         // Forced starter room: the player picks 1 of 3 random T1
@@ -240,11 +315,23 @@ export function generateMap(seed: number = Date.now()): MapGraph {
         // Floor N-2 forbids rest to keep the forced N-1 rest from being a
         // back-to-back repeat.
         if (floor === FLOORS - 2) forbidden.add('rest');
+        // Sibling distinctness: forbid kinds already taken by an earlier-assigned
+        // child of any shared parent, so a fork never offers two of one kind.
+        for (const p of myParents) {
+          for (const cid of p.children) {
+            if (cid === node.id || !assignedOnFloor.has(cid)) continue;
+            const sib = floorNodes.find((n) => n.id === cid);
+            if (sib) forbidden.add(sib.kind);
+          }
+        }
         node.kind = pickKind(rng, forbidden);
       }
       if (node.kind === 'common' || node.kind === 'elite' || node.kind === 'boss') {
         node.enemies = rollEnemies(node.kind, rng, node.floor);
+      } else if (node.kind === 'secret') {
+        resolveSecret(node, rng);
       }
+      assignedOnFloor.add(node.id);
     }
   }
 
@@ -271,6 +358,11 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     function isCleanFor(node: MapNode): boolean {
       const myParents = nodes.filter((p) => p.children.includes(node.id));
       if (myParents.some((p) => p.kind === target)) return false;
+      // Sibling collision: a fork mustn't end up offering two of `target`.
+      const collidesSibling = myParents.some((p) =>
+        p.children.some((cid) => cid !== node.id && byId.get(cid)?.kind === target),
+      );
+      if (collidesSibling) return false;
       const myChildren = node.children
         .map((id) => byId.get(id))
         .filter((c): c is MapNode => !!c);
@@ -279,6 +371,9 @@ export function generateMap(seed: number = Date.now()): MapGraph {
 
     function convert(node: MapNode): void {
       node.kind = target;
+      // Shed any pre-rolled secret content - this node is now a plain room.
+      delete node.secretKind;
+      delete node.offerItems;
       if (target === 'common' || target === 'elite' || target === 'boss') {
         node.enemies = rollEnemies(target, rng, node.floor);
       } else {

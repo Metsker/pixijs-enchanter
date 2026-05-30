@@ -21,6 +21,7 @@
     shop: '🪙',
     rest: '🔥',
     boss: '👑',
+    secret: '❓',
   };
 
   // Position each node: floor 1 at bottom, boss at top; spread nodes on each

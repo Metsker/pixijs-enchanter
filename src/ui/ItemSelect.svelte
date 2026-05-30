@@ -3,6 +3,7 @@
   import { itemOffer } from '../state/item-offer';
   import { inspectItem, inspector } from '../state/inspector';
   import { itemEmoji, tierOf } from '../domain/item';
+  import SocketPips from './SocketPips.svelte';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -57,6 +58,7 @@
             >
               T{tierOf(slot)}
             </span>
+            <SocketPips item={slot} />
           </div>
         {:else}
           <div class="item-tile taken">

@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store';
-import { generateMap, nodeById, type MapGraph, type RoomKind } from '../domain/map';
+import { generateMap, nodeById, resolvedKind, type MapGraph, type RoomKind } from '../domain/map';
 import { endFight, fight, grantGuaranteedDrop, startFightWith, type RoomKindLoot } from './fight';
 import { closeShop, openShopForFloor } from './shop';
 import { resetPendingRewards } from './rewards';
@@ -81,7 +81,9 @@ export function enterRoom(roomId: string): void {
   const node = nodeById(state.map, roomId);
   if (!node) return;
 
-  const screen = screenFor(node.kind);
+  // A 'secret' node resolves to its hidden kind (Item room / common / elite)
+  // here; the map keeps showing "?" but entry behaves like the real room.
+  const screen = screenFor(resolvedKind(node));
   run.update((s) => ({
     ...s,
     currentRoomId: roomId,
@@ -157,8 +159,9 @@ fight.subscribe((state) => {
     // sure at least one pre-socketed item landed in the chest. Common
     // rooms only roll a 50% per-kill chance, so this is the backstop.
     const node = r.currentRoomId ? nodeById(r.map, r.currentRoomId) : null;
-    if (node && (node.kind === 'common' || node.kind === 'elite' || node.kind === 'boss')) {
-      grantGuaranteedDrop(node.kind as RoomKindLoot);
+    const kind = node ? resolvedKind(node) : null;
+    if (kind === 'common' || kind === 'elite' || kind === 'boss') {
+      grantGuaranteedDrop(kind as RoomKindLoot);
     }
     run.update((s) => ({ ...s, fightWon: true }));
   }
