@@ -1,12 +1,16 @@
 import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
+import { isGem } from '../domain/gem';
 import type { Item } from '../domain/item';
 import { gemFitsSocketOf } from '../domain/gem-fit';
 import { equipped } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
-import { findBackpackItemById } from './backpack';
+import { backpack, findBackpackItemById } from './backpack';
 import {
+  canCombine,
   cancelHeld,
+  combineIntoBackpackGem,
+  combineIntoSocket,
   heldGem,
   pickUpFromBackpack,
   pickUpFromSocket,
@@ -14,6 +18,7 @@ import {
   placeIntoSocket,
   placeIntoStash,
 } from './gem-move';
+import { disenchantHeldGem } from './disenchant';
 
 // === Pointer-driven gem drag-and-drop ================================
 //
@@ -88,14 +93,25 @@ function resolveItemById(itemId: string): Item | null {
 // resolved target plus a `valid` flag (a stash drop is always valid; a socket /
 // slot drop is valid only if the gem's class fits).
 type DropTarget =
+  // A socket holding a same-defId gem: combine (level up) overrides swap.
+  | { kind: 'combine-socket'; item: Item; index: number; valid: true }
+  // A backpack cell holding a same-defId loose gem: combine (level up).
+  | { kind: 'combine-backpack'; gemId: string; valid: true }
   | { kind: 'socket'; item: Item; index: number; valid: boolean }
   | { kind: 'slot'; item: Item; valid: boolean }
+  | { kind: 'trash'; valid: true }
   | { kind: 'stash'; valid: true }
   | { kind: 'none' };
 
 function hitTest(x: number, y: number, gem: Gem): DropTarget {
   const el = document.elementFromPoint(x, y);
   if (!el) return { kind: 'none' };
+
+  // Trash cell: disenchant for crystals (FEATURE 2). Highest priority so a
+  // trash tile is never mistaken for a backpack cell.
+  if ((el as Element).closest('[data-trash]')) {
+    return { kind: 'trash', valid: true };
+  }
 
   // Socket cell: explicit gem-socket marker carrying its item id + index.
   const socketEl = (el as Element).closest<HTMLElement>('[data-gem-socket]');
@@ -104,6 +120,11 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     const index = Number(socketEl.dataset.socketIndex);
     const item = resolveItemById(itemId);
     if (item && Number.isInteger(index)) {
+      // Same-defId occupant -> combine (level up) instead of swap.
+      const occupant = item.sockets[index];
+      if (occupant && canCombine(gem, occupant)) {
+        return { kind: 'combine-socket', item, index, valid: true };
+      }
       return { kind: 'socket', item, index, valid: gemFitsSocketOf(gem, item) };
     }
   }
@@ -125,8 +146,14 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     }
   }
 
-  // Backpack cell (item or gem) -> stash the gem into the backpack.
-  if ((el as Element).closest('[data-cell-index]')) {
+  // Backpack cell: a same-defId loose gem -> combine; otherwise -> stash.
+  const cellEl = (el as Element).closest<HTMLElement>('[data-cell-index]');
+  if (cellEl) {
+    const cellIndex = Number(cellEl.dataset.cellIndex);
+    const slot = Number.isInteger(cellIndex) ? get(backpack)[cellIndex] : null;
+    if (isGem(slot) && canCombine(gem, slot)) {
+      return { kind: 'combine-backpack', gemId: slot.id, valid: true };
+    }
     return { kind: 'stash', valid: true };
   }
 
@@ -135,10 +162,16 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
 
 function zoneIdOf(target: DropTarget): string | null {
   switch (target.kind) {
+    case 'combine-socket':
+      return `socket:${target.item.id}:${target.index}`;
+    case 'combine-backpack':
+      return `combine:${target.gemId}`;
     case 'socket':
       return `socket:${target.item.id}:${target.index}`;
     case 'slot':
       return `slot:${target.item.id}`;
+    case 'trash':
+      return 'trash';
     case 'stash':
       return 'stash';
     case 'none':
@@ -170,7 +203,7 @@ function onPointerMove(e: PointerEvent): void {
   const held = get(heldGem);
   if (!held) return;
   const target = hitTest(e.clientX, e.clientY, held.gem);
-  const valid = target.kind !== 'none' && (target.kind === 'stash' || target.valid);
+  const valid = target.kind !== 'none' && target.valid;
   gemDropZone.set(valid ? zoneIdOf(target) : null);
   activeGemDrag.set({ gem: held.gem, x: e.clientX, y: e.clientY, valid });
 }
@@ -186,6 +219,14 @@ function onPointerUp(e: PointerEvent): void {
 
   const target = hitTest(e.clientX, e.clientY, held.gem);
   switch (target.kind) {
+    case 'combine-socket':
+      // Same-defId occupant: combine (level up). Falls back to a cancel if the
+      // combine somehow can't apply (gem stays safe in its origin).
+      if (!combineIntoSocket(target.item, target.index)) cancelHeld();
+      break;
+    case 'combine-backpack':
+      if (!combineIntoBackpackGem(target.gemId)) cancelHeld();
+      break;
     case 'socket':
       // placeIntoSocket itself rejects a class mismatch (gem stays held), so
       // fall through to a cancel if the drop wasn't valid.
@@ -196,6 +237,11 @@ function onPointerUp(e: PointerEvent): void {
       // Auto-socket; placeHeldIntoItemFirstEmpty returns the gem to origin if
       // there's no empty compatible socket.
       placeHeldIntoItemFirstEmpty(target.item);
+      break;
+    case 'trash':
+      // Disenchant the held gem for crystals (FEATURE 2). The gem was already
+      // lifted out of its origin, so disenchantHeldGem just consumes + refunds.
+      disenchantHeldGem();
       break;
     case 'stash':
       placeIntoStash();

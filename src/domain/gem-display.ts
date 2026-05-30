@@ -10,7 +10,7 @@
 // reads its trigger + payload, a stat summary reads its EnchantEffect, a
 // support summary reads its knob.
 
-import type { DamageType } from './enchant';
+import type { DamageType, EnchantEffect } from './enchant';
 import type {
   Gem,
   GemDef,
@@ -20,15 +20,21 @@ import type {
   StatDef,
   SupportMod,
 } from './gem';
+import { gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
+import { mag, cooldownAt } from './gem-level';
 
 export interface GemDisplay {
   emoji: string;
   name: string;
   // One-line effect / role summary, e.g. "Every 3s: 200 lightning to a random
-  // enemy" or "Support: x1.6 damage to the bound effect".
+  // enemy" or "Support: x1.6 damage to the bound effect". Reflects the gem's
+  // level - the numbers here match what gem-resolution.ts feeds combat.
   summary: string;
   role: 'effect' | 'support';
+  // The gem's combine level (1 for a base gem). The UI shows a "Lv{n}" badge
+  // when this is above 1.
+  level: number;
 }
 
 // Catalogue gem names (docs/gem-catalogue.md). Keyed by defId.
@@ -174,25 +180,74 @@ function supportSummary(mod: SupportMod): string {
   }
 }
 
-function defSummary(def: GemDef): string {
-  if (def.role === 'support') return supportSummary(def.mod);
-  if ('proc' in def) return procSummary(def.proc);
-  return statSummary(def.stat);
+// --- level scaling (shared math with gem-resolution.ts via gem-level.ts) ---
+// The display must show the SAME leveled numbers combat uses, so we apply mag /
+// cooldownAt here exactly as gem-resolution does, then summarise the result.
+
+function scalePayloadMag(payload: ProcPayload, factor: number): ProcPayload {
+  switch (payload.kind) {
+    case 'damage':
+      return { ...payload, damage: payload.damage * factor };
+    case 'heal':
+    case 'shield':
+      return { ...payload, fraction: payload.fraction * factor };
+    case 'buff':
+    case 'gold':
+      return payload;
+  }
 }
 
-// Display info for a catalogue gem def. Falls back to the raw id for a name if
-// the def somehow lacks a table entry (shouldn't happen for catalogue gems).
-export function gemDisplayForDef(def: GemDef): GemDisplay {
+function scaleEffectMag(effect: EnchantEffect, factor: number): EnchantEffect {
+  const e = { ...effect } as Record<string, unknown> & EnchantEffect;
+  const fields = ['amount', 'fraction', 'damage', 'bonusFraction', 'reductionFraction'] as const;
+  for (const f of fields) {
+    if (typeof e[f] === 'number') {
+      (e as Record<string, number>)[f] = (e[f] as number) * factor;
+    }
+  }
+  return e;
+}
+
+function leveledProc(proc: ProcDef, level: number): ProcDef {
+  if (level <= 1) return proc;
+  return {
+    ...proc,
+    payload: scalePayloadMag(proc.payload, mag(level)),
+    cooldownSec: cooldownAt(proc.cooldownSec, level),
+  };
+}
+
+function leveledStat(stat: StatDef, level: number): StatDef {
+  if (level <= 1) return stat;
+  return { effects: stat.effects.map((e) => scaleEffectMag(e, mag(level))) };
+}
+
+function leveledMod(mod: SupportMod, level: number): SupportMod {
+  if (level <= 1 || mod.kind !== 'scale') return mod;
+  return { kind: 'scale', factor: 1 + (mod.factor - 1) * mag(level) };
+}
+
+function defSummary(def: GemDef, level: number): string {
+  if (def.role === 'support') return supportSummary(leveledMod(def.mod, level));
+  if ('proc' in def) return procSummary(leveledProc(def.proc, level));
+  return statSummary(leveledStat(def.stat, level));
+}
+
+// Display info for a catalogue gem def at a given level (default 1). Falls back
+// to the raw id for a name if the def somehow lacks a table entry (shouldn't
+// happen for catalogue gems).
+export function gemDisplayForDef(def: GemDef, level = 1): GemDisplay {
   return {
     emoji: def.emoji,
     name: GEM_NAMES[def.id] ?? def.id,
-    summary: defSummary(def),
+    summary: defSummary(def, level),
     role: def.role,
+    level,
   };
 }
 
 // Display info for a placed gem instance, or null for an unknown defId.
 export function gemDisplay(gem: Gem): GemDisplay | null {
   const def = GEM_CATALOGUE[gem.defId];
-  return def ? gemDisplayForDef(def) : null;
+  return def ? gemDisplayForDef(def, gemLevel(gem)) : null;
 }

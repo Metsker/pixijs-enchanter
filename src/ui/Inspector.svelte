@@ -333,7 +333,10 @@
             <span class="socket-emoji">{d ? d.emoji : '·'}</span>
             <span class="socket-info">
               {#if d}
-                <span class="socket-name">{d.name}</span>
+                <span class="socket-name">
+                  {d.name}
+                  {#if d.level > 1}<span class="gem-level">Lv{d.level}</span>{/if}
+                </span>
                 <span class="socket-summary">{d.summary}</span>
                 {#if isSupport && boundEffect !== null}
                   <span class="socket-bind">↳ {boundName}</span>
@@ -376,6 +379,7 @@
               >
                 <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
                 <span class="stash-gem-name">{sd?.name ?? ''}</span>
+                {#if sd && sd.level > 1}<span class="gem-level">Lv{sd.level}</span>{/if}
               </button>
             {/each}
           </div>
@@ -442,7 +446,7 @@
   }
   .header .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.8rem;
+    font-size: 2rem;
     line-height: 1;
   }
   .title {
@@ -452,13 +456,13 @@
     gap: 2px;
   }
   .kind {
-    font-size: 0.95rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: #ddd;
   }
   .tier {
     align-self: flex-start;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     font-weight: 600;
     padding: 2px 7px;
     border-radius: 4px;
@@ -492,7 +496,7 @@
     background: #182536;
     border-bottom: 1px solid #2a3a50;
     color: #88c8ff;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     font-weight: 500;
   }
   .pick-banner-text {
@@ -525,7 +529,7 @@
     min-height: 0;
   }
   .sockets-label {
-    font-size: 0.7rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #788;
@@ -615,7 +619,7 @@
   }
   .socket-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.3rem;
+    font-size: 1.55rem;
     line-height: 1;
     justify-self: center;
   }
@@ -626,18 +630,40 @@
     min-width: 0;
   }
   .socket-name {
-    font-size: 0.9rem;
+    font-size: 1.05rem;
     font-weight: 600;
     color: #e6e6ee;
   }
+  /* Combine level badge (shown only when level > 1). Inline next to the gem
+     name in a socket; absolutely positioned on a compact stash tile. */
+  .gem-level {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: #f0e0ff;
+    background: rgba(124, 58, 200, 0.85);
+    border: 1px solid #c084fc;
+    vertical-align: middle;
+    font-variant-numeric: lining-nums;
+  }
+  .stash-gem .gem-level {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    font-size: 0.62rem;
+    padding: 1px 3px;
+  }
   .socket-summary {
-    font-size: 0.74rem;
+    font-size: 0.88rem;
     color: #9aa;
     line-height: 1.25;
   }
   /* Binding hint: "↳ bound effect name" under a support, or the inert note. */
   .socket-bind {
-    font-size: 0.72rem;
+    font-size: 0.85rem;
     color: #6ad;
     font-weight: 600;
     margin-top: 1px;
@@ -647,7 +673,7 @@
     font-weight: 500;
   }
   .socket-role {
-    font-size: 0.66rem;
+    font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #788;
@@ -673,7 +699,7 @@
     margin-bottom: 0;
   }
   .stash-empty {
-    font-size: 0.78rem;
+    font-size: 0.9rem;
     color: #667;
     line-height: 1.3;
     padding: 2px;
@@ -684,6 +710,7 @@
     gap: 6px;
   }
   .stash-gem {
+    position: relative;
     appearance: none;
     display: flex;
     flex-direction: column;
@@ -717,7 +744,7 @@
     outline-offset: 2px;
   }
   .stash-gem-name {
-    font-size: 0.62rem;
+    font-size: 0.74rem;
     text-align: center;
     line-height: 1.1;
     color: #9aa;
@@ -737,7 +764,7 @@
     color: #fff;
     border-radius: 8px;
     padding: 12px;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     font-weight: 600;
     cursor: pointer;
     min-height: 44px;

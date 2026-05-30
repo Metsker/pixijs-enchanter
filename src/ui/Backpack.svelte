@@ -21,6 +21,9 @@
   import { isGem } from '../domain/gem';
   import { gemDisplay } from '../domain/gem-display';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
+  import { equipFromBackpackToSlot, itemDrag, itemFitsSlot } from '../state/inventory';
+  import { disenchantItemFromBackpack } from '../state/disenchant';
+  import type { EquipmentSlotId } from '../domain/equipment';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -39,6 +42,9 @@
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
   let didDrag = $state(false);
+  // True while a dragged backpack ITEM hovers the trash slot (so the trash
+  // lights up for an item drag, mirroring gemDropZone for a gem drag).
+  let trashHot = $state(false);
   let ghostPos = $state<{ x: number; y: number } | null>(null);
   let pointerStart = { x: 0, y: 0 };
   // 10px threshold: clicks with minor jitter won't trigger drag visuals.
@@ -74,9 +80,37 @@
       const dy = e.clientY - pointerStart.y;
       if (dx * dx + dy * dy <= DRAG_THRESHOLD_SQ) return;
       didDrag = true;
+      // Real drag now: if this tile holds an equippable item, arm the
+      // drag-to-equip highlight on the equipment column.
+      const dragged = $backpack[dragging];
+      if (isItem(dragged)) itemDrag.set({ item: dragged, targetSlot: null });
     }
     ghostPos = { x: e.clientX, y: e.clientY };
     const el = document.elementFromPoint(e.clientX, e.clientY);
+
+    // Trash: an item dragged onto the trash slot will be disenchanted on drop.
+    const dragged = $backpack[dragging];
+    if (el?.closest('[data-trash]') && isItem(dragged)) {
+      trashHot = true;
+      itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
+      dragOver = null;
+      return;
+    }
+    trashHot = false;
+
+    // An equipment slot the dragged item is legal for takes priority over a
+    // backpack reorder target.
+    const slotEl = el?.closest<HTMLElement>('[data-slot-id]');
+    if (slotEl && isItem(dragged)) {
+      const slotId = slotEl.dataset.slotId as EquipmentSlotId;
+      if (itemFitsSlot(dragged, slotId)) {
+        itemDrag.update((d) => (d ? { ...d, targetSlot: slotId } : d));
+        dragOver = null;
+        return;
+      }
+    }
+    itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
+
     const cell = el?.closest<HTMLElement>('[data-cell-index]');
     dragOver = cell ? Number(cell.dataset.cellIndex) : null;
   }
@@ -84,7 +118,29 @@
   function onPointerUp(): void {
     if (dragging !== null) {
       if (didDrag) {
-        if (dragOver !== null && dragging !== dragOver) {
+        const equipTarget = get(itemDrag)?.targetSlot ?? null;
+        if (trashHot && isItem($backpack[dragging])) {
+          // Dropped on the trash: disenchant the item (and its gems) for
+          // crystals. Close the Inspector if it was showing this tile.
+          const idx = dragging;
+          if (disenchantItemFromBackpack(idx)) {
+            const ins = get(inspector);
+            if (ins?.source === 'backpack' && ins.index === idx) closeInspector();
+          }
+        } else if (equipTarget) {
+          // Dropped on a compatible equipment slot: equip it there.
+          const idx = dragging;
+          if (equipFromBackpackToSlot(idx, equipTarget) !== null) {
+            // The source tile now holds the displaced item (or is empty);
+            // keep the Inspector pointed at whatever sits there now.
+            const ins = get(inspector);
+            if (ins?.source === 'backpack' && ins.index === idx) {
+              const now = get(backpack)[idx];
+              if (isItem(now)) inspector.set({ source: 'backpack', index: idx, item: now });
+              else closeInspector();
+            }
+          }
+        } else if (dragOver !== null && dragging !== dragOver) {
           const from = dragging;
           const to = dragOver;
           moveItem(from, to);
@@ -118,6 +174,8 @@
     dragOver = null;
     ghostPos = null;
     didDrag = false;
+    trashHot = false;
+    itemDrag.set(null);
   }
 
   function isInspecting(i: number): boolean {
@@ -167,6 +225,7 @@
           class:dragging={didDrag && dragging === i}
           class:over={dragOver === i && didDrag && dragging !== i}
           class:stash-armed={$gemDropZone === 'stash'}
+          class:combine-armed={isGem(slot) && $gemDropZone === `combine:${slot.id}`}
           class:gem-tile={gem !== null}
           class:inspecting={isInspecting(i)}
           style={gem ? `--gem-color: ${gem.role === 'effect' ? '#f6a' : '#6ad'}` : ''}
@@ -193,9 +252,24 @@
               class:support={gem.role === 'support'}
               title={`${gem.name} - ${gem.summary}`}
             >💠</span>
+            {#if gem.level > 1}
+              <span class="gem-level">Lv{gem.level}</span>
+            {/if}
           {/if}
         </div>
       {/each}
+    </div>
+
+    <!-- Trash slot (disenchant): drop a gem or item here to scrap it for
+         crystals instantly (FEATURE 2). Separate from the 20 grid slots. -->
+    <div
+      class="trash"
+      class:trash-armed={$gemDropZone === 'trash' || trashHot}
+      data-trash
+      title={t('backpack.trash.hint')}
+    >
+      <span class="trash-emoji">🗑️</span>
+      <span class="trash-label">{t('backpack.trash')}</span>
     </div>
 
     <footer class="hint">{t('backpack.hint')}</footer>
@@ -343,6 +417,13 @@
     border-color: #ffcc44;
     box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
   }
+  /* Combine target: a same-defId gem cell under a dragged gem. Purple to read
+     as a level-up, distinct from the gold stash highlight. */
+  .cell.combine-armed {
+    border-color: #c084fc;
+    box-shadow: inset 0 0 0 2px #c084fc;
+    background: #241a2e;
+  }
   /* A cell holding a loose gem: a role-tinted ring distinguishes it from an
      item tile without resorting to a T# tier badge. */
   .cell.gem-tile {
@@ -393,6 +474,58 @@
   }
   .gem-badge.support {
     filter: drop-shadow(0 0 3px #6ad);
+  }
+
+  /* Combine level badge on a loose gem tile (shown only when level > 1). */
+  .gem-level {
+    position: absolute;
+    bottom: 3px;
+    left: 3px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: #f0e0ff;
+    background: rgba(124, 58, 200, 0.85);
+    border: 1px solid #c084fc;
+    pointer-events: none;
+    font-variant-numeric: lining-nums;
+  }
+
+  /* Trash / disenchant slot. Separate from the grid, visually distinct (red),
+     lights up while a gem or item is dragged over it. */
+  .trash {
+    margin: 0 12px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px dashed #5a2a2a;
+    border-radius: 8px;
+    background: #1a1012;
+    color: #e88;
+    user-select: none;
+  }
+  .trash-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.4rem;
+    line-height: 1;
+    pointer-events: none;
+  }
+  .trash-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .trash.trash-armed {
+    border-style: solid;
+    border-color: #ef4444;
+    background: #2a1414;
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.6);
   }
 
   .hint {

@@ -92,10 +92,19 @@ export type GemDef =
   | (GemBase & { role: 'support'; mod: SupportMod });
 
 // A placed gem instance - just a reference into the catalogue. The instance id
-// is unique so the same defId can sit in two sockets at once.
+// is unique so the same defId can sit in two sockets at once. `level` is the
+// combine level (two identical gems merge additively, see state/gem-move.ts);
+// absent means level 1, so old saves round-trip cleanly. Read it via gemLevel.
 export interface Gem {
   id: string;
   defId: string;
+  level?: number;
+}
+
+// A gem's effective level. Absent / non-positive defaults to 1, so a gem that
+// predates the level field (or a corrupt save) is treated as a base gem.
+export function gemLevel(gem: Gem): number {
+  return gem.level && gem.level > 0 ? gem.level : 1;
 }
 
 // Discriminators for the backpack, which now holds both Items and loose Gems

@@ -161,6 +161,22 @@ export function findBackpackGemById(gemId: string): Gem | null {
   return get(backpack).find((s): s is Gem => isGem(s) && s.id === gemId) ?? null;
 }
 
+// Apply a mutator to the loose backpack GEM with the given instance id,
+// wherever it sits. Returns true if a gem with that id was found and rewritten.
+// Used by the combine logic to bump a target gem's level in place.
+export function updateBackpackGemById(gemId: string, mutate: (gem: Gem) => Gem): boolean {
+  let found = false;
+  backpack.update((slots) => {
+    const idx = slots.findIndex((s) => isGem(s) && s.id === gemId);
+    if (idx === -1) return slots;
+    found = true;
+    const next = slots.slice();
+    next[idx] = mutate(slots[idx] as Gem);
+    return next;
+  });
+  return found;
+}
+
 // Pull a loose gem out of the backpack by instance id, leaving the slot empty.
 // Returns the removed gem (or null if no loose gem with that id was present).
 // Used when a gem is picked up for a drag.

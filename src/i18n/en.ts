@@ -31,7 +31,9 @@ export const en: Record<string, string> = {
   'backpack.title': 'Backpack',
   'backpack.sort': 'Sort',
   'backpack.close': 'Close backpack',
-  'backpack.hint': 'Drag items to reorder, gems onto an item or socket. Tap an item to inspect. Press B to close.',
+  'backpack.hint': 'Drag items to reorder, gems onto an item or socket. Drop two matching gems together to level up. Drop onto the trash to disenchant. Tap an item to inspect. Press B to close.',
+  'backpack.trash': 'Disenchant',
+  'backpack.trash.hint': 'Drop a gem or item here to scrap it for crystals.',
 
   'inspector.title': 'Inspector',
   'inspector.close': 'Close inspector',

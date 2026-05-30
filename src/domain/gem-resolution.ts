@@ -27,7 +27,9 @@
 
 import type { EnchantEffect } from './enchant';
 import type { Gem, ProcDef, ProcPayload, SupportMod, GemDef } from './gem';
+import { gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
+import { mag, cooldownAt } from './gem-level';
 
 // A proc after its bound supports are applied: the ProcDef fields plus where it
 // came from (sourceDefId), the resolved crit chance (0 unless a crit support
@@ -84,6 +86,19 @@ function scalePayload(payload: ProcPayload, factor: number): ProcPayload {
     case 'gold':
       return payload;
   }
+}
+
+// Level a support's knob by the support gem's own level. A `scale` support's
+// bonus (factor - 1) is multiplied by mag(level), so a Lv2 x1.6 scale becomes
+// x1.9 (0.6 -> 0.9). count / cooldown / crit / rider / repeat keep their base
+// strength - level mainly bumps damage + cooldown, and a "rider" / "count"
+// knob has no magnitude to scale (see FEATURE 1).
+function levelSupportMod(mod: SupportMod, level: number): SupportMod {
+  if (level <= 1) return mod;
+  if (mod.kind === 'scale') {
+    return { kind: 'scale', factor: 1 + (mod.factor - 1) * mag(level) };
+  }
+  return mod;
 }
 
 // Apply a support's knob to a proc-in-progress. `scale` multiplies the payload
@@ -188,17 +203,23 @@ export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
     const def = lookup(slot.defId);
     if (!def) continue;
 
+    const level = gemLevel(slot);
+
     if (def.role === 'support') {
-      pendingSupports.push(def.mod);
+      // The support's knob strength scales with its own level.
+      pendingSupports.push(levelSupportMod(def.mod, level));
       continue;
     }
 
-    // An effect gem: every pending support binds to it, in socket order.
+    // An effect gem: scale its payload + cooldown (proc) or stat amounts by its
+    // own level FIRST, then bind every pending support to it in socket order.
     if ('proc' in def) {
       const resolved: ResolvedProc = {
         ...def.proc,
-        // Clone the payload so scale knobs never mutate the catalogue entry.
-        payload: { ...def.proc.payload },
+        // Clone the payload so scale knobs never mutate the catalogue entry,
+        // and bake the gem's level into the magnitude up front.
+        payload: scalePayload({ ...def.proc.payload }, mag(level)),
+        cooldownSec: cooldownAt(def.proc.cooldownSec, level),
         riders: [...def.proc.riders],
         sourceDefId: def.id,
         critChance: 0,
@@ -208,7 +229,7 @@ export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
       for (const mod of pendingSupports) applyKnobToProc(resolved, mod);
       procs.push(resolved);
     } else {
-      let effects = def.stat.effects.map((e) => ({ ...e }));
+      let effects = def.stat.effects.map((e) => scaleEffect({ ...e }, mag(level)));
       for (const mod of pendingSupports) effects = applyKnobToStats(effects, mod);
       stats.push(...effects);
     }

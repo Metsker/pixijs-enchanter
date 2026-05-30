@@ -1,9 +1,15 @@
 import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
+import { gemLevel } from '../domain/gem';
 import type { Item } from '../domain/item';
 import { gemFitsSocketOf } from '../domain/gem-fit';
 import { equipped, updateEquippedAt } from './inventory';
-import { findBackpackItemById, updateBackpackItemById } from './backpack';
+import {
+  findBackpackGemById,
+  findBackpackItemById,
+  updateBackpackGemById,
+  updateBackpackItemById,
+} from './backpack';
 import { inspector, type InspectorSubject } from './inspector';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
 
@@ -183,6 +189,54 @@ export function placeIntoStash(): void {
   if (!held) return;
   addGemToStash(held.gem);
   heldGem.set(null);
+}
+
+// --- combine (level up) -------------------------------------------------
+//
+// Dropping a held gem onto ANOTHER gem of the same defId combines them
+// additively: the target gem's level becomes targetLevel + heldLevel, and the
+// held gem is consumed. The held gem was already lifted out of its origin by
+// the pickup, so consuming it is just clearing `heldGem`. This overrides the
+// normal swap / stash behaviour, but only when defIds match (see FEATURE 1).
+
+// True if the held gem can combine into `target` (same defId, distinct
+// instances). Order-independent so the drag layer can pre-check a drop.
+export function canCombine(held: Gem, target: Gem): boolean {
+  return held.id !== target.id && held.defId === target.defId;
+}
+
+// Combine the held gem into the gem occupying `item`'s socket `index`. No-op
+// (returns false) if nothing is held, the socket is empty, or the defIds
+// differ. On success the socket gem levels up and the held gem is consumed.
+export function combineIntoSocket(item: Item, index: number): boolean {
+  const held = get(heldGem);
+  if (!held) return false;
+  const target = item.sockets[index];
+  if (!target || !canCombine(held.gem, target)) return false;
+
+  const sockets = item.sockets.slice();
+  sockets[index] = { ...target, level: gemLevel(target) + gemLevel(held.gem) };
+  writeBackSockets(item, sockets);
+  heldGem.set(null);
+  return true;
+}
+
+// Combine the held gem into a loose backpack gem by instance id. No-op
+// (returns false) if nothing is held, the target isn't in the backpack, or the
+// defIds differ. On success the backpack gem levels up and the held gem is
+// consumed.
+export function combineIntoBackpackGem(targetGemId: string): boolean {
+  const held = get(heldGem);
+  if (!held) return false;
+  const target = findBackpackGemById(targetGemId);
+  if (!target || !canCombine(held.gem, target)) return false;
+
+  updateBackpackGemById(targetGemId, (g) => ({
+    ...g,
+    level: gemLevel(g) + gemLevel(held.gem),
+  }));
+  heldGem.set(null);
+  return true;
 }
 
 // Auto-socket: place the held gem into `item`'s FIRST EMPTY socket whose class
