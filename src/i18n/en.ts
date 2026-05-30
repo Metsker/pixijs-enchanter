@@ -49,6 +49,7 @@ export const en: Record<string, string> = {
   'inspector.sockets': 'Sockets',
   'inspector.addSocket': 'Add socket · 💎 {cost}',
   'inspector.addSocket.hint': 'Adds one empty socket, raising this item by a tier.',
+  'inspector.disenchant.title': 'Disenchant value - crystals returned by trashing this (and any gems in it).',
   'inspector.socket.empty': 'Empty socket',
   'inspector.socket.effect': 'Effect',
   'inspector.socket.support': 'Support',

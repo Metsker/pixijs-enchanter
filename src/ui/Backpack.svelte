@@ -22,7 +22,7 @@
   import { gemDisplay } from '../domain/gem-display';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { equipFromBackpackToSlot, itemDrag, itemFitsSlot } from '../state/inventory';
-  import { disenchantItemFromBackpack } from '../state/disenchant';
+  import { disenchantItemFromBackpack, gemRefund, itemRefund } from '../state/disenchant';
   import type { EquipmentSlotId } from '../domain/equipment';
   import { t } from '../i18n';
 
@@ -229,6 +229,11 @@
           class:gem-tile={gem !== null}
           class:inspecting={isInspecting(i)}
           style={gem ? `--gem-color: ${gem.role === 'effect' ? '#f6a' : '#6ad'}` : ''}
+          title={isItem(slot)
+            ? `🗑️ 💎 ${itemRefund(slot)}`
+            : isGem(slot)
+              ? `${gem?.name ?? ''} - ${gem?.summary ?? ''} · 🗑️ 💎 ${gemRefund(slot)}`
+              : ''}
           data-cell-index={i}
           data-inspector-source="backpack"
           onpointerdown={(e) => onPointerDown(e, i)}
@@ -250,7 +255,6 @@
               class="gem-badge"
               class:effect={gem.role === 'effect'}
               class:support={gem.role === 'support'}
-              title={`${gem.name} - ${gem.summary}`}
             >💠</span>
             {#if gem.level > 1}
               <span class="gem-level">Lv{gem.level}</span>

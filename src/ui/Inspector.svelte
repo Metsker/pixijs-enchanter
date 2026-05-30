@@ -37,6 +37,7 @@
   import { cancelHeld, heldGem } from '../state/gem-move';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { gemStash } from '../state/gem-stash';
+  import { gemRefund, itemRefund } from '../state/disenchant';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
@@ -289,6 +290,13 @@
         <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
           {t('inspector.tier', { tier: tierOf(item) })}
         </div>
+        {#if socketsEditable}
+          <!-- Disenchant hint: total crystals from trashing this item (the
+               item frame plus every gem socketed in it). -->
+          <div class="disenchant-hint" title={t('inspector.disenchant.title')}>
+            🗑️ 💎 {itemRefund(item)}
+          </div>
+        {/if}
       </div>
       <button
         type="button"
@@ -426,6 +434,7 @@
                 <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
                 <span class="stash-gem-name">{sd?.name ?? ''}</span>
                 {#if sd && sd.level > 1}<span class="gem-level">Lv{sd.level}</span>{/if}
+                <span class="gem-refund" title={t('inspector.disenchant.title')}>🗑️ {gemRefund(g)}</span>
               </button>
             {/each}
           </div>
@@ -515,6 +524,21 @@
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.3);
+    font-variant-numeric: lining-nums;
+  }
+  /* Disenchant-refund hints (crystals returned by trashing). */
+  .disenchant-hint {
+    align-self: flex-start;
+    margin-top: 3px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #d8b34a;
+    font-variant-numeric: lining-nums;
+  }
+  .gem-refund {
+    margin-top: 1px;
+    font-size: 0.66rem;
+    color: #b9912a;
     font-variant-numeric: lining-nums;
   }
   .close {
