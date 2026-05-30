@@ -3,7 +3,7 @@ import type { Gem, SocketColor } from './gem';
 import { colorForClass } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 
-const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'amulet'];
+const ALL_ITEM_TYPES: ItemType[] = ['weapon', 'shield', 'armor', 'ring', 'belt', 'amulet'];
 const ALL_ARMOR_SLOTS: ArmorSlot[] = ['helm', 'chest', 'gloves', 'boots'];
 
 // Cosmetic-only icon pools, keyed by itemType (or armorSlot for armor
@@ -19,6 +19,7 @@ const ICON_POOLS: Record<string, string[]> = {
   gloves: ['🧤', '🥊'],
   boots: ['🥾', '👞', '👟', '🥿', '👢'],
   ring: ['💍'],
+  belt: ['👝', '🎗️'],
   amulet: ['📿', '🧿', '🔮'],
 };
 
@@ -67,6 +68,16 @@ const EFFECT_GEM_IDS_BY_COLOR: Record<SocketColor, string[]> = (() => {
   return acc;
 })();
 
+// Every catalogue defId, for rolling a loose gem as loot (combat rewards) or
+// shop stock. Uniform over the whole pool - effects and supports alike.
+const ALL_GEM_IDS: string[] = Object.keys(GEM_CATALOGUE);
+
+// Roll one random catalogue gem as a fresh level-1 instance. Used by combat
+// loot and the shop to drop loose gems the player can socket or combine.
+export function randomGem(): Gem {
+  return { id: nextGemId(), defId: pick(ALL_GEM_IDS) };
+}
+
 // Per-item-type socket-colour pools. A colour ABSENT from a type's map can
 // NEVER roll on that type (a hard exclusion, not a bias): weapons never get a
 // green socket, shields / armor never get a red one. Within a type the weights
@@ -76,26 +87,76 @@ const EFFECT_GEM_IDS_BY_COLOR: Record<SocketColor, string[]> = (() => {
 // 1: rollSocketColorForType normalises by the per-type total.
 const SOCKET_COLOR_WEIGHTS: Record<ItemType, Partial<Record<SocketColor, number>>> = {
   weapon: { red: 0.7, blue: 0.3 },
-  shield: { green: 0.7, blue: 0.3 },
+  shield: { green: 0.6, red: 0.4 },
   armor: { green: 0.7, blue: 0.3 },
-  ring: { blue: 0.5, red: 0.25, green: 0.25 },
+  ring: { blue: 0.5, red: 0.5 },
+  belt: { blue: 0.5, green: 0.5 },
   amulet: { blue: 0.5, red: 0.25, green: 0.25 },
 };
 
-// Roll one socket colour for `itemType` from its weighted pool. A weighted draw
-// over only that type's listed entries, so an excluded colour can never appear.
-// Exported so add-socket (rest.ts) and the save backfill roll a new / missing
-// socket's colour from the exact same pool as drops.
-export function rollSocketColorForType(itemType: ItemType): SocketColor {
-  const weights = SOCKET_COLOR_WEIGHTS[itemType];
+// Per-ARMOR-SLOT overrides (armor is one ItemType but its sub-slots can differ).
+// Gloves roll red as a secondary - the other offensive home gained back.
+const ARMOR_SLOT_COLOR_WEIGHTS: Partial<
+  Record<ArmorSlot, Partial<Record<SocketColor, number>>>
+> = {
+  gloves: { green: 0.5, red: 0.3, blue: 0.2 },
+};
+
+// The socket-colour weights for an item, honouring per-armor-slot overrides.
+function weightsFor(
+  itemType: ItemType,
+  armorSlot?: ArmorSlot,
+): Partial<Record<SocketColor, number>> {
+  if (itemType === 'armor' && armorSlot && ARMOR_SLOT_COLOR_WEIGHTS[armorSlot]) {
+    return ARMOR_SLOT_COLOR_WEIGHTS[armorSlot]!;
+  }
+  return SOCKET_COLOR_WEIGHTS[itemType];
+}
+
+// Weighted draw over an item's listed colours using a supplied 0..1 value, so
+// an excluded colour can never appear. Shared by the random + seeded pickers.
+function pickSocketColor(
+  itemType: ItemType,
+  r01: number,
+  armorSlot?: ArmorSlot,
+): SocketColor {
+  const weights = weightsFor(itemType, armorSlot);
   const entries = Object.entries(weights) as [SocketColor, number][];
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
-  let r = Math.random() * total;
+  let r = r01 * total;
   for (const [color, w] of entries) {
     if (r < w) return color;
     r -= w;
   }
   return entries[entries.length - 1][0]; // numeric safety net.
+}
+
+// Roll one RANDOM socket colour for an item (drops + save backfill).
+export function rollSocketColorForType(itemType: ItemType, armorSlot?: ArmorSlot): SocketColor {
+  return pickSocketColor(itemType, Math.random(), armorSlot);
+}
+
+// Deterministic socket colour for an item at a given (seed, index), so an item
+// always grows the SAME colour sequence as sockets are added. The Add-socket
+// preview reads this, so the previewed swatch is stable and exactly matches the
+// colour the player will get. Drawn from the same weighted pool.
+export function seededSocketColorForType(
+  itemType: ItemType,
+  seed: string,
+  index: number,
+  armorSlot?: ArmorSlot,
+): SocketColor {
+  return pickSocketColor(itemType, hash01(`${seed}#${index}`), armorSlot);
+}
+
+// Tiny deterministic string hash -> [0, 1). FNV-1a, dependency-free.
+function hash01(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1_000_000) / 1_000_000;
 }
 
 // Pre-socket the item: drop 1-2 colour-matched gems into sockets whose colour
@@ -139,7 +200,7 @@ function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
   const capacity = Math.max(1, tier);
   const socketColors = Array.from({ length: capacity }, () =>
-    rollSocketColorForType(itemType),
+    rollSocketColorForType(itemType, armorSlot),
   );
   const sockets = rollSockets(socketColors);
   const icon = iconFor(itemType, armorSlot);

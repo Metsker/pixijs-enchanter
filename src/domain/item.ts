@@ -8,7 +8,7 @@ export function isItem(v: Item | Gem | null | undefined): v is Item {
   return v != null && (v as Item).itemType !== undefined;
 }
 
-export type ItemType = 'weapon' | 'shield' | 'armor' | 'ring' | 'amulet';
+export type ItemType = 'weapon' | 'shield' | 'armor' | 'ring' | 'belt' | 'amulet';
 
 // Armor items are further specialised to one of the four armor slots.
 // Non-armor items have armorSlot = undefined.
@@ -61,25 +61,31 @@ export function itemEmoji(item: Item): string {
     case 'armor':
       return item.armorSlot ? EQUIPMENT_SLOTS[item.armorSlot].emoji : '🛡️';
     case 'ring':
-      return EQUIPMENT_SLOTS.ring1.emoji;
+      return EQUIPMENT_SLOTS.ring.emoji;
+    case 'belt':
+      return EQUIPMENT_SLOTS.belt.emoji;
     case 'amulet':
       return EQUIPMENT_SLOTS.amulet.emoji;
   }
 }
 
-// Which equipment slots can this item be equipped into?
-// Weapons go to weapon or offhand; shields only to offhand; rings to either
-// ring slot; armor to its specific sub-slot; amulets to amulet.
+// Which equipment slot can this item be equipped into? Every type maps to
+// exactly ONE slot now (no doubled ring / weapon-offhand), so equipping is
+// always a clean 1:1 swap and there's no slot-select step. Weapons -> weapon,
+// shields -> the shield-only offhand, rings -> ring, belts -> belt, armor to
+// its sub-slot, amulets -> amulet.
 export function legalEquipmentSlots(item: Item): EquipmentSlotId[] {
   switch (item.itemType) {
     case 'weapon':
-      return ['weapon', 'offhand'];
+      return ['weapon'];
     case 'shield':
       return ['offhand'];
     case 'armor':
       return item.armorSlot ? [item.armorSlot] : ['helm', 'chest', 'gloves', 'boots'];
     case 'ring':
-      return ['ring1', 'ring2'];
+      return ['ring'];
+    case 'belt':
+      return ['belt'];
     case 'amulet':
       return ['amulet'];
   }

@@ -1,3 +1,8 @@
+// One slot per item type now (a single ring, a new belt where the 2nd ring
+// used to be, a shield-only offhand), so equips are always a 1:1 swap with the
+// slot's current occupant - which is what lets the player compare a new item
+// against the one it would replace. No more doubled slots, so no slot-select
+// step. The belt is just a second jewelry accessory dodging the duplicate ring.
 export type EquipmentSlotId =
   | 'weapon'
   | 'offhand'
@@ -5,8 +10,8 @@ export type EquipmentSlotId =
   | 'chest'
   | 'gloves'
   | 'boots'
-  | 'ring1'
-  | 'ring2'
+  | 'ring'
+  | 'belt'
   | 'amulet';
 
 // Canonical order per CONTEXT.md § Equip flow (Path A: "first empty
@@ -18,8 +23,8 @@ export const EQUIPMENT_SLOT_ORDER: readonly EquipmentSlotId[] = [
   'chest',
   'gloves',
   'boots',
-  'ring1',
-  'ring2',
+  'ring',
+  'belt',
   'amulet',
 ];
 
@@ -36,7 +41,7 @@ export const EQUIPMENT_SLOTS: Record<EquipmentSlotId, EquipmentSlotDef> = {
   chest: { id: 'chest', nameKey: 'inventory.slot.chest', emoji: '🦺' },
   gloves: { id: 'gloves', nameKey: 'inventory.slot.gloves', emoji: '🧤' },
   boots: { id: 'boots', nameKey: 'inventory.slot.boots', emoji: '🥾' },
-  ring1: { id: 'ring1', nameKey: 'inventory.slot.ring', emoji: '💍' },
-  ring2: { id: 'ring2', nameKey: 'inventory.slot.ring', emoji: '💍' },
+  ring: { id: 'ring', nameKey: 'inventory.slot.ring', emoji: '💍' },
+  belt: { id: 'belt', nameKey: 'inventory.slot.belt', emoji: '🎗️' },
   amulet: { id: 'amulet', nameKey: 'inventory.slot.amulet', emoji: '📿' },
 };

@@ -2,8 +2,9 @@ import { get } from 'svelte/store';
 import { run, type RunState } from './run';
 import { fight, primeDifficulty, type FightState } from './fight';
 import { topbar, type TopbarState } from './topbar';
-import { addGemToBackpack, backpack, type BackpackSlot } from './backpack';
+import { addGemToBackpack, addItem, backpack, type BackpackSlot } from './backpack';
 import { equipped, type EquippedItems } from './inventory';
+import { EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
 import { pendingRewards, type PendingRewards } from './rewards';
 import { shopStock } from './shop';
 import { itemOffer, type ItemOffer } from './item-offer';
@@ -64,19 +65,38 @@ function backfillItemColors(item: Item): Item {
   const existing = item.socketColors;
   if (Array.isArray(existing) && existing.length === len) return item;
   const socketColors: SocketColor[] = item.sockets.map(
-    (gem) => (gem ? gemColor(gem) : null) ?? rollSocketColorForType(item.itemType),
+    (gem) => (gem ? gemColor(gem) : null) ?? rollSocketColorForType(item.itemType, item.armorSlot),
   );
   return { ...item, socketColors };
 }
 
-// Normalise every owned item (equipped + backpack) so they all carry a
-// well-formed socketColors array after a load.
-function backfillEquipped(eq: EquippedItems): EquippedItems {
-  const next = { ...eq };
-  for (const [slotId, item] of Object.entries(next)) {
-    if (item) next[slotId as keyof EquippedItems] = backfillItemColors(item);
+// Normalise a saved equipped map onto the CURRENT slot schema (handles older
+// saves with the doubled ring1/ring2 slots): copy items for slots that still
+// exist, fold a legacy ring into the single ring slot, and return any extra
+// rings as overflow for the caller to drop into the backpack. Backfills
+// socketColors on every kept item.
+function migrateEquipped(raw: Record<string, Item | null> | undefined): {
+  equipped: EquippedItems;
+  overflow: Item[];
+} {
+  const next = Object.fromEntries(
+    EQUIPMENT_SLOT_ORDER.map((s) => [s, null]),
+  ) as EquippedItems;
+  const overflow: Item[] = [];
+  if (raw) {
+    for (const slotId of EQUIPMENT_SLOT_ORDER) {
+      const it = raw[slotId];
+      if (isItem(it)) next[slotId] = backfillItemColors(it);
+    }
+    // Legacy double-ring slots collapse into the single ring; extras go to the bag.
+    for (const legacy of [raw.ring1, raw.ring2]) {
+      if (!isItem(legacy)) continue;
+      const item = backfillItemColors(legacy);
+      if (!next.ring) next.ring = item;
+      else overflow.push(item);
+    }
   }
-  return next;
+  return { equipped: next, overflow };
 }
 
 function backfillBackpack(slots: BackpackSlot[]): BackpackSlot[] {
@@ -104,14 +124,20 @@ export function loadSave(): boolean {
     topbar.set(data.topbar);
     // Backfill socketColors for items from pre-colour saves (no save wipe).
     backpack.set(backfillBackpack(data.backpack));
-    equipped.set(backfillEquipped(data.equipped));
+    // Migrate equipped onto the current slot schema (collapses old ring1/ring2
+    // into the single ring; extra ring goes to the bag below).
+    const migratedEq = migrateEquipped(data.equipped as unknown as Record<string, Item | null>);
+    equipped.set(migratedEq.equipped);
+    for (const overflowItem of migratedEq.overflow) addItem(overflowItem);
     // Legacy migration: pre-merge saves stashed loose gems in their own array.
     // Fold each into the backpack's first empty slot so no gem is lost.
     if (Array.isArray(data.gemStash)) {
       for (const gem of data.gemStash) addGemToBackpack(gem);
     }
-    pendingRewards.set(data.pendingRewards);
-    shopStock.set(data.shopStock);
+    // Backfill the gems arrays for pre-gem-loot saves so the chest / shop
+    // never iterate an undefined list.
+    pendingRewards.set({ ...data.pendingRewards, gems: data.pendingRewards?.gems ?? [] });
+    shopStock.set(data.shopStock ? { ...data.shopStock, gems: data.shopStock.gems ?? [] } : null);
     itemOffer.set(data.itemOffer);
     // Older v2 saves predate run-locked difficulty; default to normal so
     // a mid-fight Lich phase spawn still scales its adds correctly.
