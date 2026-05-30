@@ -31,8 +31,10 @@ export interface MapGraph {
 
 // Slay-the-Spire-ish single-act map. Forced common at floor 1, forced rest
 // at floor N-1, forced Lich boss at floor N. Middle floors mix
-// common / elite / shop / rest with a bias toward fights.
-const FLOORS = 8;
+// common / elite / shop / rest with a bias toward fights. FLOORS sets the
+// act length (path to the boss); the first/second-half difficulty split and
+// the forced rest/boss positions all derive from it.
+const FLOORS = 16;
 
 // Weighted random RoomKind for middle floors, biased toward fights.
 // `forbidden` lets the caller exclude kinds that would create a back-to-back
@@ -54,41 +56,36 @@ function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set(
   return weights[weights.length - 1].kind;
 }
 
-// Encounter sizing follows the half-act split: first half of the
-// act is always a single enemy per fight (one common, or a solo
-// elite); second half ramps to 2-3 enemies. The boss is always
-// just the Lich regardless of half.
+// Encounter size: the first half of the act is solo fights (one common, or a
+// lone elite); the second half RAMPS with depth, growing past the old 2-3 cap
+// toward MAX_ENEMIES on the deepest floors. The boss is always just the Lich.
+const MAX_ENEMIES = 5;
+function encounterSize(rng: () => number, floor: number): number {
+  const half = Math.floor(FLOORS / 2);
+  if (floor <= half) return 1; // first half: solo
+  const depth = floor - half; // 1.. into the second half
+  const centre = Math.min(MAX_ENEMIES, 2 + Math.floor(depth / 2));
+  return Math.max(2, Math.min(MAX_ENEMIES, centre + (rng() < 0.5 ? 0 : 1)));
+}
+
 function rollEnemies(kind: RoomKind, rng: () => number, floor: number): EnemyDef[] {
-  const firstHalf = floor <= Math.floor(FLOORS / 2);
+  if (kind === 'boss') return [LICH];
+  const total = encounterSize(rng, floor);
   if (kind === 'common') {
-    const count = firstHalf ? 1 : 2 + Math.floor(rng() * 2); // 1 or 2-3
-    return Array.from({ length: count }, () => COMMONS[Math.floor(rng() * COMMONS.length)]);
+    return Array.from({ length: total }, () => COMMONS[Math.floor(rng() * COMMONS.length)]);
   }
   if (kind === 'elite') {
     const elite = ELITES[Math.floor(rng() * ELITES.length)];
-    if (firstHalf) {
-      // Solo elite in the first half - overrides Minotaur's
-      // always-1-2-escort rule so the cap holds.
-      return [elite];
-    }
-    if (elite.id === MINOTAUR.id) {
-      // Second-half Minotaur keeps its 1-2 escort signature.
-      const escortCount = 1 + Math.floor(rng() * 2);
-      const escort: EnemyDef[] = Array.from({ length: escortCount }, () =>
-        [SKELETON, GOBLIN, SLIME][Math.floor(rng() * 3)],
-      );
-      return [elite, ...escort];
-    }
-    // Second-half Harpy / Ogre always roll 1-2 escort so the floor
-    // hits the 2-3 enemy cap.
-    const escortCount = 1 + Math.floor(rng() * 2);
-    const escort: EnemyDef[] = Array.from({ length: escortCount }, () =>
-      COMMONS[Math.floor(rng() * COMMONS.length)],
+    const escortCount = total - 1;
+    if (escortCount <= 0) return [elite]; // solo (first half)
+    // Minotaur keeps its skeleton/goblin/slime escort signature; others pull
+    // commons. Either way the escort fills out to the floor's encounter size.
+    const pool = elite.id === MINOTAUR.id ? [SKELETON, GOBLIN, SLIME] : COMMONS;
+    const escort: EnemyDef[] = Array.from(
+      { length: escortCount },
+      () => pool[Math.floor(rng() * pool.length)],
     );
     return [elite, ...escort];
-  }
-  if (kind === 'boss') {
-    return [LICH];
   }
   return [];
 }
@@ -148,7 +145,9 @@ export function generateMap(seed: number = Date.now()): MapGraph {
 
       const within = ranked.filter((r) => r.dist <= CLOSENESS);
       const pool = within.length > 0 ? within : ranked.slice(0, 1);
-      const numChildren = Math.min(pool.length, 1 + (rng() < 0.5 ? 0 : 1));
+      // Favour 2 children so the map forks often (the branch-guarantee pass
+      // below tops up any stretch that still went flat).
+      const numChildren = Math.min(pool.length, 1 + (rng() < 0.6 ? 1 : 0));
       parents[pi].children = pool.slice(0, numChildren).map((r) => children[r.ci].id);
     }
 
@@ -170,6 +169,41 @@ export function generateMap(seed: number = Date.now()): MapGraph {
       if (!parents[bestPi].children.includes(child.id)) {
         parents[bestPi].children.push(child.id);
       }
+    }
+  }
+
+  // Branch guarantee: no path should run more than 2 floors without a fork.
+  // Walk the floors; once two have gone by with no node offering a choice
+  // (>=2 children), force the next eligible floor to branch by giving a
+  // single-child node its nearest unused second child. The funnel into the
+  // forced rest + boss (single-node floors) is exempt - nothing to branch to.
+  let sinceBranch = 0;
+  for (let floor = 1; floor < FLOORS; floor++) {
+    const parents = byFloor[floor - 1];
+    const next = byFloor[floor];
+    if (parents.some((n) => n.children.length >= 2)) {
+      sinceBranch = 0;
+      continue;
+    }
+    sinceBranch += 1;
+    if (sinceBranch <= 2 || next.length < 2) continue;
+
+    const pi = parents.findIndex((n) => n.children.length === 1);
+    if (pi === -1) continue;
+    const px = relX(pi, parents.length);
+    let best = -1;
+    let bestDist = Infinity;
+    for (let ci = 0; ci < next.length; ci++) {
+      if (parents[pi].children.includes(next[ci].id)) continue;
+      const d = Math.abs(px - relX(ci, next.length));
+      if (d < bestDist) {
+        bestDist = d;
+        best = ci;
+      }
+    }
+    if (best !== -1) {
+      parents[pi].children.push(next[best].id);
+      sinceBranch = 0;
     }
   }
 

@@ -4,8 +4,15 @@
   import { t } from '../i18n';
 
   const VIEW_W = 1000;
-  const VIEW_H = 800;
+  // Per-floor spacing in viewBox units, held CONSTANT so the gap between
+  // floors never compresses as the act grows. The total canvas height scales
+  // with the floor count, and the map scrolls instead of shrinking to fit.
+  // 90 ≈ the original 8-floor look (800 / (8 + 1)).
+  const FLOOR_SPACING = 90;
   const NODE_R = 26;
+
+  // Tall canvas: one constant-height row per floor (+1 for top/bottom margin).
+  const viewH = $derived(FLOOR_SPACING * ($run.map.floors + 1));
 
   const ROOM_EMOJI: Record<RoomKind, string> = {
     'item-select': '📦',
@@ -17,7 +24,8 @@
   };
 
   // Position each node: floor 1 at bottom, boss at top; spread nodes on each
-  // floor evenly across the width.
+  // floor evenly across the width. Spacing is fixed (FLOOR_SPACING), so the
+  // canvas is as tall as the run is long.
   const positions = $derived.by(() => {
     const map = $run.map;
     const byFloor = new Map<number, MapNode[]>();
@@ -26,9 +34,8 @@
       byFloor.get(node.floor)!.push(node);
     }
     const out = new Map<string, { x: number; y: number }>();
-    const floorSpacing = VIEW_H / (map.floors + 1);
     for (const [floor, nodes] of byFloor) {
-      const y = VIEW_H - floor * floorSpacing;
+      const y = viewH - floor * FLOOR_SPACING;
       const xSpacing = VIEW_W / (nodes.length + 1);
       nodes.forEach((n, i) => out.set(n.id, { x: xSpacing * (i + 1), y }));
     }
@@ -38,6 +45,33 @@
   const reachable = $derived(
     new Set(reachableFrom($run.map, $run.lastCompletedRoomId).map((n) => n.id)),
   );
+
+  // Camera: keep the reachable frontier in view. The player starts at the
+  // bottom (floor 1) and climbs; this scrolls the container so the next
+  // pickable rooms stay centred as the run progresses.
+  let scrollEl = $state<HTMLDivElement>();
+  $effect(() => {
+    const r = reachable;
+    const pos = positions;
+    const el = scrollEl;
+    if (!el || el.clientWidth === 0) return;
+    let top = Infinity;
+    let bot = -Infinity;
+    for (const id of r) {
+      const p = pos.get(id);
+      if (!p) continue;
+      top = Math.min(top, p.y);
+      bot = Math.max(bot, p.y);
+    }
+    if (!Number.isFinite(top)) return;
+    const scale = el.clientWidth / VIEW_W;
+    const centre = ((top + bot) / 2) * scale;
+    // Jump instantly - the map opens already framed on the frontier. The
+    // reachable set only changes between map visits (completing a room leaves
+    // the screen), so there's nothing to animate; a smooth scroll here just
+    // reads as an unwanted lurch from the top on entry.
+    el.scrollTo({ top: Math.max(0, centre - el.clientHeight / 2), behavior: 'instant' });
+  });
 
   function onNodeClick(node: MapNode): void {
     if (!reachable.has(node.id)) return;
@@ -62,7 +96,8 @@
 </script>
 
 <section class="map" aria-label={t('map.title')}>
-  <svg viewBox="0 0 {VIEW_W} {VIEW_H}" preserveAspectRatio="xMidYMid meet">
+  <div class="map-scroll" bind:this={scrollEl}>
+    <svg viewBox="0 0 {VIEW_W} {viewH}" preserveAspectRatio="xMidYMid meet">
     <!-- Edges -->
     {#each $run.map.nodes as parent (parent.id)}
       {@const p = positions.get(parent.id)}
@@ -106,6 +141,7 @@
       {/if}
     {/each}
   </svg>
+  </div>
 
   <div class="legend">
     {#each Object.entries(ROOM_EMOJI) as [kind, em]}
@@ -128,10 +164,20 @@
     gap: 12px;
   }
 
-  svg {
+  /* Scroll viewport: fills the available space; the SVG inside is as tall as
+     the run is long, so the column scrolls vertically. */
+  .map-scroll {
     flex: 1;
-    width: 100%;
     min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  /* width:100% + height:auto lets the viewBox aspect ratio set the height, so
+     each floor keeps a constant on-screen gap and tall maps overflow + scroll. */
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
   }
 
   .node {
