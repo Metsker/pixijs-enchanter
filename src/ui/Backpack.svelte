@@ -17,7 +17,7 @@
   }
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { backpackOpen, toggleBackpack } from '../state/ui';
-  import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
+  import { isItem, itemEmoji, socketSummary, tierOf, type Item } from '../domain/item';
   import { isGem } from '../domain/gem';
   import { gemDisplay } from '../domain/gem-display';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
@@ -242,7 +242,7 @@
               class="tier"
               style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#666'}"
             >
-              T{tierOf(slot)}
+              {socketSummary(slot).filled}/{socketSummary(slot).total}
             </span>
           {:else if gem}
             <span class="emoji">{gem.emoji}</span>
@@ -287,7 +287,7 @@
         class="tier"
         style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#666'}"
       >
-        T{tierOf(ghostItem)}
+        {socketSummary(ghostItem).filled}/{socketSummary(ghostItem).total}
       </span>
     </div>
   {/if}

@@ -4,7 +4,7 @@
   import { topbar } from '../state/topbar';
   import { backpack } from '../state/backpack';
   import { inspectItem, inspector } from '../state/inspector';
-  import { itemEmoji, tierOf } from '../domain/item';
+  import { itemEmoji, socketSummary, tierOf } from '../domain/item';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -58,7 +58,7 @@
                   class="tier"
                   style="--tier-color: {TIER_COLORS[tierOf(slot.item)] ?? '#666'}"
                 >
-                  T{tierOf(slot.item)}
+                  {socketSummary(slot.item).filled}/{socketSummary(slot.item).total}
                 </span>
                 <span class="price">🪙 {slot.price}</span>
               </div>
@@ -147,7 +147,7 @@
     min-height: 0;
   }
   .items-label {
-    font-size: 0.7rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #788;
@@ -245,18 +245,18 @@
     gap: 8px;
   }
   .row .emoji {
-    font-size: 1.3rem;
+    font-size: 1.5rem;
   }
   .row .name {
     flex: 1;
-    font-size: 0.9rem;
+    font-size: 1.05rem;
   }
   .row .stock {
-    font-size: 0.75rem;
+    font-size: 0.85rem;
     color: #788;
   }
   .consumable .price {
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: #ffd866;
     font-variant-numeric: lining-nums tabular-nums;

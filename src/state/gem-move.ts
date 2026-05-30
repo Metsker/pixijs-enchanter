@@ -59,6 +59,14 @@ export function resetHeldGem(): void {
 // and the displaced occupant flows back to A). An item not found in either
 // store is edited only on the returned value (no store touched) so callers
 // stay total.
+//
+// Exported as writeItemSockets so other socket editors (e.g. the Rest
+// add-socket action) persist through the SAME path and keep the Inspector in
+// sync, rather than reinventing the equipped / backpack / inspector wiring.
+export function writeItemSockets(item: Item, sockets: (Gem | null)[]): Item {
+  return writeBackSockets(item, sockets);
+}
+
 function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
   const next: Item = { ...item, sockets };
 

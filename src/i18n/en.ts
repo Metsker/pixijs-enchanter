@@ -47,6 +47,8 @@ export const en: Record<string, string> = {
   'inspector.cancelPick': 'Cancel swap',
   'inspector.cta.backpackFull': 'Backpack is full',
   'inspector.sockets': 'Sockets',
+  'inspector.addSocket': 'Add socket · 💎 {cost}',
+  'inspector.addSocket.hint': 'Adds one empty socket, raising this item by a tier.',
   'inspector.socket.empty': 'Empty socket',
   'inspector.socket.effect': 'Effect',
   'inspector.socket.support': 'Support',

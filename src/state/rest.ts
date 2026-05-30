@@ -7,7 +7,9 @@
 import { get } from 'svelte/store';
 import type { Gem, GemDef } from '../domain/gem';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
+import { tierOf, type Item } from '../domain/item';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
+import { writeItemSockets } from './gem-move';
 import { refundCrystals, spendCrystals, topbar } from './topbar';
 
 // Placeholder economy (tune in playtesting). Craft costs CRAFT_COST crystals;
@@ -91,5 +93,41 @@ export function destroyGem(gemId: string): boolean {
   const removed = removeGemFromStashById(gemId);
   if (!removed) return false;
   refundCrystals(DESTROY_REFUND);
+  return true;
+}
+
+// --- Add socket (FEATURE 3: improve tier at Rest) -----------------------
+//
+// Appends one empty socket to an item (raising its tier by 1), capped at tier
+// MAX_SOCKET_TIER. Costs crystals scaling with the CURRENT tier - placeholders,
+// tuned here in one place.
+
+// An item can never exceed this many sockets.
+export const MAX_SOCKET_TIER = 6;
+
+// Crystal cost to add a socket to an item at its current tier (placeholder).
+export function addSocketCost(item: Item): number {
+  return 40 + 25 * tierOf(item);
+}
+
+// True if `item` can still take another socket (under the tier cap).
+export function canAddSocket(item: Item): boolean {
+  return tierOf(item) < MAX_SOCKET_TIER;
+}
+
+// True if the player can currently afford to add a socket to `item`.
+export function canAffordAddSocket(item: Item): boolean {
+  return get(topbar).crystals >= addSocketCost(item);
+}
+
+// Add one empty socket to `item`: spend the tier-scaled crystal cost and
+// persist through the shared socket write-back (so it lands on the equipped /
+// backpack store and the open Inspector re-derives). No-op (returns false) if
+// the item is at the tier cap or the player can't afford it - no crystals are
+// spent in either case.
+export function addSocketToItem(item: Item): boolean {
+  if (!canAddSocket(item)) return false;
+  if (!spendCrystals(addSocketCost(item))) return false;
+  writeItemSockets(item, [...item.sockets, null]);
   return true;
 }

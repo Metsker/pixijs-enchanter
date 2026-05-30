@@ -3,7 +3,13 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
-  import { completeRoom } from '../state/run';
+  import { completeRoom, run } from '../state/run';
+  import {
+    addSocketCost,
+    addSocketToItem,
+    canAddSocket,
+  } from '../state/rest';
+  import { topbar } from '../state/topbar';
   import {
     canEquipDirect,
     cancelDisplacementPick,
@@ -58,6 +64,30 @@
     $inspector !== null &&
       ($inspector.source === 'inventory' || $inspector.source === 'backpack'),
   );
+
+  // === Add socket (FEATURE 3) ======================================
+  // Only at Rest, only for an OWNED item (equipped / backpack), only while it
+  // is under the tier cap. The button's cost + affordability read the live
+  // topbar so they re-derive as crystals change.
+  const canShowAddSocket = $derived(
+    $inspector !== null &&
+      $run.screen === 'rest' &&
+      socketsEditable &&
+      canAddSocket($inspector.item),
+  );
+  const addSocketPrice = $derived(
+    $inspector ? addSocketCost($inspector.item) : 0,
+  );
+  // Read $topbar.crystals directly so affordability re-derives on every spend.
+  const addSocketAffordable = $derived(
+    $inspector !== null && $topbar.crystals >= addSocketPrice,
+  );
+
+  function onAddSocket(): void {
+    const subj = $inspector;
+    if (!subj) return;
+    addSocketToItem(subj.item);
+  }
 
   // The support -> effect binding map for the open item's sockets, recomputed
   // whenever the sockets change. Drives the connector hints and inert dimming.
@@ -353,6 +383,22 @@
           </button>
         {/each}
       </div>
+
+      <!-- Add socket (Rest only, owned item, under the tier cap). Improves the
+           item's tier by one empty socket for crystals. -->
+      {#if canShowAddSocket}
+        <button
+          type="button"
+          class="add-socket"
+          disabled={!addSocketAffordable}
+          title={addSocketAffordable
+            ? t('inspector.addSocket.hint')
+            : t('rest.craft.notEnough')}
+          onclick={onAddSocket}
+        >
+          {t('inspector.addSocket', { cost: addSocketPrice })}
+        </button>
+      {/if}
 
       <!-- Gem stash strip (the backpack's loose gems). Drag a gem out to a
            socket / equipped item, or drag a socketed gem in here to un-socket
@@ -678,6 +724,36 @@
     letter-spacing: 0.05em;
     color: #788;
     align-self: start;
+  }
+
+  /* Add-socket action (Rest only). Crystal-tinted to read as a tier upgrade,
+     distinct from the gold socket highlights and the grey CTA. */
+  .add-socket {
+    width: 100%;
+    appearance: none;
+    margin-top: 6px;
+    background: #221a2e;
+    border: 1px solid #5a4a80;
+    color: #d8c8ff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .add-socket:hover:not(:disabled) {
+    background: #2c2240;
+    border-color: #a070ff;
+  }
+  .add-socket:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .add-socket:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
   }
 
   /* === Gem stash ================================================ */
