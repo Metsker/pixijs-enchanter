@@ -13,6 +13,7 @@ import {
 } from './backpack';
 import { inspector, type InspectorSubject } from './inspector';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
+import { findRewardItemById, updateRewardItemById } from './rewards';
 
 // === Held-gem move / reorder ========================================
 //
@@ -104,6 +105,13 @@ export function writeItem(next: Item): Item {
   // it there. By-id so it works for any backpack item, not just the inspected
   // one, and survives backpack reorders / sorts mid-move.
   if (updateBackpackItemById(next.id, () => next)) {
+    syncInspector(next);
+    return next;
+  }
+
+  // Victory chest: a reward item being edited in the Inspector (gem transfer)
+  // persists to pendingRewards so the chest tile + claim reflect the change.
+  if (updateRewardItemById(next.id, () => next)) {
     syncInspector(next);
     return next;
   }
@@ -321,5 +329,5 @@ function findItemById(itemId: string): Item | null {
   for (const eqItem of Object.values(eq)) {
     if (eqItem && eqItem.id === itemId) return eqItem;
   }
-  return findBackpackItemById(itemId);
+  return findBackpackItemById(itemId) ?? findRewardItemById(itemId);
 }

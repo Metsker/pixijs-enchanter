@@ -17,9 +17,10 @@
   }
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { backpackOpen, toggleBackpack } from '../state/ui';
-  import { isItem, itemEmoji, socketSummary, tierOf, type Item } from '../domain/item';
+  import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
   import { isGem } from '../domain/gem';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
+  import SocketPips from './SocketPips.svelte';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { equipFromBackpackToSlot, itemDrag, itemFitsSlot } from '../state/inventory';
   import { disenchantItemFromBackpack, gemRefund, itemRefund } from '../state/disenchant';
@@ -38,6 +39,42 @@
 
   import { get } from 'svelte/store';
   import { closeInspector, inspector, inspectItem } from '../state/inspector';
+
+  // Bag tabs: the grid filters to items or gems. Empty cells show in BOTH tabs
+  // as free drop targets (a slot is shared - either type can fill it), and the
+  // drag logic still addresses cells by their real backpack index, so reorder /
+  // combine / equip / trash all keep working under the filter.
+  let activeTab = $state<'items' | 'gems'>('items');
+  const itemCount = $derived($backpack.filter((s) => isItem(s)).length);
+  const gemCount = $derived($backpack.filter((s) => isGem(s)).length);
+
+  // Cells matching the active tab plus empty cells (shared free slots), in slot
+  // order. Each keeps its real backpack index, so drag / reorder / combine /
+  // equip all still address the right slot under the filter.
+  const tabCells = $derived(
+    $backpack
+      .map((slot, i) => ({ slot, i }))
+      .filter(({ slot }) =>
+        slot === null || (activeTab === 'items' ? isItem(slot) : isGem(slot)),
+      ),
+  );
+
+  // Render a CLEAN rectangular grid: complete rows of 4, at least 16 cells (4
+  // rows). We show every matching item plus enough empty slots to fill those
+  // rows, hiding only the trailing empties beyond - so the bag never shows a
+  // ragged extra cell. If the active type leaves too few real cells, pad with
+  // non-interactive fillers so the rows stay complete.
+  const GRID_COLS = 4;
+  const MIN_CELLS = 16;
+  const grid = $derived.by(() => {
+    let lastFilled = -1;
+    tabCells.forEach((c, idx) => {
+      if (c.slot !== null) lastFilled = idx;
+    });
+    const need = Math.max(MIN_CELLS, Math.ceil((lastFilled + 1) / GRID_COLS) * GRID_COLS);
+    const cells = tabCells.slice(0, need);
+    return { cells, fillers: need - cells.length };
+  });
 
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
@@ -214,8 +251,31 @@
       </div>
     </header>
 
+    <div class="tabs" role="tablist">
+      <button
+        type="button"
+        class="tab"
+        class:active={activeTab === 'items'}
+        role="tab"
+        aria-selected={activeTab === 'items'}
+        onclick={() => (activeTab = 'items')}
+      >
+        {t('backpack.tab.items')} ({itemCount})
+      </button>
+      <button
+        type="button"
+        class="tab"
+        class:active={activeTab === 'gems'}
+        role="tab"
+        aria-selected={activeTab === 'gems'}
+        onclick={() => (activeTab = 'gems')}
+      >
+        {t('backpack.tab.gems')} ({gemCount})
+      </button>
+    </div>
+
     <div class="grid" role="grid">
-      {#each $backpack as slot, i (i)}
+      {#each grid.cells as { slot, i } (i)}
         {@const gem = isGem(slot) ? gemDisplay(slot) : null}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -247,8 +307,9 @@
               class="tier"
               style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#666'}"
             >
-              {socketSummary(slot).filled}/{socketSummary(slot).total}
+              T{tierOf(slot)}
             </span>
+            <SocketPips item={slot} />
           {:else if gem}
             <span class="emoji">{gem.emoji}</span>
             <span
@@ -261,6 +322,11 @@
             {/if}
           {/if}
         </div>
+      {/each}
+      <!-- Fillers complete the last row when the active tab's real cells don't
+           fill it. Non-interactive (no index / handlers). -->
+      {#each Array(grid.fillers) as _, fi (fi)}
+        <div class="cell filler" aria-hidden="true"></div>
       {/each}
     </div>
 
@@ -291,8 +357,9 @@
         class="tier"
         style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#666'}"
       >
-        {socketSummary(ghostItem).filled}/{socketSummary(ghostItem).total}
+        T{tierOf(ghostItem)}
       </span>
+      <SocketPips item={ghostItem} />
     </div>
   {/if}
 {/if}
@@ -390,6 +457,40 @@
     outline-offset: 2px;
   }
 
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px 0;
+  }
+  .tab {
+    appearance: none;
+    flex: 1;
+    background: #181820;
+    border: 1px solid #2a2a34;
+    border-bottom: none;
+    color: #99a;
+    border-radius: 8px 8px 0 0;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 34px;
+    transition: background-color 100ms ease, color 100ms ease;
+  }
+  .tab:hover {
+    background: #20202a;
+    color: #ccd;
+  }
+  .tab.active {
+    background: #2a2a34;
+    color: #ffcc44;
+    border-color: #3a3a48;
+  }
+  .tab:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
+  }
+
   .grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -407,6 +508,13 @@
     align-items: center;
     justify-content: center;
     transition: background-color 80ms ease, border-color 80ms ease, opacity 80ms ease;
+  }
+  /* Row-completing filler: looks like a faint empty slot but isn't a real
+     backpack cell (no index / handlers), so it just keeps the grid rectangular. */
+  .cell.filler {
+    opacity: 0.3;
+    background: #101015;
+    cursor: default;
   }
   .cell.dragging {
     opacity: 0.3;

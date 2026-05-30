@@ -2,7 +2,7 @@
   import { completeRoom } from '../state/run';
   import { gemStash } from '../state/gem-stash';
   import { canCraftGem, craftGem, destroyGem, CRAFT_COST, DESTROY_REFUND } from '../state/rest';
-  import { gemDisplay } from '../domain/gem-display';
+  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { t } from '../i18n';
 
   import { topbar } from '../state/topbar';
@@ -52,8 +52,7 @@
             {@const d = gemDisplay(g)}
             <li
               class="gem"
-              class:effect={d?.role === 'effect'}
-              class:support={d?.role === 'support'}
+              style="--gem-color: {d ? SOCKET_COLOR_HEX[d.color] : '#666'}"
             >
               <span class="gem-emoji">{d?.emoji ?? '?'}</span>
               <span class="gem-text">
@@ -187,14 +186,11 @@
     gap: 10px;
     padding: 8px 10px;
     border: 1px solid #2a2a34;
+    /* Left edge tinted by the gem's COLOUR (red / green / blue), matching the
+       Inspector stash, so the player can read which sockets it fits. */
+    border-left: 3px solid var(--gem-color, #2a2a34);
     border-radius: 6px;
     background: #14141a;
-  }
-  .gem.effect {
-    border-left: 3px solid #f6a;
-  }
-  .gem.support {
-    border-left: 3px solid #6ad;
   }
   .gem-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;

@@ -15,6 +15,7 @@ import { isItem, tierOf, type Item } from '../domain/item';
 import { backpack, removeBackpackGemById, removeItem } from './backpack';
 import { equipped, updateEquippedAt } from './inventory';
 import { heldGem } from './gem-move';
+import { pendingRewards, removeRewardItem } from './rewards';
 import { DESTROY_REFUND } from './rest';
 import { refundCrystals } from './topbar';
 import type { EquipmentSlotId } from '../domain/equipment';
@@ -64,6 +65,17 @@ export function disenchantItemFromBackpack(index: number): boolean {
   const refund = itemRefund(slot);
   removeItem(index);
   refundCrystals(refund);
+  return true;
+}
+
+// Disenchant a reward item sitting in the victory chest, by instance id (and
+// its socketed gems). Refunds crystals and pulls it from the chest. Returns
+// true if a reward item with that id was found and scrapped.
+export function disenchantRewardItem(itemId: string): boolean {
+  const item = get(pendingRewards).items.find((it) => it.id === itemId);
+  if (!item) return false;
+  refundCrystals(itemRefund(item));
+  removeRewardItem(itemId);
   return true;
 }
 

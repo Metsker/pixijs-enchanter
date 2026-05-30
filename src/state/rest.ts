@@ -5,7 +5,7 @@
 // shop crystal pack; crystals are NOT dropped anywhere else (ADR 0003).
 
 import { get } from 'svelte/store';
-import type { Gem, GemDef } from '../domain/gem';
+import type { Gem, GemDef, SocketColor } from '../domain/gem';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
 import { tierOf, type Item } from '../domain/item';
 import { rollSocketColorForType } from '../domain/random';
@@ -14,11 +14,11 @@ import { writeItem } from './gem-move';
 import { refundCrystals, spendCrystals, topbar } from './topbar';
 
 // Placeholder economy (tune in playtesting). Craft costs CRAFT_COST crystals;
-// destroying a gem refunds DESTROY_REFUND (~50% of the craft cost). The refund
-// being a fraction of the cost is what makes destroying a deliberate scrap
-// loop rather than free deletion (ADR 0008).
+// destroying / disenchanting a gem refunds DESTROY_REFUND per gem level. The
+// refund staying below the craft cost keeps the scrap loop a deliberate choice
+// rather than free deletion (ADR 0008).
 export const CRAFT_COST = 30;
-export const DESTROY_REFUND = 15;
+export const DESTROY_REFUND = 25;
 
 // --- Craft weighting -----------------------------------------------------
 //
@@ -124,13 +124,16 @@ export function canAffordAddSocket(item: Item): boolean {
 // Add one empty socket to `item`: spend the tier-scaled crystal cost and
 // persist through the shared item write-back (so it lands on the equipped /
 // backpack store and the open Inspector re-derives). The new socket's colour
-// is rolled from the item type's socket-colour pool (same roll as drops). No-op
-// (returns false) if the item is at the tier cap or the player can't afford it
-// - no crystals are spent in either case.
-export function addSocketToItem(item: Item): boolean {
+// is `color` when given (the UI pre-rolls it so the Add-socket button can
+// preview the exact colour the player will get), else rolled here from the
+// item type's pool. No-op (returns false) if the item is at the tier cap or
+// the player can't afford it - no crystals are spent in either case.
+export function addSocketToItem(
+  item: Item,
+  color: SocketColor = rollSocketColorForType(item.itemType),
+): boolean {
   if (!canAddSocket(item)) return false;
   if (!spendCrystals(addSocketCost(item))) return false;
-  const color = rollSocketColorForType(item.itemType);
   writeItem({
     ...item,
     sockets: [...item.sockets, null],

@@ -1,12 +1,8 @@
 <script lang="ts">
-  import {
-    displacementPick,
-    equipped,
-    itemDrag,
-    resolveDisplacementPick,
-  } from '../state/inventory';
+  import { equipped, itemDrag } from '../state/inventory';
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
-  import { itemEmoji, legalEquipmentSlots, socketSummary, tierOf } from '../domain/item';
+  import { itemEmoji, legalEquipmentSlots, tierOf } from '../domain/item';
+  import SocketPips from './SocketPips.svelte';
   import { closeInspector, inspector, inspectItem } from '../state/inspector';
   import { gemDropZone } from '../state/gem-drag';
   import { unequipToBackpack } from '../state/inventory';
@@ -34,8 +30,8 @@
 
   function onSlotPointerDown(e: PointerEvent, slotId: EquipmentSlotId): void {
     // Only drag while the bag is open (the drop targets - cells / trash - only
-    // exist then). A displacement pick owns clicks, so don't start a drag then.
-    if (!get(backpackOpen) || $displacementPick) return;
+    // exist then).
+    if (!get(backpackOpen)) return;
     dragSlot = slotId;
     didDrag = false;
     dragGhost = null;
@@ -116,24 +112,9 @@
     return s?.source === 'inventory' && s.slotId === slotId;
   }
 
-  // Picker mode: when displacementPick is set, certain slots become
-  // highlighted swap-targets. Clicking a target resolves the pick;
-  // any other slot click stays a normal inspect.
-  function isPickTarget(slotId: EquipmentSlotId): boolean {
-    return $displacementPick?.legalSlots.includes(slotId) ?? false;
-  }
-
   function onSlotClick(slotId: EquipmentSlotId, item: ReturnType<typeof getItem>): void {
     if (suppressClick) {
       suppressClick = false;
-      return;
-    }
-    if ($displacementPick && isPickTarget(slotId)) {
-      const landed = resolveDisplacementPick(slotId);
-      if (landed !== null) {
-        const next = $equipped[landed];
-        if (next) inspector.set({ source: 'inventory', slotId: landed, item: next });
-      }
       return;
     }
     if (item) inspectItem({ source: 'inventory', slotId, item });
@@ -158,13 +139,11 @@
   {#each EQUIPMENT_SLOT_ORDER as slotId (slotId)}
     {@const slot = EQUIPMENT_SLOTS[slotId]}
     {@const item = $equipped[slotId]}
-    {@const pickTarget = isPickTarget(slotId)}
     {#if item}
       <button
         type="button"
         class="slot filled"
         class:inspecting={isInspecting(slotId)}
-        class:pick-target={pickTarget}
         class:gem-target={isGemTarget(item.id)}
         class:item-drop-candidate={isItemDropCandidate(slotId)}
         class:item-drop-target={isItemDropTarget(slotId)}
@@ -180,8 +159,9 @@
       >
         <span class="emoji">{itemEmoji(item)}</span>
         <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
-          {socketSummary(item).filled}/{socketSummary(item).total}
+          T{tierOf(item)}
         </span>
+        <SocketPips item={item} />
       </button>
     {:else}
       <div
@@ -285,19 +265,6 @@
     box-shadow: inset 0 0 0 2px #7ddc8c;
     background: #16241a;
   }
-  .slot.pick-target {
-    animation: pick-pulse 900ms ease-in-out infinite;
-    border-color: #88c8ff;
-  }
-  @keyframes pick-pulse {
-    0%, 100% {
-      box-shadow: inset 0 0 0 1px #88c8ff, 0 0 0 0 rgba(136, 200, 255, 0.6);
-    }
-    50% {
-      box-shadow: inset 0 0 0 1px #88c8ff, 0 0 0 6px rgba(136, 200, 255, 0);
-    }
-  }
-
   .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
     font-size: 1.6rem;
