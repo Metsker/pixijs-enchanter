@@ -12,8 +12,8 @@
 //   - stats: EnchantEffect[]  -> the unchanged attack-profile / defence-profile
 //   - procs: ResolvedProc[]   -> the new proc engine
 //
-// This is ADDITIVE: it does not touch the baked-enchant system. It only reads
-// the gem model (gem.ts) and the gem catalogue (gem-catalogue.ts).
+// It only reads the gem model (gem.ts) and the gem catalogue
+// (gem-catalogue.ts) - sockets are the single source of an item's effects.
 //
 // Worked example (from docs/gems.md § Worked examples, build a lightning storm):
 //   [Forking] [Overload] [Rapid] [⚡ Chain Lightning]

@@ -1,10 +1,9 @@
 import { get, writable } from 'svelte/store';
 
-// A single in-flight confirmation request. The Workbench routes its
-// irrecoverable actions (Destroy / Disenchant selected / Transfer) through
-// here per docs/ux.md § Confirm modals: the modal captures input until the
-// player commits or cancels. Copy is pre-rendered by the caller so this
-// module stays i18n-agnostic.
+// A single in-flight confirmation request. Irrecoverable actions route their
+// commit through here: the modal captures input until the player commits or
+// cancels. Copy is pre-rendered by the caller so this module stays
+// i18n-agnostic.
 export interface ConfirmRequest {
   title: string;
   body: string;
