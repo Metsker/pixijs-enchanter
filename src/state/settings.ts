@@ -5,7 +5,7 @@ import { writable } from 'svelte/store';
 // from the run save (so startNewRun must not touch it). The active run
 // captures (locks) this value at run start; changing it mid-run only
 // affects the next run.
-export type Difficulty = 'easy' | 'normal' | 'hard';
+export type Difficulty = 'relaxed' | 'easy' | 'normal' | 'hard';
 
 export interface DifficultyMultipliers {
   hp: number;
@@ -17,6 +17,7 @@ export interface DifficultyMultipliers {
 // Placeholder multipliers from ADR 0009. Resist is a multiplier applied
 // to the enemy's catalogue resist (clamped at a sane cap when baked).
 const MULTIPLIERS: Record<Difficulty, DifficultyMultipliers> = {
+  relaxed: { hp: 0.5, damage: 0.5, resist: 0.25, interval: 1.3 },
   easy: { hp: 0.75, damage: 0.75, resist: 0.5, interval: 1.15 },
   normal: { hp: 1, damage: 1, resist: 1, interval: 1 },
   hard: { hp: 1.4, damage: 1.4, resist: 1.5, interval: 0.85 },
@@ -34,7 +35,7 @@ const SETTINGS_KEY = 'enchanter.settings';
 const DEFAULT_DIFFICULTY: Difficulty = 'normal';
 
 function isDifficulty(v: unknown): v is Difficulty {
-  return v === 'easy' || v === 'normal' || v === 'hard';
+  return v === 'relaxed' || v === 'easy' || v === 'normal' || v === 'hard';
 }
 
 function loadSettings(): Settings {

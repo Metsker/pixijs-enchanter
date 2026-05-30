@@ -4,10 +4,11 @@
   import { settings, setDifficulty, type Difficulty } from '../state/settings';
   import { t } from '../i18n';
 
-  // The three difficulty choices, in ascending order. Each carries its
-  // own label + one-line description so the panel explains what the
+  // The difficulty choices, in ascending order. Each carries its own
+  // label + one-line description so the panel explains what the
   // multiplier does without surfacing the raw numbers.
   const OPTIONS: { id: Difficulty; emoji: string }[] = [
+    { id: 'relaxed', emoji: '🍃' },
     { id: 'easy', emoji: '🌱' },
     { id: 'normal', emoji: '⚔️' },
     { id: 'hard', emoji: '💀' },
