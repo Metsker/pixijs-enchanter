@@ -1,7 +1,10 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
+  import { get } from 'svelte/store';
   import { settingsOpen, closeSettings } from '../state/ui';
   import { settings, setDifficulty, type Difficulty } from '../state/settings';
+  import { run, startNewRun } from '../state/run';
+  import { requestConfirm } from '../state/confirm';
   import { t } from '../i18n';
 
   // The difficulty choices, in ascending order. Each carries its own
@@ -16,6 +19,20 @@
 
   function onPick(id: Difficulty): void {
     setDifficulty(id);
+    // Difficulty is LOCKED at run start, so a change only bites on a new run.
+    // If it differs from the run in progress, offer to restart now (close
+    // Settings first so the confirm modal isn't hidden behind it). Declining
+    // keeps the choice for the next run, per the panel's note.
+    if (id !== get(run).difficulty) {
+      closeSettings();
+      requestConfirm({
+        title: t('settings.restart.title'),
+        body: t('settings.restart.body', { difficulty: t(`settings.difficulty.${id}`) }),
+        confirmLabel: t('settings.restart.confirm'),
+        tone: 'danger',
+        onConfirm: startNewRun,
+      });
+    }
   }
 
   // ESC closes the panel (matches ConfirmModal's capture behaviour).
