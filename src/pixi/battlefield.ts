@@ -11,7 +11,6 @@ import { get } from 'svelte/store';
 import gsap from 'gsap';
 import {
   fight,
-  setTarget,
   applyDamage,
   applyDamageToPlayer,
   applyStatusToEnemy,
@@ -25,6 +24,7 @@ import {
   type FightState,
 } from '../state/fight';
 import { playerEffects, playerProcs, playerProfile } from '../state/player-profile';
+import { simSpeed } from '../state/sim-speed';
 import type { AttackProfile } from '../domain/attack-profile';
 import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
@@ -65,6 +65,9 @@ interface FighterView {
   emojiText: Text;
   hpBg: Graphics;
   hpFill: Graphics;
+  // Player-only cyan overlay on the HP bar showing the absorb shield
+  // (Bulwark). Stays empty for enemies (they carry no shield).
+  shieldFill: Graphics;
   // Anchor position set by layout(). Lunge/knockback tweens move
   // container.x off this anchor, but the target ring (and anything else
   // that should sit still) reads from here so it doesn't bug out.
@@ -79,9 +82,19 @@ interface FighterView {
   // toward fighter.hp / fighter.maxHp so the bar slides instead of
   // snapping when damage / heal lands.
   displayedHpFrac: number;
+  // Smoothly-eased shield fraction (playerShield / maxHp) for the shield
+  // overlay; eases toward the live absorb pool like displayedHpFrac.
+  displayedShieldFrac: number;
   // Thin attack-cooldown progress bar below the HP bar. Filled as
   // the cooldown drains toward 0 (gold for player, red for enemies).
   cooldownBar: Graphics;
+  // Player-only: a row of small radial gauges (one per proc with a cooldown)
+  // shown ABOVE the status row. Each fills as its proc nears firing. procSig
+  // (joined proc source ids) detects when the set of procs changed so the
+  // slots are rebuilt; otherwise they're updated in place each frame.
+  procRow: Container;
+  procRadials: { ring: Graphics; emoji: Text }[];
+  procSig: string;
 }
 
 export class Battlefield {
@@ -239,17 +252,19 @@ export class Battlefield {
 
     const hpBg = new Graphics();
     const hpFill = new Graphics();
+    const shieldFill = new Graphics();
     const cooldownBar = new Graphics();
     const statusRow = new Container();
     statusRow.eventMode = 'none';
+    const procRow = new Container();
+    procRow.eventMode = 'none';
 
-    container.addChild(emojiText, hpBg, hpFill, cooldownBar, statusRow);
+    // shieldFill sits above hpFill so the absorb pool overlays the health.
+    container.addChild(emojiText, hpBg, hpFill, shieldFill, cooldownBar, statusRow, procRow);
 
-    if (fighter.kind === 'enemy') {
-      container.eventMode = 'static';
-      container.cursor = 'pointer';
-      container.on('pointertap', () => setTarget(fighter.id));
-    }
+    // No manual targeting: enemies aren't clickable. The engine auto-picks the
+    // target (fight.ts sets it on start, retargets when one dies, and a taunt
+    // can force it); the target ring just shows who's currently being hit.
 
     return {
       fighter,
@@ -257,12 +272,17 @@ export class Battlefield {
       emojiText,
       hpBg,
       hpFill,
+      shieldFill,
       homeX: 0,
       homeY: 0,
       statusRow,
       statusIcons: new Map(),
       displayedHpFrac: fighter.maxHp > 0 ? fighter.hp / fighter.maxHp : 0,
+      displayedShieldFrac: 0,
       cooldownBar,
+      procRow,
+      procRadials: [],
+      procSig: '',
     };
   }
 
@@ -274,7 +294,9 @@ export class Battlefield {
     // uninterrupted by trailing enemy swings.
     if (state.player.hp <= 0) return;
 
-    const dt = ticker.deltaMS / 1000;
+    // Fast-forward: scale combat time by the player's chosen sim speed so the
+    // fight logic advances faster (rendering still runs at the display rate).
+    const dt = (ticker.deltaMS / 1000) * get(simSpeed);
 
     // Player auto-attack. A frozen player swings slower per
     // STATUS_DEFS.freeze.attackIntervalMul applied per-frame, so the
@@ -384,6 +406,26 @@ export class Battlefield {
       } else {
         view.displayedHpFrac += delta * hpLerp;
         this.drawHpBar(view);
+      }
+
+      // Player shield overlay: ease the displayed shield toward the live
+      // absorb pool (this.playerShield) and redraw it when it moves. Drawn
+      // separately from the HP bar so a shield top-up at full HP still shows.
+      if (view.fighter.kind === 'player') {
+        const sTarget = view.fighter.maxHp > 0 ? this.playerShield / view.fighter.maxHp : 0;
+        const sDelta = sTarget - view.displayedShieldFrac;
+        if (Math.abs(sDelta) < 0.0005) {
+          if (view.displayedShieldFrac !== sTarget) {
+            view.displayedShieldFrac = sTarget;
+            this.drawShieldBar(view);
+          }
+        } else {
+          view.displayedShieldFrac += sDelta * hpLerp;
+          this.drawShieldBar(view);
+        }
+        // Proc cooldown radials track live each frame (remaining drains in the
+        // proc tick), so redraw them every frame.
+        this.drawProcRadials(view);
       }
     }
     if (this.shakeIntensity > 0) {
@@ -1710,6 +1752,97 @@ export class Battlefield {
         .roundRect(x, y, HP_BAR_WIDTH * ratio, HP_BAR_HEIGHT, 3)
         .fill(view.fighter.kind === 'player' ? 0x55cc66 : 0xcc4444);
     }
+  }
+
+  // Cyan absorb-shield overlay drawn on top of the player's HP bar. Width is
+  // the shield as a fraction of max HP (clamped to the bar), so a full 20%
+  // Bulwark shield reads as a cyan band over the left of the green. A thin
+  // brighter edge marks where the shield ends. Empty when there's no shield.
+  private drawShieldBar(view: FighterView): void {
+    view.shieldFill.clear();
+    const frac = Math.max(0, Math.min(1, view.displayedShieldFrac));
+    if (frac <= 0.0005) return;
+    const x = -HP_BAR_WIDTH / 2;
+    const y = -view.emojiText.height - HP_BAR_HEIGHT - 28;
+    const w = HP_BAR_WIDTH * frac;
+    view.shieldFill
+      .roundRect(x, y, w, HP_BAR_HEIGHT, 3)
+      .fill({ color: 0x66ccff, alpha: 0.85 })
+      .rect(x + w - 2, y, 2, HP_BAR_HEIGHT)
+      .fill({ color: 0xd6f2ff, alpha: 0.95 });
+  }
+
+  // A row of small radial cooldown gauges - one per player proc that HAS a
+  // cooldown (timer / continuous; reactive procs have cooldownSec 0 and are
+  // skipped). Sits in its own lane ABOVE the status row so the two never
+  // overlap. Each gauge fills clockwise from empty (just fired) to full
+  // (ready), with the proc's emoji in the centre. Player-only.
+  private drawProcRadials(view: FighterView): void {
+    if (view.fighter.kind !== 'player') return;
+    // Show procs with a real cooldown CYCLE: timer abilities + continuous auras
+    // (Whirlblade / Searing Aura). NOT reactive procs (on-kill like Midas Burst,
+    // on-crit like Vault Strike, on-hit-taken like Retaliate) - they fire on an
+    // event. We MUST key off the trigger, not cooldownSec: cooldownAt() clamps
+    // every resolved cooldown up to MIN_COOLDOWN_SEC (0.3s), so even a base-0
+    // reactive proc reads as cooldownSec > 0 and would wrongly appear.
+    const procs = this.activeProcs.filter(
+      (e) => e.proc.trigger === 'timer' || e.proc.trigger === 'continuous',
+    );
+    const sig = procs.map((e) => e.proc.sourceDefId).join('|');
+    if (sig !== view.procSig) {
+      for (const r of view.procRadials) {
+        r.ring.destroy();
+        r.emoji.destroy();
+      }
+      view.procRadials = [];
+      view.procRow.removeChildren();
+      for (const e of procs) {
+        const ring = new Graphics();
+        const emoji = new Text({
+          text: e.proc.emoji,
+          style: new TextStyle({ fontFamily: EMOJI_FONT_STACK, fontSize: 11, padding: 2 }),
+        });
+        emoji.anchor.set(0.5, 0.5);
+        emoji.eventMode = 'none';
+        view.procRow.addChild(ring, emoji);
+        view.procRadials.push({ ring, emoji });
+      }
+      view.procSig = sig;
+    }
+    if (procs.length === 0) return;
+
+    const R = 9;
+    const spacing = R * 2 + 7;
+    // One lane above the status row (statusRow.y = -h - HP_BAR_HEIGHT - 32,
+    // its icons reach ~20px up); -63 clears them.
+    const y = -view.emojiText.height - HP_BAR_HEIGHT - 63;
+    let x = -((procs.length - 1) * spacing) / 2;
+    for (let i = 0; i < procs.length; i++) {
+      const { proc, remaining } = procs[i];
+      const frac = Math.max(0, Math.min(1, 1 - remaining / proc.cooldownSec));
+      const slot = view.procRadials[i];
+      this.drawRadial(slot.ring, x, y, R, frac);
+      slot.emoji.x = x;
+      slot.emoji.y = y;
+      x += spacing;
+    }
+  }
+
+  // Draw one radial gauge: a dark disc, a readiness wedge filling clockwise
+  // from 12 o'clock (blue while charging, green when ready), and a rim.
+  private drawRadial(g: Graphics, cx: number, cy: number, r: number, frac: number): void {
+    g.clear();
+    g.circle(cx, cy, r).fill({ color: 0x0e1118, alpha: 0.92 });
+    if (frac > 0.001) {
+      const start = -Math.PI / 2;
+      const end = start + frac * Math.PI * 2;
+      const ready = frac >= 0.999;
+      g.moveTo(cx, cy)
+        .arc(cx, cy, r - 1, start, end)
+        .lineTo(cx, cy)
+        .fill({ color: ready ? 0x66dd77 : 0x5aa0ff, alpha: ready ? 0.6 : 0.5 });
+    }
+    g.circle(cx, cy, r).stroke({ width: 1.5, color: 0x4a5a70 });
   }
 
   // Thin attack-cooldown bar slotted just below the HP bar. Same

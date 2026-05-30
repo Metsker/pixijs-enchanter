@@ -195,38 +195,40 @@ export const sfx = {
     tone({ freq: 280, sweepTo: 180, dur: 0.18, type: 'sawtooth', gain: 0.2 });
   },
   // Gem-proc effect sounds. Short + distinct so they read over the auto-attack
-  // without piling up muddy when several procs fire.
+  // without piling up muddy when several procs fire. Gains kept deliberately
+  // low (softer than the core attack / kill sounds) so a busy proc build
+  // doesn't drown out the combat it sits over.
   zap(): void {
     // strike-line: Chain Lightning / Vault Strike
-    tone({ freq: 1500, sweepTo: 320, dur: 0.1, type: 'square', gain: 0.2 });
-    tone({ freq: 2200, sweepTo: 900, dur: 0.06, type: 'sawtooth', gain: 0.12, delay: 0.01 });
+    tone({ freq: 1500, sweepTo: 320, dur: 0.1, type: 'square', gain: 0.12 });
+    tone({ freq: 2200, sweepTo: 900, dur: 0.06, type: 'sawtooth', gain: 0.07, delay: 0.01 });
   },
   nova(): void {
     // expanding-ring: Frost Nova / Soul Reap / Retaliate / Searing Aura
-    tone({ freq: 160, sweepTo: 60, dur: 0.2, type: 'square', gain: 0.2 });
-    tone({ freq: 520, sweepTo: 180, dur: 0.14, type: 'triangle', gain: 0.12, delay: 0.01 });
+    tone({ freq: 160, sweepTo: 60, dur: 0.2, type: 'square', gain: 0.12 });
+    tone({ freq: 520, sweepTo: 180, dur: 0.14, type: 'triangle', gain: 0.07, delay: 0.01 });
   },
   meteorHit(): void {
     // falling-body: Meteor - a falling whistle then an impact thud.
-    tone({ freq: 880, sweepTo: 120, dur: 0.26, type: 'sine', gain: 0.16 });
-    tone({ freq: 90, sweepTo: 40, dur: 0.18, type: 'square', gain: 0.32, delay: 0.2 });
+    tone({ freq: 880, sweepTo: 120, dur: 0.26, type: 'sine', gain: 0.1 });
+    tone({ freq: 90, sweepTo: 40, dur: 0.18, type: 'square', gain: 0.2, delay: 0.2 });
   },
   orb(): void {
     // drifting-orb: Spirit Bolt - a soft eerie rise.
-    tone({ freq: 520, sweepTo: 940, dur: 0.16, type: 'sine', gain: 0.16 });
+    tone({ freq: 520, sweepTo: 940, dur: 0.16, type: 'sine', gain: 0.1 });
   },
   whirl(): void {
     // orbiting-sprite: Whirlblade - a quick metallic swish.
-    tone({ freq: 300, sweepTo: 820, dur: 0.1, type: 'sawtooth', gain: 0.13 });
+    tone({ freq: 300, sweepTo: 820, dur: 0.1, type: 'sawtooth', gain: 0.08 });
   },
   shimmer(): void {
     // shield: Bulwark - a glassy up-chime.
-    tone({ freq: 760, sweepTo: 1280, dur: 0.16, type: 'triangle', gain: 0.18 });
+    tone({ freq: 760, sweepTo: 1280, dur: 0.16, type: 'triangle', gain: 0.11 });
   },
   powerup(): void {
     // buff: Time Warp - a quick rising two-note.
-    tone({ freq: 620, dur: 0.08, type: 'triangle', gain: 0.18 });
-    tone({ freq: 990, dur: 0.1, type: 'triangle', gain: 0.18, delay: 0.07 });
+    tone({ freq: 620, dur: 0.08, type: 'triangle', gain: 0.11 });
+    tone({ freq: 990, dur: 0.1, type: 'triangle', gain: 0.11, delay: 0.07 });
   },
 };
 

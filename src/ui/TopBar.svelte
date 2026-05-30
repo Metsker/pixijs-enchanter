@@ -5,6 +5,7 @@
   import { topbar } from '../state/topbar';
   import { backpackOpen, toggleBackpack, settingsOpen, openSettings } from '../state/ui';
   import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
+  import { simSpeed, cycleSimSpeed } from '../state/sim-speed';
   import { clearSave } from '../state/save';
   import { startNewRun } from '../state/run';
   import { t } from '../i18n';
@@ -94,6 +95,16 @@
     title={t('topbar.toggleMute')}
   >
     <span class="emoji">{$audioPrefs.muted ? '🔇' : '🔊'}</span>
+  </button>
+
+  <button
+    type="button"
+    class="backpack-toggle speed"
+    aria-label={t('topbar.simSpeed')}
+    title={t('topbar.simSpeed')}
+    onclick={cycleSimSpeed}
+  >
+    <span class="value">{$simSpeed}×</span>
   </button>
 
   <button
@@ -222,6 +233,14 @@
 
   .backpack-toggle:hover {
     background: #2a2a34;
+  }
+
+  /* Sim-speed button shows its multiplier as text rather than an emoji. */
+  .backpack-toggle.speed .value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #cdd;
+    font-variant-numeric: lining-nums tabular-nums;
   }
 
   .backpack-toggle.active {
