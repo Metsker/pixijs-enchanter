@@ -97,3 +97,13 @@ export interface Gem {
   id: string;
   defId: string;
 }
+
+// Discriminators for the backpack, which now holds both Items and loose Gems
+// in one (Item | Gem | null)[] grid. An Item carries `itemType`/`sockets`; a
+// Gem carries `defId` and never an `itemType`. We test on `defId` so the guard
+// stays a pure shape check that doesn't need to import Item (keeping gem.ts a
+// leaf module). The `unknown`-friendly signatures let callers narrow a raw
+// `Item | Gem | null` slot in one step.
+export function isGem(v: { defId?: unknown; itemType?: unknown } | null | undefined): v is Gem {
+  return v != null && typeof v.defId === 'string' && v.itemType === undefined;
+}

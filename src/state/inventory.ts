@@ -3,7 +3,7 @@ import {
   EQUIPMENT_SLOT_ORDER,
   type EquipmentSlotId,
 } from '../domain/equipment';
-import { legalEquipmentSlots, type Item } from '../domain/item';
+import { isItem, legalEquipmentSlots, type Item } from '../domain/item';
 import { addItem, backpack, removeItem } from './backpack';
 
 export type EquippedItems = Record<EquipmentSlotId, Item | null>;
@@ -63,7 +63,8 @@ export function resolveDisplacementPick(
 // item lands in the same backpack tile the new one came from.
 export function equipFromBackpack(backpackIndex: number): EquipmentSlotId | null {
   const item = get(backpack)[backpackIndex];
-  if (!item) return null;
+  // Only equipment can be equipped; a loose gem in this tile is a no-op.
+  if (!isItem(item)) return null;
   const legalList = legalEquipmentSlots(item);
   const legal = new Set(legalList);
   const currentEquipped = get(equipped);

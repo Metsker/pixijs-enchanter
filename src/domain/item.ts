@@ -1,6 +1,13 @@
 import type { Gem } from './gem';
 import { EQUIPMENT_SLOTS, type EquipmentSlotId } from './equipment';
 
+// Discriminate an Item from a loose Gem in a shared backpack slot. An Item is
+// the one carrying `itemType`; a Gem never does (it has `defId`). Counterpart
+// to isGem in gem.ts; kept here because it references the Item shape.
+export function isItem(v: Item | Gem | null | undefined): v is Item {
+  return v != null && (v as Item).itemType !== undefined;
+}
+
 export type ItemType = 'weapon' | 'shield' | 'armor' | 'ring' | 'amulet';
 
 // Armor items are further specialised to one of the four armor slots.
