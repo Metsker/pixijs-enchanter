@@ -1,5 +1,6 @@
 import type { ArmorSlot, Item, ItemType } from './item';
-import type { Gem, GemClass } from './gem';
+import type { Gem, SocketColor } from './gem';
+import { colorForClass } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import { gemClassForItemType } from './gem-fit';
 
@@ -44,27 +45,57 @@ function nextGemId(): string {
   return `gem-${Date.now()}-${gemCounter}`;
 }
 
-// Catalogue defIds grouped by class, computed once. Used to pre-socket
-// freshly-dropped items with a couple of class-matched gems.
-const GEM_IDS_BY_CLASS: Record<GemClass, string[]> = (() => {
-  const acc: Record<GemClass, string[]> = { weapon: [], armor: [], jewelry: [] };
+// Catalogue defIds grouped by COLOUR (a gem's colour = colorForClass of its
+// class), computed once. Used to pre-socket a freshly-dropped item with a
+// couple of colour-matched gems.
+const GEM_IDS_BY_COLOR: Record<SocketColor, string[]> = (() => {
+  const acc: Record<SocketColor, string[]> = { red: [], green: [], blue: [] };
   for (const def of Object.values(GEM_CATALOGUE)) {
-    acc[def.class].push(def.id);
+    acc[colorForClass(def.class)].push(def.id);
   }
   return acc;
 })();
 
-// Build the item's socket list: a capacity-length (Gem | null)[] where
-// 1-2 leading sockets carry random class-matched gem instances and the
-// rest are empty. Pre-socketing gives a freshly-dropped item something
-// to do in combat until the player rearranges it at Rest (a later phase).
-function rollSockets(capacity: number, gemClass: GemClass): (Gem | null)[] {
-  const sockets: (Gem | null)[] = Array.from({ length: capacity }, () => null);
-  const pool = GEM_IDS_BY_CLASS[gemClass];
-  if (pool.length === 0) return sockets;
+const ALL_COLORS: SocketColor[] = ['red', 'green', 'blue'];
+
+// Type-biased colour roll: any colour can appear on any item, but the item's
+// THEME colour is favoured. Placeholder weights - theme 0.6, each other 0.2.
+const THEME_COLOR_WEIGHT = 0.6;
+const OFF_COLOR_WEIGHT = 0.2;
+
+// Roll one socket colour, biased toward `theme`. Exported so add-socket
+// (rest.ts) rolls a new socket's colour with the exact same bias.
+export function rollSocketColor(theme: SocketColor): SocketColor {
+  let r = Math.random();
+  for (const color of ALL_COLORS) {
+    const w = color === theme ? THEME_COLOR_WEIGHT : OFF_COLOR_WEIGHT;
+    if (r < w) return color;
+    r -= w;
+  }
+  return theme; // numeric safety net (weights sum to 1.0).
+}
+
+// Roll the item's per-socket colours: a capacity-length list, each colour
+// type-biased toward the item's theme.
+function rollSocketColors(capacity: number, theme: SocketColor): SocketColor[] {
+  return Array.from({ length: capacity }, () => rollSocketColor(theme));
+}
+
+// Pre-socket the item: drop 1-2 colour-matched gems into sockets whose colour
+// they fit, leaving the rest empty. Each gem goes into the first still-empty
+// socket of a colour that has a gem pool, so a placed gem always fits its
+// socket. Gives a freshly-dropped item something to do in combat until the
+// player rearranges it at Rest.
+function rollSockets(socketColors: SocketColor[]): (Gem | null)[] {
+  const sockets: (Gem | null)[] = socketColors.map(() => null);
+  const capacity = socketColors.length;
   const count = Math.min(capacity, 1 + Math.floor(Math.random() * 2)); // 1 or 2
-  for (let i = 0; i < count; i++) {
+  let placed = 0;
+  for (let i = 0; i < capacity && placed < count; i++) {
+    const pool = GEM_IDS_BY_COLOR[socketColors[i]];
+    if (pool.length === 0) continue;
     sockets[i] = { id: nextGemId(), defId: pick(pool) };
+    placed += 1;
   }
   return sockets;
 }
@@ -83,7 +114,9 @@ export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
 function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
   const capacity = Math.max(1, tier);
-  const sockets = rollSockets(capacity, gemClassForItemType(itemType));
+  const theme = colorForClass(gemClassForItemType(itemType));
+  const socketColors = rollSocketColors(capacity, theme);
+  const sockets = rollSockets(socketColors);
   const icon = iconFor(itemType, armorSlot);
-  return { id: nextItemId(idPrefix), itemType, armorSlot, sockets, icon };
+  return { id: nextItemId(idPrefix), itemType, armorSlot, sockets, socketColors, icon };
 }
