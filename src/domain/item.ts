@@ -30,9 +30,11 @@ export interface Item {
   icon?: string;
 }
 
-// Tier is now the socket capacity (how many gems the item can hold).
+// Tier is the displayed power level; each tier grants TWO sockets
+// (T1 = 2 sockets, T2 = 4, ...). tierOf maps a socket capacity back to its
+// tier. ceil keeps any legacy odd-capacity item readable.
 export function tierOf(item: Item): number {
-  return item.sockets.length;
+  return Math.ceil(item.sockets.length / 2);
 }
 
 export function itemEmoji(item: Item): string {
