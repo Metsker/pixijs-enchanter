@@ -8,6 +8,7 @@
   import { inspector, inspectItem, closeInspector } from '../state/inspector';
   import { itemEmoji, tierOf, type Item } from '../domain/item';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
+  import { inspectGem } from '../state/gem-inspector';
   import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
 
@@ -123,19 +124,21 @@
           {/if}
 
           {#if $pendingRewards.gems.length > 0}
-            <!-- Loose gems: there's no socket view to inspect, so these are
-                 display-only and drop into the Backpack on Continue. -->
+            <!-- Loose gems: tap to open the gem inspector (description, value,
+                 level-up, what it fits). They drop into the Backpack on Continue. -->
             <div class="gems" role="list" aria-label={t('rewards.gems')}>
               {#each $pendingRewards.gems as gem (gem.id)}
                 {@const gd = gemDisplay(gem)}
-                <div
+                <button
+                  type="button"
                   class="gem-tile"
                   style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#666'}"
                   title={gd ? `${gd.name} - ${gd.summary}` : ''}
+                  onclick={() => inspectGem(gem)}
                 >
                   <span class="gem-emoji">{gd?.emoji ?? '💠'}</span>
                   {#if gd && gd.level > 1}<span class="gem-level">Lv{gd.level}</span>{/if}
-                </div>
+                </button>
               {/each}
             </div>
           {/if}
@@ -268,6 +271,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    appearance: none;
+    color: inherit;
+    padding: 0;
+    cursor: pointer;
+    transition: background-color 100ms ease, transform 100ms ease;
+  }
+  .gem-tile:hover {
+    background: #1f1f28;
+    transform: translateY(-1px);
+  }
+  .gem-tile:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
   }
   .gem-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;

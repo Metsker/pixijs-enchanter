@@ -15,7 +15,7 @@
   } from '../state/inventory';
   import { addItem, backpack } from '../state/backpack';
   import { buyAndEquipItem, buyItem, canBuyAndEquipItem, canBuyItem } from '../state/shop';
-  import { removeRewardItem } from '../state/rewards';
+  import { removeRewardItem, pendingRewards } from '../state/rewards';
   import { canPickItem, pickItem } from '../state/item-offer';
   import {
     isItem,
@@ -30,9 +30,11 @@
   import { computeBindings } from '../domain/gem-resolution';
   import { gemFitsSocketAt } from '../domain/gem-fit';
   import { cancelHeld, heldGem } from '../state/gem-move';
-  import { startGemDrag, gemDropZone } from '../state/gem-drag';
+  import { startGemDrag, gemDropZone, isGemDragActive } from '../state/gem-drag';
+  import { inspectGem } from '../state/gem-inspector';
   import { gemStash } from '../state/gem-stash';
-  import { disenchantRewardItem, itemRefund } from '../state/disenchant';
+  import { disenchantRewardItem, destroyRewardItemKeepGems, itemRefund } from '../state/disenchant';
+  import { requestDestroy } from '../state/destroy-prompt';
   import { t } from '../i18n';
   import { clickOutside } from '../utils/clickOutside';
 
@@ -132,14 +134,16 @@
   // doesn't move neither lifts the gem nor opens anything.
   function onSocketPointerDown(e: PointerEvent, item: Item, index: number): void {
     if (!socketsEditable) return;
-    if (!item.sockets[index]) return; // empty socket: nothing to drag.
-    startGemDrag({ kind: 'socket', item, index }, e);
+    const gem = item.sockets[index];
+    if (!gem) return; // empty socket: nothing to drag.
+    // Drag to move the gem; a tap (no movement) opens the gem inspector.
+    startGemDrag({ kind: 'socket', item, index }, e, () => inspectGem(gem));
   }
 
   // Pointer-down on a loose stash gem starts a drag (into a socket / equipped
-  // item, or back into the backpack).
-  function onStashPointerDown(e: PointerEvent, gemId: string): void {
-    startGemDrag({ kind: 'backpack', gemId }, e);
+  // item, or back into the backpack); a tap opens the gem inspector instead.
+  function onStashPointerDown(e: PointerEvent, gem: Gem): void {
+    startGemDrag({ kind: 'backpack', gemId: gem.id }, e, () => inspectGem(gem));
   }
 
   // True while a dragged gem is hovering THIS open item's socket whose drop
@@ -188,10 +192,16 @@
     return t('inspector.buy', { price: s.price });
   });
 
-  // A held gem has been lifted out of its socket; if the Inspector closes
-  // while one is held, return it to its origin so it can never be stranded.
+  // Safety net for a gem held with NO active drag while the Inspector is
+  // closed - return it to its origin so it can't be stranded. We must NOT fire
+  // during a live drag: a pointer drag sets `heldGem` and is driven by the
+  // gem-drag controller's document listeners (independent of the Inspector), so
+  // its own pointerup/pointercancel will route the gem. Without the
+  // isGemDragActive guard this effect cancelled EVERY Backpack gem drag started
+  // while the Inspector was closed (the gem snapped straight back), which is
+  // exactly the "drag breaks after acquiring a loose gem" bug.
   $effect(() => {
-    if (!$inspector && $heldGem) cancelHeld();
+    if (!$inspector && $heldGem && !isGemDragActive()) cancelHeld();
   });
 
   const ctaDisabledReason = $derived.by((): string | null => {
@@ -247,10 +257,8 @@
       const landedSlot = equipItemDirect(subject.item);
       if (landedSlot !== null) {
         removeRewardItem(subject.item.id);
-        const newItem = get(equipped)[landedSlot];
-        if (newItem) {
-          inspector.set({ source: 'inventory', slotId: landedSlot, item: newItem });
-        }
+        // Keep working the chest: move to the next reward (or close if empty).
+        inspectNextReward();
       }
     } else if (subject.source === 'item-offer') {
       const landed = pickItem(subject.index);
@@ -258,6 +266,15 @@
     } else {
       buyItem(subject.index);
     }
+  }
+
+  // After acting on a chest item (equip / take / destroy), keep working the
+  // chest: jump the Inspector to the next reward, or close it if the chest is
+  // now empty. The acted item must already be removed from pendingRewards.
+  function inspectNextReward(): void {
+    const items = get(pendingRewards).items;
+    if (items.length > 0) inspector.set({ source: 'rewards', item: items[0] });
+    else closeInspector();
   }
 
   // Rewards-only secondary CTA: "Take" the reward item straight into the
@@ -275,14 +292,29 @@
     const landed = addItem(subject.item);
     if (landed === -1) return; // bag full - leave it in the chest
     removeRewardItem(subject.item.id);
-    closeInspector();
+    inspectNextReward();
   }
 
   // Rewards-only: scrap the chest item for crystals instead of taking it.
   function handleDestroy(): void {
     const subject = $inspector;
     if (!subject || subject.source !== 'rewards') return;
-    if (disenchantRewardItem(subject.item.id)) closeInspector();
+    const item = subject.item;
+    // If it still holds gems, ask whether to keep them (detach to the bag) or
+    // scrap everything; otherwise destroy straight away.
+    if (item.sockets.some((g) => g !== null)) {
+      requestDestroy({
+        item,
+        onKeepGems: () => {
+          if (destroyRewardItemKeepGems(item.id)) inspectNextReward();
+        },
+        onDestroyAll: () => {
+          if (disenchantRewardItem(item.id)) inspectNextReward();
+        },
+      });
+      return;
+    }
+    if (disenchantRewardItem(item.id)) inspectNextReward();
   }
 
   // Shop-only secondary CTA: take the item straight to the Inventory,
@@ -322,10 +354,6 @@
     class:with-compare={comparison !== null}
     aria-label={t('inspector.title')}
     transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
-    use:clickOutside={{
-      onOutside: closeInspector,
-      ignoreSelectors: ['[data-inspector-source]', '.backpack-toggle', '.backpack', '.backpack-scrim', '.item-room', '.scrim'],
-    }}
   >
     <header class="header">
       <span class="emoji">{itemEmoji(item)}</span>
@@ -490,7 +518,7 @@
                 class="stash-gem draggable"
                 style="--socket-color: {sd ? SOCKET_COLOR_HEX[sd.color] : '#666'}"
                 title={sd ? sd.summary : ''}
-                onpointerdown={(e) => onStashPointerDown(e, g.id)}
+                onpointerdown={(e) => onStashPointerDown(e, g)}
               >
                 <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
                 <span class="stash-gem-name">{sd?.name ?? ''}</span>

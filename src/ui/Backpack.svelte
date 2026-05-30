@@ -17,13 +17,19 @@
   }
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { backpackOpen, toggleBackpack } from '../state/ui';
-  import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
-  import { isGem } from '../domain/gem';
+  import { isItem, itemEmoji, legalEquipmentSlots, tierOf, type Item } from '../domain/item';
+  import { isGem, type Gem } from '../domain/gem';
+  import { gemColor } from '../domain/gem-fit';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import SocketPips from './SocketPips.svelte';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
-  import { equipFromBackpackToSlot, itemDrag, itemFitsSlot } from '../state/inventory';
-  import { disenchantItemFromBackpack, gemRefund, itemRefund } from '../state/disenchant';
+  import { inspectGem } from '../state/gem-inspector';
+  import { socketGemIntoItem } from '../state/gem-move';
+  import { equipFromBackpack, equipFromBackpackToSlot, equipped, itemDrag, itemFitsSlot } from '../state/inventory';
+  import { disenchantItemFromBackpack, destroyBackpackItemKeepGems, gemRefund, itemRefund } from '../state/disenchant';
+  import { requestDestroy } from '../state/destroy-prompt';
+  import { shopStock, sellItemFromBackpack } from '../state/shop';
+  import { itemSellValue, gemSellValue } from '../domain/shop';
   import type { EquipmentSlotId } from '../domain/equipment';
   import { t } from '../i18n';
 
@@ -82,6 +88,8 @@
   // True while a dragged backpack ITEM hovers the trash slot (so the trash
   // lights up for an item drag, mirroring gemDropZone for a gem drag).
   let trashHot = $state(false);
+  // Same, for the shop's Sell drop-zone (only present while a shop is open).
+  let sellHot = $state(false);
   let ghostPos = $state<{ x: number; y: number } | null>(null);
   let pointerStart = { x: 0, y: 0 };
   // 10px threshold: clicks with minor jitter won't trigger drag visuals.
@@ -94,7 +102,9 @@
     // can drop onto sockets / equipped items / back into the backpack). Items
     // keep the local reorder drag below.
     if (isGem(slot)) {
-      startGemDrag({ kind: 'backpack', gemId: slot.id }, e);
+      // Drag to move/socket/combine; a tap opens the gem inspector, a
+      // double-tap sockets it into the selected (inspected) item.
+      startGemDrag({ kind: 'backpack', gemId: slot.id }, e, () => onGemTap(slot));
       return;
     }
     dragging = index;
@@ -129,11 +139,21 @@
     const dragged = $backpack[dragging];
     if (el?.closest('[data-trash]') && isItem(dragged)) {
       trashHot = true;
+      sellHot = false;
+      itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
+      dragOver = null;
+      return;
+    }
+    // Sell (shop only): an item dragged onto the Sell zone sells for gold.
+    if (el?.closest('[data-sell]') && isItem(dragged)) {
+      sellHot = true;
+      trashHot = false;
       itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
       dragOver = null;
       return;
     }
     trashHot = false;
+    sellHot = false;
 
     // An equipment slot the dragged item is legal for takes priority over a
     // backpack reorder target.
@@ -157,13 +177,33 @@
       if (didDrag) {
         const equipTarget = get(itemDrag)?.targetSlot ?? null;
         if (trashHot && isItem($backpack[dragging])) {
-          // Dropped on the trash: disenchant the item (and its gems) for
-          // crystals. Close the Inspector if it was showing this tile.
+          // Dropped on the trash: disenchant the item for crystals. If it holds
+          // gems, prompt first (keep them, or scrap everything). Close the
+          // Inspector if it was showing this tile.
           const idx = dragging;
-          if (disenchantItemFromBackpack(idx)) {
+          const item = $backpack[idx];
+          const closeIfInspecting = (): void => {
             const ins = get(inspector);
             if (ins?.source === 'backpack' && ins.index === idx) closeInspector();
+          };
+          if (isItem(item) && item.sockets.some((g) => g !== null)) {
+            requestDestroy({
+              item,
+              onKeepGems: () => {
+                destroyBackpackItemKeepGems(idx);
+                closeIfInspecting();
+              },
+              onDestroyAll: () => {
+                disenchantItemFromBackpack(idx);
+                closeIfInspecting();
+              },
+            });
+          } else if (disenchantItemFromBackpack(idx)) {
+            closeIfInspecting();
           }
+        } else if (sellHot && isItem($backpack[dragging])) {
+          // Dropped on the shop's Sell zone: sell the item (+ its gems) for gold.
+          sellItemFromBackpack(dragging);
         } else if (equipTarget) {
           // Dropped on a compatible equipment slot: equip it there.
           const idx = dragging;
@@ -212,7 +252,58 @@
     ghostPos = null;
     didDrag = false;
     trashHot = false;
+    sellHot = false;
     itemDrag.set(null);
+  }
+
+  // Gem tap disambiguation: a single tap opens the gem inspector (after a short
+  // window); a double tap sockets the gem straight into the SELECTED (inspected)
+  // item's first open matching socket. The window is needed because opening the
+  // gem inspector covers the bag, which would otherwise swallow the second tap.
+  let gemTap: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  const GEM_DBL_MS = 250;
+  function onGemTap(gem: Gem): void {
+    if (gemTap && gemTap.id === gem.id) {
+      clearTimeout(gemTap.timer);
+      gemTap = null;
+      equipGemIntoSelected(gem);
+      return;
+    }
+    if (gemTap) clearTimeout(gemTap.timer);
+    const timer = setTimeout(() => {
+      gemTap = null;
+      inspectGem(gem);
+    }, GEM_DBL_MS);
+    gemTap = { id: gem.id, timer };
+  }
+
+  // Socket `gem` into the currently inspected item (its first open colour-matched
+  // socket), if one is open. No-op when nothing editable is selected.
+  function equipGemIntoSelected(gem: Gem): void {
+    const ins = get(inspector);
+    if (!ins || (ins.source !== 'inventory' && ins.source !== 'backpack' && ins.source !== 'rewards')) {
+      return;
+    }
+    const color = gemColor(gem);
+    if (!color) return;
+    const item = ins.item;
+    const hasSlot = item.sockets.some((s, i) => s === null && item.socketColors[i] === color);
+    if (hasSlot) socketGemIntoItem(gem, item);
+  }
+
+  // Double-click a backpack ITEM: equip it into its first EMPTY legal slot (only
+  // when one is free - no swap on double-click). Loose gems use onGemTap above.
+  function onItemDblClick(index: number): void {
+    const slot = $backpack[index];
+    if (!isItem(slot)) return;
+    const eq = get(equipped);
+    const hasEmpty = legalEquipmentSlots(slot).some((s) => eq[s] === null);
+    if (!hasEmpty) return;
+    const landed = equipFromBackpack(index);
+    if (landed !== null) {
+      const now = get(equipped)[landed];
+      if (now) inspector.set({ source: 'inventory', slotId: landed, item: now });
+    }
   }
 
   function isInspecting(i: number): boolean {
@@ -290,9 +381,9 @@
           class:inspecting={isInspecting(i)}
           style={gem ? `--gem-color: ${SOCKET_COLOR_HEX[gem.color]}` : ''}
           title={isItem(slot)
-            ? `🗑️ 💎 ${itemRefund(slot)}`
+            ? `🗑️ 💎 ${itemRefund(slot)}${$shopStock ? ` · 🪙 ${itemSellValue(slot)}` : ''}`
             : isGem(slot)
-              ? `${gem?.name ?? ''} - ${gem?.summary ?? ''} · 🗑️ 💎 ${gemRefund(slot)}`
+              ? `${gem?.name ?? ''} - ${gem?.summary ?? ''} · 🗑️ 💎 ${gemRefund(slot)}${$shopStock ? ` · 🪙 ${gemSellValue(slot)}` : ''}`
               : ''}
           data-cell-index={i}
           data-inspector-source="backpack"
@@ -300,6 +391,7 @@
           onpointermove={onPointerMove}
           onpointerup={onPointerUp}
           onpointercancel={onPointerUp}
+          ondblclick={() => onItemDblClick(i)}
         >
           {#if isItem(slot)}
             <span class="emoji">{itemEmoji(slot)}</span>
@@ -341,6 +433,20 @@
       <span class="trash-emoji">🗑️</span>
       <span class="trash-label">{t('backpack.trash')}</span>
     </div>
+
+    <!-- Sell drop-zone: only while a shop is open. Drag an item or gem here to
+         sell it for gold (50% of value). Mirrors the trash, but gold not crystals. -->
+    {#if $shopStock}
+      <div
+        class="sell"
+        class:sell-armed={$gemDropZone === 'sell' || sellHot}
+        data-sell
+        title={t('backpack.sell.hint')}
+      >
+        <span class="sell-emoji">🪙</span>
+        <span class="sell-label">{t('backpack.sell')}</span>
+      </div>
+    {/if}
 
     <footer class="hint">{t('backpack.hint')}</footer>
   </div>
@@ -638,6 +744,40 @@
     border-color: #ef4444;
     background: #2a1414;
     box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.6);
+  }
+
+  /* Sell drop-zone (shop only): gold-toned counterpart to the trash. */
+  .sell {
+    margin: 0 12px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px dashed #5a4a2a;
+    border-radius: 8px;
+    background: #1a160e;
+    color: #ffd28a;
+    user-select: none;
+  }
+  .sell-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.4rem;
+    line-height: 1;
+    pointer-events: none;
+  }
+  .sell-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .sell.sell-armed {
+    border-style: solid;
+    border-color: #ffcc44;
+    background: #2a2212;
+    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.6);
   }
 
   .hint {

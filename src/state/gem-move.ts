@@ -1,10 +1,11 @@
 import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
 import { gemLevel } from '../domain/gem';
-import type { Item } from '../domain/item';
+import { isItem, type Item } from '../domain/item';
 import { gemColor, gemFitsSocketAt } from '../domain/gem-fit';
 import { equipped, updateEquippedAt } from './inventory';
 import {
+  backpack,
   findBackpackGemById,
   findBackpackItemById,
   placeGemAtCell,
@@ -13,7 +14,7 @@ import {
 } from './backpack';
 import { inspector, type InspectorSubject } from './inspector';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
-import { findRewardItemById, updateRewardItemById } from './rewards';
+import { findRewardItemById, updateRewardItemById, pendingRewards, removeRewardGem } from './rewards';
 
 // === Held-gem move / reorder ========================================
 //
@@ -330,4 +331,68 @@ function findItemById(itemId: string): Item | null {
     if (eqItem && eqItem.id === itemId) return eqItem;
   }
   return findBackpackItemById(itemId) ?? findRewardItemById(itemId);
+}
+
+// --- direct socketing (gem inspector "Fits these items" -> Insert) ----------
+//
+// A non-drag path: socket a gem straight into a target item from the gem
+// inspector, without going through heldGem (so it can never strand a held gem).
+
+// Every item the player OWNS and can edit: equipped, backpack, and the victory
+// chest. Shop / item-offer items are excluded - they aren't owned, and writeItem
+// can't persist edits to them - so the inspector only offers Insert for these.
+function ownedItems(): Item[] {
+  const out: Item[] = [];
+  for (const it of Object.values(get(equipped))) if (it) out.push(it);
+  for (const s of get(backpack)) if (isItem(s)) out.push(s);
+  for (const it of get(pendingRewards).items) out.push(it);
+  return out;
+}
+
+// Pull a gem (by instance id) out of wherever it currently lives - a loose
+// backpack gem, a loose reward-chest gem, or a socket of any owned item -
+// returning it (or null if not found). The origin store is updated in place.
+function takeGemFromAnySource(gemId: string): Gem | null {
+  const fromBag = removeGemFromStashById(gemId);
+  if (fromBag) return fromBag;
+  const rewardGem = get(pendingRewards).gems.find((g) => g.id === gemId);
+  if (rewardGem) {
+    removeRewardGem(gemId);
+    return rewardGem;
+  }
+  for (const item of ownedItems()) {
+    const idx = item.sockets.findIndex((s) => s?.id === gemId);
+    if (idx !== -1) {
+      const gem = item.sockets[idx] as Gem;
+      const sockets = item.sockets.slice();
+      sockets[idx] = null;
+      writeBackSockets(item, sockets);
+      return gem;
+    }
+  }
+  return null;
+}
+
+// Socket `gem` into `targetItem`'s first empty colour-matched socket, pulling it
+// out of its current home first. Drives the gem inspector's "Fits these items
+// -> Insert" action. Returns true if it landed; on failure the gem is parked in
+// the stash so it can never be lost. Only OWNED targets persist - callers gate
+// the Insert button to those.
+export function socketGemIntoItem(gem: Gem, targetItem: Item): boolean {
+  const color = gemColor(gem);
+  if (!color) return false;
+  const removed = takeGemFromAnySource(gem.id);
+  if (!removed) return false;
+  // Re-resolve the target by id (it may have just been mutated if `gem` was
+  // socketed in it), then drop into its first empty matching socket.
+  const fresh = findItemById(targetItem.id) ?? targetItem;
+  const idx = fresh.sockets.findIndex((s, i) => s === null && fresh.socketColors[i] === color);
+  if (idx === -1) {
+    addGemToStash(removed);
+    return false;
+  }
+  const sockets = fresh.sockets.slice();
+  sockets[idx] = removed;
+  writeBackSockets(fresh, sockets);
+  return true;
 }

@@ -21,6 +21,7 @@ import {
   placeIntoStash,
 } from './gem-move';
 import { disenchantHeldGem } from './disenchant';
+import { sellHeldGem } from './shop';
 
 // === Pointer-driven gem drag-and-drop ================================
 //
@@ -76,6 +77,10 @@ interface DragSession {
   startY: number;
   pickedUp: boolean;
   pointerId: number;
+  // Invoked on pointer-up if the gesture never crossed the drag threshold (a
+  // tap, not a drag) - lets a call site open the gem inspector on tap while the
+  // same press still starts a drag once it moves.
+  onTap?: () => void;
 }
 
 let session: DragSession | null = null;
@@ -104,6 +109,8 @@ type DropTarget =
   | { kind: 'socket'; item: Item; index: number; valid: boolean }
   | { kind: 'slot'; item: Item; valid: boolean }
   | { kind: 'trash'; valid: true }
+  // The shop's Sell drop-zone: sell the gem for gold (only present while shopping).
+  | { kind: 'sell'; valid: true }
   // A specific backpack cell: move/reorder the gem THERE (not "first empty").
   | { kind: 'backpack-cell'; index: number; valid: true }
   | { kind: 'stash'; valid: true }
@@ -117,6 +124,11 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
   // trash tile is never mistaken for a backpack cell.
   if ((el as Element).closest('[data-trash]')) {
     return { kind: 'trash', valid: true };
+  }
+
+  // Shop Sell drop-zone (gold). Only rendered while a shop is open.
+  if ((el as Element).closest('[data-sell]')) {
+    return { kind: 'sell', valid: true };
   }
 
   // Socket cell: explicit gem-socket marker carrying its item id + index.
@@ -185,6 +197,8 @@ function zoneIdOf(target: DropTarget): string | null {
       return `slot:${target.item.id}`;
     case 'trash':
       return 'trash';
+    case 'sell':
+      return 'sell';
     case 'backpack-cell':
       return 'stash';
     case 'stash':
@@ -226,8 +240,14 @@ function onPointerMove(e: PointerEvent): void {
 function onPointerUp(e: PointerEvent): void {
   if (!session || e.pointerId !== session.pointerId) return;
   const didPickUp = session.pickedUp;
+  const onTap = session.onTap;
   endSession();
-  if (!didPickUp) return; // a tap, not a drag - leave it to the element's own handler.
+  if (!didPickUp) {
+    // A tap, not a drag (the gem was never lifted): fire the tap action - e.g.
+    // open the gem inspector - instead of moving anything.
+    onTap?.();
+    return;
+  }
 
   const held = get(heldGem);
   if (!held) return;
@@ -258,6 +278,10 @@ function onPointerUp(e: PointerEvent): void {
       // lifted out of its origin, so disenchantHeldGem just consumes + refunds.
       disenchantHeldGem();
       break;
+    case 'sell':
+      // Sell the held gem to the shop for gold (the gem was already lifted out).
+      sellHeldGem();
+      break;
     case 'backpack-cell':
       // Reorder within the bag: move the gem into this specific cell.
       if (!placeHeldGemIntoBackpackCell(target.index)) cancelHeld();
@@ -283,11 +307,18 @@ function endSession(): void {
 // Begin a gem drag from `source` on pointer-down. No gem is lifted until the
 // move threshold is crossed (so a tap is not a drag). Returns nothing; the
 // document-level move / up listeners drive the rest.
-export function startGemDrag(source: GemDragSource, e: PointerEvent): void {
+export function startGemDrag(source: GemDragSource, e: PointerEvent, onTap?: () => void): void {
   // If a drag is somehow already live, tear it down first.
   if (session) endSession();
-  // Don't start a second drag while a gem is already held by some other path.
-  if (get(heldGem)) return;
+  // A held gem with no live session is a STRANDED leftover - a previous drag
+  // whose pointerup never arrived (released off-window, an interrupted gesture,
+  // or a dev-time HMR reload that reset `session` but not `heldGem`). Left as-is
+  // it blocks every future drag: the gem appears to "lift" but nothing follows
+  // the pointer. Recover by returning it to its origin, then start fresh.
+  if (get(heldGem)) {
+    cancelHeld();
+    if (get(heldGem)) return; // cancelHeld should clear it; bail defensively if not.
+  }
 
   session = {
     source,
@@ -295,6 +326,7 @@ export function startGemDrag(source: GemDragSource, e: PointerEvent): void {
     startY: e.clientY,
     pickedUp: false,
     pointerId: e.pointerId,
+    onTap,
   };
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerup', onPointerUp);

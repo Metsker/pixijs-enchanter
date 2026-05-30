@@ -5,12 +5,14 @@
   import Battlefield from './ui/Battlefield.svelte';
   import Backpack from './ui/Backpack.svelte';
   import Inspector from './ui/Inspector.svelte';
+  import GemInspector from './ui/GemInspector.svelte';
   import Map from './ui/Map.svelte';
   import ShopRoom from './ui/ShopRoom.svelte';
   import RestRoom from './ui/RestRoom.svelte';
   import RoomOverlay from './ui/RoomOverlay.svelte';
   import ItemSelect from './ui/ItemSelect.svelte';
   import ConfirmModal from './ui/ConfirmModal.svelte';
+  import DestroyPrompt from './ui/DestroyPrompt.svelte';
   import Settings from './ui/Settings.svelte';
   import { toggleBackpack } from './state/ui';
   import { run } from './state/run';
@@ -86,8 +88,10 @@
   </main>
   <Backpack />
   <Inspector />
+  <GemInspector />
   <RoomOverlay />
   <ConfirmModal />
+  <DestroyPrompt />
   <Settings />
 
   <!-- Single floating ghost for the active gem drag. Mounted once at the app

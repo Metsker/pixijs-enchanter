@@ -1,9 +1,9 @@
 <script lang="ts">
   import { completeRoom } from '../state/run';
-  import { buyCrystalPack, buyGem, shopStock } from '../state/shop';
+  import { buyCrystalPack, shopStock } from '../state/shop';
   import { topbar } from '../state/topbar';
-  import { backpack } from '../state/backpack';
   import { inspectItem, inspector } from '../state/inspector';
+  import { inspectShopGem, gemInspector } from '../state/gem-inspector';
   import { itemEmoji, tierOf } from '../domain/item';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import SocketPips from './SocketPips.svelte';
@@ -32,10 +32,17 @@
     return s?.source === 'shop' && s.index === i;
   }
 
-  // Gems aren't inspected (no socket view in the shop) - clicking a gem tile
-  // buys it straight into the Backpack. buyGem re-checks gold / bag space.
+  // Clicking a gem tile PREVIEWS it in the gem inspector (description, value,
+  // level-up, what it fits) - the actual purchase happens from there via its Buy
+  // button, so the player always sees what a gem does before paying.
   function onGemClick(index: number): void {
-    buyGem(index);
+    const stock = $shopStock;
+    const slot = stock?.gems[index];
+    if (slot) inspectShopGem(slot.gem, index, slot.price);
+  }
+
+  function isInspectingGem(i: number): boolean {
+    return $gemInspector?.shop?.index === i;
   }
 </script>
 
@@ -90,9 +97,9 @@
                 <button
                   type="button"
                   class="gem-tile"
+                  class:inspecting={isInspectingGem(i)}
                   style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#666'}"
                   title={gd ? `${gd.name} - ${gd.summary}` : ''}
-                  disabled={$topbar.gold < slot.price || !$backpack.includes(null)}
                   onclick={() => onGemClick(i)}
                 >
                   <span class="emoji">{gd?.emoji ?? '💠'}</span>
@@ -277,6 +284,10 @@
   }
   .gem-tile:hover:not(:disabled) {
     background: #1c1c24;
+  }
+  .gem-tile.inspecting {
+    border-color: #ffcc44;
+    box-shadow: inset 0 0 0 1px #ffcc44;
   }
   .gem-tile:disabled {
     opacity: 0.4;
