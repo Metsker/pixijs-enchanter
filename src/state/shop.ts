@@ -1,11 +1,10 @@
 import { get, writable } from 'svelte/store';
 import type { ShopStock } from '../domain/shop';
 import { generateShopStock } from '../domain/shop';
-import { backpack, addItem } from './backpack';
+import { backpack, addItem, addGemToBackpack } from './backpack';
 import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
-import { canEquipDirect, displacementPick, equipItemDirect, equipped } from './inventory';
-import { legalEquipmentSlots } from '../domain/item';
+import { canEquipDirect, equipItemDirect } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { sfx } from '../audio/sfx';
 
@@ -86,13 +85,6 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
   if (!canBuyAndEquipItem(shopIndex).ok) return null;
 
   const item = slot.item;
-  const legal = legalEquipmentSlots(item);
-  const currentEquipped = get(equipped);
-  const occupied = legal.filter((s) => currentEquipped[s] !== null);
-
-  // Picker path: multiple legal slots are all occupied (rings,
-  // dual weapons). Defer the gold spend / shop-slot clear until
-  // the player picks a slot, so a cancel leaves both sides intact.
   const clearShopSlot = (): void => {
     shopStock.update((s) => {
       if (!s) return s;
@@ -106,24 +98,8 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
     if (ins?.source === 'shop' && ins.index === shopIndex) closeInspector();
   };
 
-  if (legal.length > 1 && occupied.length === legal.length) {
-    displacementPick.set({
-      item,
-      legalSlots: occupied,
-      placeDisplaced: (displaced) => {
-        // All side-effects fire only on resolve. Gold was confirmed
-        // sufficient at canBuyAndEquipItem time and can't move
-        // during the pick (no fight is running in shops).
-        spendGold(slot.price);
-        addItem(displaced);
-        clearShopSlot();
-        sfx.buy();
-      },
-    });
-    closeIfInspectingThis();
-    return null;
-  }
-
+  // Single legal slot per type now, so equipItemDirect always resolves (empty
+  // slot, or swap with the displaced item going to the bag) - no slot-select.
   if (!spendGold(slot.price)) return null;
   const landed = equipItemDirect(item);
   if (landed === null) {
@@ -136,6 +112,39 @@ export function buyAndEquipItem(shopIndex: number): EquipmentSlotId | null {
   clearShopSlot();
   closeIfInspectingThis();
   return landed;
+}
+
+// === Buy a gem ======================================================
+// Gems go straight to the Backpack (they aren't equipped from the shop -
+// the player sockets them later at Rest).
+export function canBuyGem(shopIndex: number): { ok: boolean; reasonKey?: string } {
+  const stock = get(shopStock);
+  if (!stock) return { ok: false };
+  const slot = stock.gems[shopIndex];
+  if (!slot) return { ok: false };
+  if (get(topbar).gold < slot.price) return { ok: false, reasonKey: 'shop.cta.notEnoughGold' };
+  if (!get(backpack).includes(null)) return { ok: false, reasonKey: 'shop.cta.backpackFull' };
+  return { ok: true };
+}
+
+export function buyGem(shopIndex: number): boolean {
+  const stock = get(shopStock);
+  if (!stock) return false;
+  const slot = stock.gems[shopIndex];
+  if (!slot) return false;
+  if (!canBuyGem(shopIndex).ok) return false;
+
+  if (!spendGold(slot.price)) return false;
+  addGemToBackpack(slot.gem);
+  sfx.buy();
+
+  shopStock.update((s) => {
+    if (!s) return s;
+    const gems = s.gems.slice();
+    gems[shopIndex] = null;
+    return { ...s, gems };
+  });
+  return true;
 }
 
 // === Buy a crystal pack =============================================

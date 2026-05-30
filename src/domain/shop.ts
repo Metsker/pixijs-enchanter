@@ -2,15 +2,22 @@
 // pricing table; tier distribution biased by floor depth.
 
 import type { Item } from './item';
-import { randomItem } from './random';
+import type { Gem } from './gem';
+import { randomItem, randomGem } from './random';
 
 export interface ShopItemSlot {
   item: Item;
   price: number;
 }
 
+export interface ShopGemSlot {
+  gem: Gem;
+  price: number;
+}
+
 export interface ShopStock {
   items: (ShopItemSlot | null)[];
+  gems: (ShopGemSlot | null)[];
   crystals: { remaining: number; perPackSize: number; pricePerCrystal: number };
 }
 
@@ -47,14 +54,26 @@ function rollPrice(tier: number): number {
   return Math.floor(rand(range[0], range[1]));
 }
 
+// Gems are build-defining and tier-less; price them in a flat band that
+// drifts up with floor depth so late-shop gems cost more than early ones.
+function rollGemPrice(floor: number): number {
+  return Math.floor(rand(80, 160) + floor * 10);
+}
+
 export function generateShopStock(floor: number): ShopStock {
-  const items: (ShopItemSlot | null)[] = Array.from({ length: 6 }, () => {
+  const items: (ShopItemSlot | null)[] = Array.from({ length: 3 }, () => {
     const tier = rollTier(floor);
     return { item: randomItem(tier, 'shop'), price: rollPrice(tier) };
   });
 
+  const gems: (ShopGemSlot | null)[] = Array.from({ length: 3 }, () => ({
+    gem: randomGem(),
+    price: rollGemPrice(floor),
+  }));
+
   return {
     items,
+    gems,
     crystals: {
       remaining: 50 + Math.floor(Math.random() * 51), // 50..100
       perPackSize: 10,

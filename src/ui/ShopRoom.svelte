@@ -1,10 +1,12 @@
 <script lang="ts">
   import { completeRoom } from '../state/run';
-  import { buyCrystalPack, shopStock } from '../state/shop';
+  import { buyCrystalPack, buyGem, shopStock } from '../state/shop';
   import { topbar } from '../state/topbar';
   import { backpack } from '../state/backpack';
   import { inspectItem, inspector } from '../state/inspector';
-  import { itemEmoji, socketSummary, tierOf } from '../domain/item';
+  import { itemEmoji, tierOf } from '../domain/item';
+  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
+  import SocketPips from './SocketPips.svelte';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -29,6 +31,12 @@
     const s = $inspector;
     return s?.source === 'shop' && s.index === i;
   }
+
+  // Gems aren't inspected (no socket view in the shop) - clicking a gem tile
+  // buys it straight into the Backpack. buyGem re-checks gold / bag space.
+  function onGemClick(index: number): void {
+    buyGem(index);
+  }
 </script>
 
 <section class="shop">
@@ -40,34 +48,64 @@
   {#if $shopStock}
     {@const stock = $shopStock}
     <div class="shop-body">
-      <div class="items">
-        <div class="items-label">{t('shop.items')}</div>
-        <div class="items-grid">
-          {#each stock.items as slot, i (i)}
-            {#if slot}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div
-                class="item-tile"
-                class:inspecting={isInspectingShop(i)}
-                data-inspector-source="shop"
-                onclick={() => onItemClick(i)}
-              >
-                <span class="emoji">{itemEmoji(slot.item)}</span>
-                <span
-                  class="tier"
-                  style="--tier-color: {TIER_COLORS[tierOf(slot.item)] ?? '#666'}"
+      <div class="left-col">
+        <div class="items">
+          <div class="items-label">{t('shop.items')}</div>
+          <div class="items-grid">
+            {#each stock.items as slot, i (i)}
+              {#if slot}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  class="item-tile"
+                  class:inspecting={isInspectingShop(i)}
+                  data-inspector-source="shop"
+                  onclick={() => onItemClick(i)}
                 >
-                  {socketSummary(slot.item).filled}/{socketSummary(slot.item).total}
-                </span>
-                <span class="price">🪙 {slot.price}</span>
-              </div>
-            {:else}
-              <div class="item-tile sold">
-                <span class="sold-label">{t('shop.sold')}</span>
-              </div>
-            {/if}
-          {/each}
+                  <span class="emoji">{itemEmoji(slot.item)}</span>
+                  <span
+                    class="tier"
+                    style="--tier-color: {TIER_COLORS[tierOf(slot.item)] ?? '#666'}"
+                  >
+                    T{tierOf(slot.item)}
+                  </span>
+                  <SocketPips item={slot.item} />
+                  <span class="price">🪙 {slot.price}</span>
+                </div>
+              {:else}
+                <div class="item-tile sold">
+                  <span class="sold-label">{t('shop.sold')}</span>
+                </div>
+              {/if}
+            {/each}
+          </div>
+        </div>
+
+        <div class="gems">
+          <div class="items-label">{t('shop.gems')}</div>
+          <div class="items-grid">
+            {#each stock.gems as slot, i (i)}
+              {#if slot}
+                {@const gd = gemDisplay(slot.gem)}
+                <button
+                  type="button"
+                  class="gem-tile"
+                  style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#666'}"
+                  title={gd ? `${gd.name} - ${gd.summary}` : ''}
+                  disabled={$topbar.gold < slot.price || !$backpack.includes(null)}
+                  onclick={() => onGemClick(i)}
+                >
+                  <span class="emoji">{gd?.emoji ?? '💠'}</span>
+                  <span class="gem-name">{gd?.name ?? ''}</span>
+                  <span class="price">🪙 {slot.price}</span>
+                </button>
+              {:else}
+                <div class="item-tile sold">
+                  <span class="sold-label">{t('shop.sold')}</span>
+                </div>
+              {/if}
+            {/each}
+          </div>
         </div>
       </div>
 
@@ -210,6 +248,59 @@
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+  }
+
+  /* Left column stacks the item grid over the gem grid. */
+  .left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+  .gem-tile {
+    position: relative;
+    aspect-ratio: 1.4 / 1;
+    border: 1px solid #2a2a34;
+    border-left: 3px solid var(--gem-color, #666);
+    border-radius: 8px;
+    background: #14141a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    padding: 8px;
+    color: #ddd;
+    appearance: none;
+    transition: background-color 80ms ease, border-color 80ms ease;
+  }
+  .gem-tile:hover:not(:disabled) {
+    background: #1c1c24;
+  }
+  .gem-tile:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gem-tile .emoji {
+    font-size: 1.7rem;
+    line-height: 1;
+  }
+  .gem-name {
+    font-size: 0.72rem;
+    color: #bbc;
+    text-align: center;
+    line-height: 1.1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gem-tile .price {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffd866;
+    font-variant-numeric: lining-nums tabular-nums;
   }
 
   .consumables {

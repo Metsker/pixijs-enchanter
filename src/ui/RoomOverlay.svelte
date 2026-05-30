@@ -7,6 +7,7 @@
   } from '../state/rewards';
   import { inspector, inspectItem, closeInspector } from '../state/inspector';
   import { itemEmoji, tierOf, type Item } from '../domain/item';
+  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
 
@@ -120,6 +121,24 @@
               {/each}
             </div>
           {/if}
+
+          {#if $pendingRewards.gems.length > 0}
+            <!-- Loose gems: there's no socket view to inspect, so these are
+                 display-only and drop into the Backpack on Continue. -->
+            <div class="gems" role="list" aria-label={t('rewards.gems')}>
+              {#each $pendingRewards.gems as gem (gem.id)}
+                {@const gd = gemDisplay(gem)}
+                <div
+                  class="gem-tile"
+                  style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#666'}"
+                  title={gd ? `${gd.name} - ${gd.summary}` : ''}
+                >
+                  <span class="gem-emoji">{gd?.emoji ?? '💠'}</span>
+                  {#if gd && gd.level > 1}<span class="gem-level">Lv{gd.level}</span>{/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
 
@@ -230,6 +249,38 @@
     font-size: 0.7rem;
     font-weight: 600;
     color: var(--tier-color, #aaa);
+    font-variant-numeric: lining-nums;
+  }
+  .gems {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .gem-tile {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    background: #14141a;
+    border: 1px solid #2a2a34;
+    border-left: 3px solid var(--gem-color, #666);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gem-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  .gem-level {
+    position: absolute;
+    bottom: 1px;
+    right: 2px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #ffd866;
     font-variant-numeric: lining-nums;
   }
   .cta {

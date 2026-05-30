@@ -2,8 +2,8 @@ import { get, writable } from 'svelte/store';
 import type { Fighter } from '../domain/fighter';
 import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
-import { randomItem } from '../domain/random';
-import { addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
+import { randomItem, randomGem } from '../domain/random';
+import { addRewardGem, addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
 import { playerEffects, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
@@ -98,6 +98,12 @@ let phoenixUsedThisFight = false;
 // victory, grantGuaranteedDrop force-adds one if nothing fell. Reset in
 // startFightWith.
 let itemDroppedThisFight = false;
+// Shared per-fight drop cap: items AND gems draw from ONE budget, so a room
+// can't spew loot. Counts every item/gem the per-kill rolls add this fight;
+// once it hits DROP_CAP no more roll in. The guaranteed item is exempt (a room
+// must always yield >=1 item, even if gems used up the budget). Reset per fight.
+let dropsThisFight = 0;
+const DROP_CAP = 3;
 
 function preventDeathByPhoenix(player: Fighter): Fighter {
   if (player.hp > 0 || phoenixUsedThisFight) return player;
@@ -131,6 +137,7 @@ export function startFightWith(enemies: EnemyDef[], difficulty: Difficulty = 'no
   resetPendingRewards();
   phoenixUsedThisFight = false;
   itemDroppedThisFight = false;
+  dropsThisFight = 0;
   // Snapshot the player's defence profile from currently-equipped
   // enchants and rebuild player maxHp / hp from it. Equip changes are
   // blocked during combat, so this snapshot is stable for the fight.
@@ -387,6 +394,10 @@ interface DropTable {
   goldMin: number;
   goldMax: number;
   itemChance: number;
+  // Per-kill chance to drop a loose gem. Set ABOVE itemChance everywhere so
+  // gems fall more often than items (the bulk of kills are commons, where
+  // 0.85 gems clearly out-drops 0.5 items over a run).
+  gemChance: number;
   tierMin: number;
   tierMax: number;
 }
@@ -394,9 +405,9 @@ interface DropTable {
 export type RoomKindLoot = 'common' | 'elite' | 'boss';
 
 const DROP_TABLES: Record<RoomKindLoot, DropTable> = {
-  common: { goldMin: 20, goldMax: 40, itemChance: 0.5, tierMin: 1, tierMax: 2 },
-  elite: { goldMin: 80, goldMax: 150, itemChance: 1.0, tierMin: 2, tierMax: 3 },
-  boss: { goldMin: 300, goldMax: 500, itemChance: 1.0, tierMin: 4, tierMax: 5 },
+  common: { goldMin: 20, goldMax: 40, itemChance: 0.5, gemChance: 0.85, tierMin: 1, tierMax: 2 },
+  elite: { goldMin: 80, goldMax: 150, itemChance: 1.0, gemChance: 1.0, tierMin: 2, tierMax: 3 },
+  boss: { goldMin: 300, goldMax: 500, itemChance: 1.0, gemChance: 1.0, tierMin: 4, tierMax: 5 },
 };
 
 function rollInt(lo: number, hi: number): number {
@@ -405,11 +416,19 @@ function rollInt(lo: number, hi: number): number {
 
 // Roll one loot item from a drop table and drop it into the chest. All
 // items arrive pre-socketed (randomItem rolls 1-2 gems). Records that an
-// item fell this fight so the per-room guarantee knows it's satisfied.
+// item fell this fight so the per-room guarantee knows it's satisfied, and
+// counts against the shared drop budget.
 function dropItemFromTable(table: DropTable): void {
   const tier = rollInt(table.tierMin, table.tierMax);
   addRewardItem(randomItem(tier, 'loot'));
   itemDroppedThisFight = true;
+  dropsThisFight += 1;
+}
+
+// Drop one loose gem into the chest, counting against the shared budget.
+function dropGemReward(): void {
+  addRewardGem(randomGem());
+  dropsThisFight += 1;
 }
 
 // Kill an enemy: roll loot into the pending-rewards chest (the player
@@ -435,8 +454,14 @@ export function killEnemy(id: string): void {
     }
 
     addRewardGold(Math.round(rollInt(table.goldMin, table.goldMax) * goldMul));
-    if (Math.random() < table.itemChance + itemBonus) {
+    // Items and gems share ONE budget (DROP_CAP): each roll only fires while
+    // the room is still under the cap, so a room can't flood the chest.
+    if (dropsThisFight < DROP_CAP && Math.random() < table.itemChance + itemBonus) {
       dropItemFromTable(table);
+    }
+    // Gems drop on their own, more often than items (see gemChance).
+    if (dropsThisFight < DROP_CAP && Math.random() < table.gemChance) {
+      dropGemReward();
     }
   }
   removeEnemy(id);
