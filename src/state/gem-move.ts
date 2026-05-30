@@ -60,21 +60,27 @@ export function resetHeldGem(): void {
 // store is edited only on the returned value (no store touched) so callers
 // stay total.
 //
-// Exported as writeItemSockets so other socket editors (e.g. the Rest
-// add-socket action) persist through the SAME path and keep the Inspector in
-// sync, rather than reinventing the equipped / backpack / inspector wiring.
-export function writeItemSockets(item: Item, sockets: (Gem | null)[]): Item {
-  return writeBackSockets(item, sockets);
+function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
+  return writeItem({ ...item, sockets });
 }
 
-function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
-  const next: Item = { ...item, sockets };
-
+// Persist a fully-updated Item (any fields) to wherever it lives, keeping the
+// open Inspector in sync. Used by writeBackSockets and by editors that change
+// more than the socket list in one step - e.g. recolouring a socket, which
+// rewrites socketColors AND may eject a now-mismatched gem (sockets), so both
+// must land in one transition (see rest.ts § recolorSocket).
+//
+// We locate the item BY ID against the equipped slots and the backpack store
+// (not the inspector subject), so an edit lands on the right store even when
+// the currently-inspected item is a DIFFERENT one. An item not found in either
+// store is edited only on the returned value (no store touched) so callers
+// stay total.
+export function writeItem(next: Item): Item {
   // Equipped: find the slot holding this item id and mutate it there. This
   // re-derives playerEffects / playerProcs / playerProfile.
   const eq = get(equipped);
   for (const [slotId, eqItem] of Object.entries(eq)) {
-    if (eqItem && eqItem.id === item.id) {
+    if (eqItem && eqItem.id === next.id) {
       updateEquippedAt(slotId as keyof typeof eq, () => next);
       syncInspector(next);
       return next;
@@ -84,7 +90,7 @@ function writeBackSockets(item: Item, sockets: (Gem | null)[]): Item {
   // Backpack: find the tile holding this item id (wherever it sits) and mutate
   // it there. By-id so it works for any backpack item, not just the inspected
   // one, and survives backpack reorders / sorts mid-move.
-  if (updateBackpackItemById(item.id, () => next)) {
+  if (updateBackpackItemById(next.id, () => next)) {
     syncInspector(next);
     return next;
   }
