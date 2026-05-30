@@ -1,12 +1,11 @@
-// Per-item gem resolution (see docs/gems.md § Resolution,
-// docs/adr/0006-support-binds-to-nearest-effect-right.md).
+// Per-item gem resolution (see docs/gems.md § Resolution).
 //
-// Each item is a self-contained mini-wand. We scan its sockets left to right;
-// each support binds to the nearest EFFECT gem to its right (skipping over any
-// intervening supports). A run of supports left of an effect therefore all bind
-// to that one effect, applied in socket order. A support with no effect to its
-// right is inert. Binding never crosses item boundaries - this module resolves
-// a single item's sockets.
+// Each item is a self-contained mini-wand. A support gem modifies only the
+// effect gem(s) in its DIRECTLY ADJACENT sockets - the immediate left and right
+// neighbours - so placement is a local puzzle: park a support between two
+// effects to boost both. A support whose neighbours are both non-effects (or at
+// the row's edge) is inert. Binding never crosses item boundaries. (Supersedes
+// ADR 0006's nearest-effect-to-the-right rule and the brief all-effects rule.)
 //
 // The output is two parallel paths, exactly as in docs/gems.md:
 //   - stats: EnchantEffect[]  -> the unchanged attack-profile / defence-profile
@@ -15,15 +14,10 @@
 // It only reads the gem model (gem.ts) and the gem catalogue
 // (gem-catalogue.ts) - sockets are the single source of an item's effects.
 //
-// Worked example (from docs/gems.md § Worked examples, build a lightning storm):
-//   [Forking] [Overload] [Rapid] [⚡ Chain Lightning]
-//   All three supports bind to Chain Lightning and apply in socket order:
-//     count    1 -> 2        (Forking: +1 target)
-//     damage   200 -> 320    (Overload: x1.6)
-//     cooldown 3s -> 2.1s    (Rapid: x0.7)
-//   Add a 5th socket [Igniting] and the bolts also Burn (rider appended).
-//   The wasted-support puzzle: [⚡ Chain Lightning] [Overload] leaves Overload
-//   with no effect to its right, so it is inert.
+// Worked example: [⚡ Chain Lightning] [Overload] [☄️ Meteor] [Forking]
+//   Overload (x1.6 dmg) sits between the two procs, so it boosts BOTH.
+//   Forking (+1 target) is only beside Meteor, so only Meteor forks.
+//   A support flanked by empties / other supports is inert.
 
 import type { EnchantEffect } from './enchant';
 import type { Gem, ProcDef, ProcPayload, SupportMod, GemDef } from './gem';
@@ -88,17 +82,35 @@ function scalePayload(payload: ProcPayload, factor: number): ProcPayload {
   }
 }
 
-// Level a support's knob by the support gem's own level. A `scale` support's
-// bonus (factor - 1) is multiplied by mag(level), so a Lv2 x1.6 scale becomes
-// x1.9 (0.6 -> 0.9). count / cooldown / crit / rider / repeat keep their base
-// strength - level mainly bumps damage + cooldown, and a "rider" / "count"
-// knob has no magnitude to scale (see FEATURE 1).
-function levelSupportMod(mod: SupportMod, level: number): SupportMod {
+// Scale a support's knob by the support gem's own level. Combining identical
+// gems raises the level, and EVERY knob grows with it so a higher-level support
+// is always stronger (a Lv2 Lethal really does add more crit, etc.):
+//   - scale:    bonus (factor - 1) grows on the non-linear mag() curve
+//   - count:    +targets grows linearly (N copies -> N x plus)
+//   - crit:     +crit-chance grows linearly
+//   - repeat:   +extra casts grows linearly
+//   - cooldown: the multiplier compounds (N copies each multiply: 0.7 -> 0.49)
+//   - rider:    a status carries no numeric magnitude, so level can't scale it
+//               (Igniting / Chilling just (re)apply their status). This is the
+//               one knob whose level-up is inert by design.
+// Exported as the single source of truth so the display (gem-display.ts) shows
+// exactly the leveled knob combat uses.
+export function levelSupportMod(mod: SupportMod, level: number): SupportMod {
   if (level <= 1) return mod;
-  if (mod.kind === 'scale') {
-    return { kind: 'scale', factor: 1 + (mod.factor - 1) * mag(level) };
+  switch (mod.kind) {
+    case 'scale':
+      return { kind: 'scale', factor: 1 + (mod.factor - 1) * mag(level) };
+    case 'count':
+      return { kind: 'count', plus: mod.plus * level };
+    case 'crit':
+      return { kind: 'crit', chanceAdd: mod.chanceAdd * level };
+    case 'repeat':
+      return { kind: 'repeat', times: mod.times * level, delaySec: mod.delaySec };
+    case 'cooldown':
+      return { kind: 'cooldown', factor: Math.pow(mod.factor, level) };
+    case 'rider':
+      return mod;
   }
-  return mod;
 }
 
 // Apply a support's knob to a proc-in-progress. `scale` multiplies the payload
@@ -140,79 +152,128 @@ function applyKnobToStats(effects: EnchantEffect[], mod: SupportMod): EnchantEff
   return effects;
 }
 
-// The binding map for an item's sockets, for the UI to render (connectors /
-// dimming). Mirrors the resolution rule exactly: a support binds to the
-// nearest EFFECT gem to its right, skipping intervening supports; a support
-// with no effect to its right is inert.
+// The binding state for an item's sockets, for the UI to render (active vs
+// dimmed supports). Mirrors the resolution rule: a support modifies the effect
+// gem(s) in its DIRECTLY ADJACENT sockets (left and right neighbours), so it is
+// ACTIVE when at least one neighbour is an effect gem, and INERT otherwise.
 //
-//   - supportToEffect: support socket index -> the effect socket index it
-//     binds to. A support index present here is bound; absent means inert.
-//   - inertSupports: the support socket indices that found no effect (a Set
-//     for cheap membership tests in the render loop).
+//   - boundSupports: support socket indices with an adjacent effect the support
+//     actually modifies (it's boosting that neighbour).
+//   - inertSupports: support socket indices whose neighbours are both
+//     non-effects (empty / support / edge of the socket row).
+//   - incompatibleSupports: support socket indices adjacent to an effect, but
+//     whose knob does NOTHING to it (e.g. a crit / count / rider support next
+//     to a heal / buff proc, or any non-scale support next to a stat gem).
 //
-// Both are keyed by SOCKET index (including empties / unknown defIds, which
-// are simply never keys), so the UI can map them straight onto its cells.
+// Both are keyed by SOCKET index (empties / unknown defIds are never keys), so
+// the UI can map them straight onto its cells.
 export interface SocketBindings {
-  supportToEffect: Map<number, number>;
+  boundSupports: Set<number>;
   inertSupports: Set<number>;
+  incompatibleSupports: Set<number>;
 }
 
-// Classify a socket by its catalogue role without resolving its payload.
-// Empty sockets and unknown defIds count as neither effect nor support.
-function socketRole(slot: Gem | null): 'effect' | 'support' | null {
+// Classify a socket by its catalogue role without resolving its payload. Out-of
+// -bounds indices (undefined) and empty sockets / unknown defIds count as
+// neither effect nor support.
+function socketRole(slot: Gem | null | undefined): 'effect' | 'support' | null {
   if (!slot) return null;
   const def = lookup(slot.defId);
   if (!def) return null;
   return def.role;
 }
 
-// Compute the support -> effect binding map for an item's sockets. We scan
-// right to left: each effect becomes the "nearest effect to the right" for
-// every support we encounter until the next effect. Supports seen before any
-// effect (i.e. with no effect further right) stay inert.
-export function computeBindings(sockets: Array<Gem | null>): SocketBindings {
-  const supportToEffect = new Map<number, number>();
-  const inertSupports = new Set<number>();
+// Does this support knob actually do anything to `effect`? Mirrors
+// applyKnobToProc / applyKnobToStats: `scale` tweaks damage / heal / shield
+// magnitudes (and stat amounts); `count` / `crit` / `rider` only bite on a
+// damage proc; `cooldown` and `repeat` apply to any proc; nothing but `scale`
+// touches a stat gem.
+function supportAppliesToEffect(mod: SupportMod, effect: GemDef): boolean {
+  if ('proc' in effect) {
+    const kind = effect.proc.payload.kind;
+    switch (mod.kind) {
+      case 'cooldown':
+      case 'repeat':
+        return true;
+      case 'scale':
+        return kind === 'damage' || kind === 'heal' || kind === 'shield';
+      case 'count':
+      case 'crit':
+      case 'rider':
+        return kind === 'damage';
+    }
+  }
+  // Stat gem: only a scale support changes anything.
+  return mod.kind === 'scale';
+}
 
-  let nearestEffectRight = -1;
-  for (let i = sockets.length - 1; i >= 0; i--) {
-    const role = socketRole(sockets[i]);
-    if (role === 'effect') {
-      nearestEffectRight = i;
-    } else if (role === 'support') {
-      if (nearestEffectRight === -1) inertSupports.add(i);
-      else supportToEffect.set(i, nearestEffectRight);
+// The effect-gem defs in the two sockets directly beside `i`.
+function adjacentEffectDefs(sockets: Array<Gem | null>, i: number): GemDef[] {
+  const out: GemDef[] = [];
+  for (const n of [i - 1, i + 1]) {
+    const nb = sockets[n];
+    if (!nb) continue;
+    const def = lookup(nb.defId);
+    if (def && def.role === 'effect') out.push(def);
+  }
+  return out;
+}
+
+// Compute the support binding state for an item's sockets: bound (boosts an
+// adjacent effect), inert (no adjacent effect), or incompatible (adjacent to an
+// effect its knob can't touch).
+export function computeBindings(sockets: Array<Gem | null>): SocketBindings {
+  const boundSupports = new Set<number>();
+  const inertSupports = new Set<number>();
+  const incompatibleSupports = new Set<number>();
+
+  for (let i = 0; i < sockets.length; i++) {
+    const slot = sockets[i];
+    const def = slot ? lookup(slot.defId) : undefined;
+    if (!def || def.role !== 'support') continue;
+    const neighbours = adjacentEffectDefs(sockets, i);
+    if (neighbours.length === 0) {
+      inertSupports.add(i);
+    } else if (neighbours.some((n) => supportAppliesToEffect(def.mod, n))) {
+      boundSupports.add(i);
+    } else {
+      incompatibleSupports.add(i);
     }
   }
 
-  return { supportToEffect, inertSupports };
+  return { boundSupports, inertSupports, incompatibleSupports };
 }
 
-// Resolve one item's sockets into stats + procs.
+// The levelled support knobs adjacent to socket `i` (its immediate left + right
+// neighbours), in left-then-right order. Empty / non-support neighbours and the
+// edges of the socket row contribute nothing.
+function adjacentSupports(sockets: Array<Gem | null>, i: number): SupportMod[] {
+  const mods: SupportMod[] = [];
+  for (const n of [i - 1, i + 1]) {
+    const nb = sockets[n];
+    if (!nb) continue;
+    const def = lookup(nb.defId);
+    if (def && def.role === 'support') mods.push(levelSupportMod(def.mod, gemLevel(nb)));
+  }
+  return mods;
+}
+
+// Resolve one item's sockets into stats + procs. A support modifies only the
+// effect gems DIRECTLY BESIDE it, so each effect is boosted by the supports in
+// its two adjacent sockets (left + right).
 export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
   const stats: EnchantEffect[] = [];
   const procs: ResolvedProc[] = [];
 
-  // Pending supports waiting for the next effect to their right. We accumulate
-  // them in socket order; when we hit an effect they all bind to it (left to
-  // right). Leftover supports at the end never found an effect and are inert.
-  let pendingSupports: SupportMod[] = [];
-
-  for (const slot of sockets) {
+  for (let i = 0; i < sockets.length; i++) {
+    const slot = sockets[i];
     if (!slot) continue;
     const def = lookup(slot.defId);
-    if (!def) continue;
+    if (!def || def.role !== 'effect') continue;
 
     const level = gemLevel(slot);
+    const supports = adjacentSupports(sockets, i);
 
-    if (def.role === 'support') {
-      // The support's knob strength scales with its own level.
-      pendingSupports.push(levelSupportMod(def.mod, level));
-      continue;
-    }
-
-    // An effect gem: scale its payload + cooldown (proc) or stat amounts by its
-    // own level FIRST, then bind every pending support to it in socket order.
     if ('proc' in def) {
       const resolved: ResolvedProc = {
         ...def.proc,
@@ -226,16 +287,13 @@ export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
         extraCasts: 0,
         repeatDelaySec: 0,
       };
-      for (const mod of pendingSupports) applyKnobToProc(resolved, mod);
+      for (const mod of supports) applyKnobToProc(resolved, mod);
       procs.push(resolved);
     } else {
       let effects = def.stat.effects.map((e) => scaleEffect({ ...e }, mag(level)));
-      for (const mod of pendingSupports) effects = applyKnobToStats(effects, mod);
+      for (const mod of supports) effects = applyKnobToStats(effects, mod);
       stats.push(...effects);
     }
-
-    // The run of supports has been consumed by this effect.
-    pendingSupports = [];
   }
 
   return { stats, procs };

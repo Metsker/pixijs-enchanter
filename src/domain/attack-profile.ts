@@ -20,7 +20,10 @@ export const UNARMED: AttackProfile = {
 
 const BASE_DAMAGE = 0;
 const BASE_TYPE: DamageType = 'physical';
-const BASE_INTERVAL = 1.5;
+// Base seconds between the player's auto-attacks (lower = faster). Speed-add /
+// interval-reduction effects shorten it further. Bumped down from 1.5 so the
+// player swings noticeably faster out of the box.
+const BASE_INTERVAL = 1.1;
 const BASE_CRIT_MUL = 2.0;
 const INTERVAL_FLOOR = 0.3;
 

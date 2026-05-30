@@ -128,14 +128,14 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '🌠',
     },
   },
-  // Effect (stat) - +80 physical to your auto-attack.
+  // Effect (stat) - +150 physical to your auto-attack.
   edge: {
     id: 'edge',
     emoji: '⚔️',
     class: 'weapon',
     role: 'effect',
     stat: {
-      effects: [{ kind: 'damage-add', amount: 80, type: 'physical' }],
+      effects: [{ kind: 'damage-add', amount: 150, type: 'physical' }],
     },
   },
   // Support - count: +1 target on the bound proc.
@@ -193,7 +193,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '🌵',
     },
   },
-  // Effect (proc) - timer 8s: heal 15% max HP.
+  // Effect (proc) - timer 6s: heal 15% max HP.
   sanctuary: {
     id: 'sanctuary',
     emoji: '✨',
@@ -201,7 +201,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'effect',
     proc: {
       trigger: 'timer',
-      cooldownSec: 8,
+      cooldownSec: 6,
       payload: { kind: 'heal', fraction: 0.15 },
       targeting: 'nearest',
       count: 1,
@@ -229,7 +229,9 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '🔥',
     },
   },
-  // Effect (proc) - timer 12s: gain a shield = 20% max HP.
+  // Effect (proc) - timer 6s: gain a shield = 20% max HP. (Cooldowns are
+  // capped at 6s across the catalogue - see docs note; longer timers were
+  // buffed down to 6.)
   bulwark: {
     id: 'bulwark',
     emoji: '🛡️',
@@ -237,7 +239,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'effect',
     proc: {
       trigger: 'timer',
-      cooldownSec: 12,
+      cooldownSec: 6,
       payload: { kind: 'shield', fraction: 0.2 },
       targeting: 'nearest',
       count: 1,
@@ -247,14 +249,14 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '🛡️',
     },
   },
-  // Effect (stat) - +400 max HP.
+  // Effect (stat) - +700 max HP.
   heart: {
     id: 'heart',
     emoji: '❤️',
     class: 'armor',
     role: 'effect',
     stat: {
-      effects: [{ kind: 'hp-max-add', amount: 400 }],
+      effects: [{ kind: 'hp-max-add', amount: 700 }],
     },
   },
   // Support - cooldown: -30% cooldown / +duration on shields & auras.
@@ -296,7 +298,8 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '👻',
     },
   },
-  // Effect (proc) - timer 10s: +50% attack speed for 3s (self-buff).
+  // Effect (proc) - timer 5s: +50% attack speed for 2.5s (self-buff). Buffed
+  // cooldown (10 -> 5).
   'time-warp': {
     id: 'time-warp',
     emoji: '⏳',
@@ -304,8 +307,8 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'effect',
     proc: {
       trigger: 'timer',
-      cooldownSec: 10,
-      payload: { kind: 'buff', attackSpeedAdd: 0.5, durationSec: 3 },
+      cooldownSec: 5,
+      payload: { kind: 'buff', attackSpeedAdd: 0.5, durationSec: 2.5 },
       targeting: 'nearest',
       count: 1,
       canCrit: false,
@@ -332,24 +335,24 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '💰',
     },
   },
-  // Effect (stat) - +12% attack speed.
+  // Effect (stat) - +20% attack speed.
   swiftness: {
     id: 'swiftness',
     emoji: '⏩',
     class: 'jewelry',
     role: 'effect',
     stat: {
-      effects: [{ kind: 'attack-speed-add', amount: 0.12 }],
+      effects: [{ kind: 'attack-speed-add', amount: 0.2 }],
     },
   },
-  // Effect (stat) - +10% crit chance (auto-attack).
+  // Effect (stat) - +18% crit chance (auto-attack).
   keen: {
     id: 'keen',
     emoji: '🔎',
     class: 'jewelry',
     role: 'effect',
     stat: {
-      effects: [{ kind: 'crit-chance-add', amount: 0.1 }],
+      effects: [{ kind: 'crit-chance-add', amount: 0.18 }],
     },
   },
   // Support - crit: the bound proc can crit (+25% crit chance on it).

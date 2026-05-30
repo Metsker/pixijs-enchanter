@@ -24,6 +24,7 @@ import type {
 import { colorForClass, gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import { mag, cooldownAt } from './gem-level';
+import { levelSupportMod } from './gem-resolution';
 
 // The single source of truth for socket / gem colour hex, used by every UI
 // surface that paints a socket ring or a gem tile (Inspector, Backpack). Tuned
@@ -38,7 +39,7 @@ export interface GemDisplay {
   emoji: string;
   name: string;
   // One-line effect / role summary, e.g. "Every 3s: 200 lightning to a random
-  // enemy" or "Support: x1.6 damage to the bound effect". Reflects the gem's
+  // enemy" or "x1.6 to the bound effect". Reflects the gem's
   // level - the numbers here match what gem-resolution.ts feeds combat.
   summary: string;
   role: 'effect' | 'support';
@@ -176,20 +177,22 @@ function statSummary(stat: StatDef): string {
   return stat.effects.map(statEffectPhrase).join(', ');
 }
 
+// The gem's role ("Support") is already labelled by the UI next to its name, so
+// the summary just states the modifier and never repeats the word "Support".
 function supportSummary(mod: SupportMod): string {
   switch (mod.kind) {
     case 'scale':
-      return `Support: x${mod.factor} to the bound effect`;
+      return `x${mod.factor} to the bound effect`;
     case 'count':
-      return `Support: +${mod.plus} target on the bound proc`;
+      return `+${mod.plus} target on the bound proc`;
     case 'cooldown':
-      return `Support: x${mod.factor} cooldown on the bound proc`;
+      return `x${mod.factor} cooldown on the bound proc`;
     case 'crit':
-      return `Support: the bound proc may crit (+${pct(mod.chanceAdd)})`;
+      return `the bound proc may crit (+${pct(mod.chanceAdd)})`;
     case 'rider':
-      return `Support: the bound proc also applies ${STATUS_LABELS[mod.status] ?? mod.status}`;
+      return `the bound proc also applies ${STATUS_LABELS[mod.status] ?? mod.status}`;
     case 'repeat':
-      return `Support: the bound proc fires ${mod.times + 1}x`;
+      return `the bound proc fires ${mod.times + 1}x`;
   }
 }
 
@@ -235,13 +238,10 @@ function leveledStat(stat: StatDef, level: number): StatDef {
   return { effects: stat.effects.map((e) => scaleEffectMag(e, mag(level))) };
 }
 
-function leveledMod(mod: SupportMod, level: number): SupportMod {
-  if (level <= 1 || mod.kind !== 'scale') return mod;
-  return { kind: 'scale', factor: 1 + (mod.factor - 1) * mag(level) };
-}
-
 function defSummary(def: GemDef, level: number): string {
-  if (def.role === 'support') return supportSummary(leveledMod(def.mod, level));
+  // Use the same support-leveling math combat uses, so the displayed knob
+  // (e.g. a Lv2 Lethal's crit chance) matches what the proc engine applies.
+  if (def.role === 'support') return supportSummary(levelSupportMod(def.mod, level));
   if ('proc' in def) return procSummary(leveledProc(def.proc, level));
   return statSummary(leveledStat(def.stat, level));
 }
