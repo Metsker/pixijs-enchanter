@@ -7,6 +7,7 @@ import { equipped, updateEquippedAt } from './inventory';
 import {
   findBackpackGemById,
   findBackpackItemById,
+  placeGemAtCell,
   updateBackpackGemById,
   updateBackpackItemById,
 } from './backpack';
@@ -46,6 +47,18 @@ export const heldGem = writable<HeldGem | null>(null);
 // stash and leak it into the new run.
 export function resetHeldGem(): void {
   heldGem.set(null);
+}
+
+// Place the held gem into a SPECIFIC backpack cell (drag-reorder within the
+// bag). The gem was already lifted out of its origin by the pickup, so dropping
+// it onto an empty cell moves it there, and onto an occupied cell swaps the
+// occupant into the vacated space. Returns true if it landed.
+export function placeHeldGemIntoBackpackCell(index: number): boolean {
+  const held = get(heldGem);
+  if (!held) return false;
+  if (placeGemAtCell(held.gem, index) === -1) return false;
+  heldGem.set(null);
+  return true;
 }
 
 // --- item write-back ----------------------------------------------------

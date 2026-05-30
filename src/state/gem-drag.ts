@@ -14,6 +14,7 @@ import {
   heldGem,
   pickUpFromBackpack,
   pickUpFromSocket,
+  placeHeldGemIntoBackpackCell,
   placeHeldIntoItemFirstEmpty,
   placeIntoSocket,
   placeIntoStash,
@@ -101,6 +102,8 @@ type DropTarget =
   | { kind: 'socket'; item: Item; index: number; valid: boolean }
   | { kind: 'slot'; item: Item; valid: boolean }
   | { kind: 'trash'; valid: true }
+  // A specific backpack cell: move/reorder the gem THERE (not "first empty").
+  | { kind: 'backpack-cell'; index: number; valid: true }
   | { kind: 'stash'; valid: true }
   | { kind: 'none' };
 
@@ -157,6 +160,11 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     if (isGem(slot) && canCombine(gem, slot)) {
       return { kind: 'combine-backpack', gemId: slot.id, valid: true };
     }
+    // Move the gem into THIS cell (reorder within the bag), displacing any
+    // occupant. Falls back to a generic stash drop if the index is malformed.
+    if (Number.isInteger(cellIndex)) {
+      return { kind: 'backpack-cell', index: cellIndex, valid: true };
+    }
     return { kind: 'stash', valid: true };
   }
 
@@ -175,6 +183,8 @@ function zoneIdOf(target: DropTarget): string | null {
       return `slot:${target.item.id}`;
     case 'trash':
       return 'trash';
+    case 'backpack-cell':
+      return 'stash';
     case 'stash':
       return 'stash';
     case 'none':
@@ -245,6 +255,10 @@ function onPointerUp(e: PointerEvent): void {
       // Disenchant the held gem for crystals (FEATURE 2). The gem was already
       // lifted out of its origin, so disenchantHeldGem just consumes + refunds.
       disenchantHeldGem();
+      break;
+    case 'backpack-cell':
+      // Reorder within the bag: move the gem into this specific cell.
+      if (!placeHeldGemIntoBackpackCell(target.index)) cancelHeld();
       break;
     case 'stash':
       placeIntoStash();

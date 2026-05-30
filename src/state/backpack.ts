@@ -54,6 +54,30 @@ export function addGemToBackpack(gem: Gem): number {
   return placed;
 }
 
+// Place a (held) gem into a SPECIFIC cell - used by the gem-drag reorder so
+// dropping a gem onto a backpack cell moves it THERE, not just to "first empty".
+// Any occupant (item or other gem) is displaced to the first empty cell, giving
+// a swap/reflow. The held gem is NOT in the grid at call time (the drag lifted
+// it out), so its vacated origin is among the empties. Returns the landing
+// index, or -1 if `index` is invalid or a displaced occupant has nowhere to go.
+export function placeGemAtCell(gem: Gem, index: number): number {
+  let placed = -1;
+  backpack.update((slots) => {
+    if (index < 0 || index >= slots.length) return slots;
+    const occupant = slots[index];
+    const next = slots.slice();
+    next[index] = gem;
+    if (occupant !== null) {
+      const empty = next.findIndex((s) => s === null);
+      if (empty === -1) return slots; // nowhere for the displaced occupant - abort
+      next[empty] = occupant;
+    }
+    placed = index;
+    return next;
+  });
+  return placed;
+}
+
 export function removeItem(index: number): BackpackSlot {
   let removed: BackpackSlot = null;
   backpack.update((slots) => {
