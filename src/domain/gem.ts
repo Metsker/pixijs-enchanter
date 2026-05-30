@@ -10,9 +10,28 @@
 
 import type { DamageType, StatusType, EnchantEffect } from './enchant';
 
-// A gem only fits a socket of its own class - this is "compatible items".
-// Reused from the old enchant pools (weapons / armor / jewelry).
+// A gem's class drives its colour (see SocketColor below). Reused from the old
+// enchant pools (weapons / armor / jewelry).
 export type GemClass = 'weapon' | 'armor' | 'jewelry';
+
+// PoE-style socket colours. A gem no longer fits "its item's class"; instead
+// every socket carries a colour and a gem fits a socket iff their colours
+// match. The three colours map one-to-one onto the gem classes:
+//   weapon  -> red      armor -> green      jewelry -> blue
+export type SocketColor = 'red' | 'green' | 'blue';
+
+// The colour for a gem class (single source of truth for the class<->colour
+// map, reused by gemColor, drop generation and the item's theme colour).
+export function colorForClass(gemClass: GemClass): SocketColor {
+  switch (gemClass) {
+    case 'weapon':
+      return 'red';
+    case 'armor':
+      return 'green';
+    case 'jewelry':
+      return 'blue';
+  }
+}
 
 // Effect gems carry the payload; support gems modify the effect they bind to.
 export type GemRole = 'effect' | 'support';

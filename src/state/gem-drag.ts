@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
 import { isGem } from '../domain/gem';
 import type { Item } from '../domain/item';
-import { gemFitsSocketOf } from '../domain/gem-fit';
+import { gemColor, gemFitsSocketAt } from '../domain/gem-fit';
 import { equipped } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { backpack, findBackpackItemById } from './backpack';
@@ -90,8 +90,9 @@ function resolveItemById(itemId: string): Item | null {
 
 // What the gem under the pointer would do if dropped here, used both to set the
 // ghost's valid flag during the move and to route on pointer-up. Returns a
-// resolved target plus a `valid` flag (a stash drop is always valid; a socket /
-// slot drop is valid only if the gem's class fits).
+// resolved target plus a `valid` flag (a stash drop is always valid; a socket
+// drop is valid only if the gem's colour matches that socket; a slot drop is
+// valid only if the item has an empty socket of the gem's colour).
 type DropTarget =
   // A socket holding a same-defId gem: combine (level up) overrides swap.
   | { kind: 'combine-socket'; item: Item; index: number; valid: true }
@@ -125,7 +126,7 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
       if (occupant && canCombine(gem, occupant)) {
         return { kind: 'combine-socket', item, index, valid: true };
       }
-      return { kind: 'socket', item, index, valid: gemFitsSocketOf(gem, item) };
+      return { kind: 'socket', item, index, valid: gemFitsSocketAt(gem, item, index) };
     }
   }
 
@@ -140,8 +141,10 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     const slotId = (slotEl.dataset.slotId ?? '') as EquipmentSlotId;
     const eqItem = get(equipped)[slotId];
     if (eqItem) {
+      const color = gemColor(gem);
       const hasEmptyFit =
-        gemFitsSocketOf(gem, eqItem) && eqItem.sockets.some((s) => s === null);
+        color !== null &&
+        eqItem.sockets.some((s, i) => s === null && eqItem.socketColors[i] === color);
       return { kind: 'slot', item: eqItem, valid: hasEmptyFit };
     }
   }

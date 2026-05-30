@@ -33,7 +33,7 @@
   import type { Gem } from '../domain/gem';
   import { gemDisplay } from '../domain/gem-display';
   import { computeBindings } from '../domain/gem-resolution';
-  import { gemFitsSocketOf } from '../domain/gem-fit';
+  import { gemFitsSocketAt } from '../domain/gem-fit';
   import { cancelHeld, heldGem } from '../state/gem-move';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
   import { gemStash } from '../state/gem-stash';
@@ -96,15 +96,15 @@
     $inspector ? computeBindings($inspector.item.sockets) : null,
   );
 
-  // True if the currently held gem may be dropped into the open item (class
-  // fits). Used to highlight valid drop targets; a class mismatch makes every
-  // socket of this item an invalid target.
-  const heldFitsItem = $derived.by(() => {
+  // Whether the currently held gem fits a GIVEN socket of the open item (its
+  // colour matches that socket's colour). Per-socket now - a held gem can be a
+  // valid drop target for some sockets of an item and not others.
+  function heldFitsSocket(index: number): boolean {
     const held = $heldGem;
     const subj = $inspector;
     if (!held || !subj) return false;
-    return gemFitsSocketOf(held.gem, subj.item);
-  });
+    return gemFitsSocketAt(held.gem, subj.item, index);
+  }
 
   // Pointer-down on a FILLED socket starts a gem drag (drag it out to a stash /
   // another socket / an equipped item). Empty sockets and read-only previews
@@ -343,9 +343,10 @@
             $heldGem.from.kind === 'socket' &&
             $heldGem.from.itemId === item.id &&
             $heldGem.from.index === i}
-          {@const dropTarget = socketsEditable && $heldGem !== null && heldFitsItem}
+          {@const fitsThis = heldFitsSocket(i)}
+          {@const dropTarget = socketsEditable && $heldGem !== null && fitsThis}
           {@const incompatible =
-            socketsEditable && $heldGem !== null && !heldFitsItem}
+            socketsEditable && $heldGem !== null && !fitsThis}
           {@const armed = isArmedSocket(item.id, i)}
           <button
             type="button"

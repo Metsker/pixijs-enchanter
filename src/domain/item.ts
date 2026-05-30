@@ -1,4 +1,4 @@
-import type { Gem } from './gem';
+import type { Gem, SocketColor } from './gem';
 import { EQUIPMENT_SLOTS, type EquipmentSlotId } from './equipment';
 
 // Discriminate an Item from a loose Gem in a shared backpack slot. An Item is
@@ -20,9 +20,16 @@ export interface Item {
   armorSlot?: ArmorSlot;
   // An ordered list of sockets (see docs/gems.md § Sockets). The length is
   // the item's capacity, replacing the old "tier = enchant count" idea. Each
-  // socket holds a Gem instance of the item's class or is empty (null). Order
-  // is player-controlled and drives the per-item gem resolution.
+  // socket holds a Gem instance whose colour matches socketColors[i], or is
+  // empty (null). Order is player-controlled and drives the per-item gem
+  // resolution.
   sockets: (Gem | null)[];
+  // The colour of each socket, parallel to `sockets` (index i is the colour of
+  // socket i, so socketColors.length === sockets.length). A gem fits socket i
+  // iff gemColor(gem) === socketColors[i] (see gem-fit.ts). Kept as a parallel
+  // array - NOT folded into the socket objects - so the resolution / move /
+  // display code that reads sockets[i] as a gem stays untouched.
+  socketColors: SocketColor[];
   // Per-item visual variant override (e.g. weapons roll a random sword /
   // axe / spear / bow icon at generation time). Purely cosmetic - all
   // weapons share the same combat math regardless of icon. When unset,

@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
 import { gemLevel } from '../domain/gem';
 import type { Item } from '../domain/item';
-import { gemFitsSocketOf } from '../domain/gem-fit';
+import { gemColor, gemFitsSocketAt } from '../domain/gem-fit';
 import { equipped, updateEquippedAt } from './inventory';
 import {
   findBackpackGemById,
@@ -21,8 +21,8 @@ import { addGemToStash, removeGemFromStashById } from './gem-stash';
 // occupant flows back to the held gem's origin (the socket it came from, or
 // the stash). Cancelling returns the held gem to its origin untouched.
 //
-// A gem may only enter a socket whose item class matches the gem's class
-// (gemFitsSocketOf); a class mismatch is a no-op (the gem stays held).
+// A gem may only enter a socket whose COLOUR matches the gem's colour
+// (gemFitsSocketAt); a colour mismatch is a no-op (the gem stays held).
 //
 // All socket edits are written back immutably to wherever the item lives -
 // the equipped store (so playerEffects / playerProcs / playerProfile, all
@@ -171,13 +171,13 @@ function returnOccupantToOrigin(
 }
 
 // Place the held gem into `item`'s socket `index`. Rejected (gem stays held)
-// if no gem is held or the gem's class doesn't fit the item. An empty target
-// socket takes the gem; an occupied one swaps, sending the occupant back to
-// the held gem's origin.
+// if no gem is held or the gem's colour doesn't match that socket. An empty
+// target socket takes the gem; an occupied one swaps, sending the occupant
+// back to the held gem's origin.
 export function placeIntoSocket(item: Item, index: number): void {
   const held = get(heldGem);
   if (!held) return;
-  if (!gemFitsSocketOf(held.gem, item)) return; // class mismatch: reject.
+  if (!gemFitsSocketAt(held.gem, item, index)) return; // colour mismatch: reject.
 
   const sockets = item.sockets.slice();
   const occupant = sockets[index] ?? null;
@@ -247,19 +247,22 @@ export function combineIntoBackpackGem(targetGemId: string): boolean {
   return true;
 }
 
-// Auto-socket: place the held gem into `item`'s FIRST EMPTY socket whose class
-// fits the gem, then return true. If the gem's class doesn't fit the item, or
-// the item has no empty socket, the placement is rejected: the held gem is
-// returned to its origin (cancelHeld) and false is returned. Drives the
-// "drag a gem onto an equipped item slot" interaction (decision 2).
+// Auto-socket: place the held gem into `item`'s FIRST EMPTY socket whose
+// COLOUR matches the gem, then return true. If no empty socket of the gem's
+// colour exists, the placement is rejected: the held gem is returned to its
+// origin (cancelHeld) and false is returned. Drives the "drag a gem onto an
+// equipped item slot" interaction (decision 2).
 export function placeHeldIntoItemFirstEmpty(item: Item): boolean {
   const held = get(heldGem);
   if (!held) return false;
-  if (!gemFitsSocketOf(held.gem, item)) {
+  const color = gemColor(held.gem);
+  if (!color) {
     cancelHeld();
     return false;
   }
-  const emptyIndex = item.sockets.findIndex((s) => s === null);
+  const emptyIndex = item.sockets.findIndex(
+    (s, i) => s === null && item.socketColors[i] === color,
+  );
   if (emptyIndex === -1) {
     cancelHeld();
     return false;
