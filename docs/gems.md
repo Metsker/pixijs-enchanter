@@ -41,9 +41,8 @@ The passive crit stat (`Keen`) applies to the auto-attack, not to procs.
 ## Sockets
 
 - An item exposes an **ordered list of sockets**: `sockets: (Gem | null)[]`.
-- Socket **count = tier × 2** (T1 = 2 sockets, T2 = 4, ... up to 12), replacing
-  the old "tier = enchant count" idea. Higher floors drop higher-tier items.
-  (Supersedes ADR 0002.)
+- Socket **count = item capacity** (1-6), replacing the old "tier = enchant
+  count" idea. Higher floors drop higher-capacity items. (Supersedes ADR 0002.)
 - A socket only accepts a gem of the item's class.
 - Order within an item is player-controlled and is the whole game.
 

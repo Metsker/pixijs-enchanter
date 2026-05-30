@@ -78,11 +78,11 @@ export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
   return buildItem('weapon', tier, idPrefix);
 }
 
-// Each tier grants TWO sockets (T1 = 2, T2 = 4, ...). Tier is clamped to at
-// least 1 so every item has room for a couple of gems.
+// Tier is the socket capacity (clamped to at least 1 so every item has
+// room for a gem).
 function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
   const armorSlot = itemType === 'armor' ? pick(ALL_ARMOR_SLOTS) : undefined;
-  const capacity = Math.max(1, tier) * 2;
+  const capacity = Math.max(1, tier);
   const sockets = rollSockets(capacity, gemClassForItemType(itemType));
   const icon = iconFor(itemType, armorSlot);
   return { id: nextItemId(idPrefix), itemType, armorSlot, sockets, icon };

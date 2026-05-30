@@ -159,6 +159,40 @@ export function canEquipDirect(item: Item): boolean {
   return get(backpack).includes(null);
 }
 
+// === Drag-to-equip ==================================================
+// A backpack item currently being dragged toward the equipment column.
+// InventoryColumn reads this to highlight the legal slots (drop candidates)
+// and the slot under the pointer (targetSlot). Set by the Backpack while an
+// item drag is in flight; cleared on drop / cancel.
+export const itemDrag = writable<{ item: Item; targetSlot: EquipmentSlotId | null } | null>(null);
+
+// True if `item` may be equipped into `slotId`.
+export function itemFitsSlot(item: Item, slotId: EquipmentSlotId): boolean {
+  return legalEquipmentSlots(item).includes(slotId);
+}
+
+// Equip a backpack item into a SPECIFIC slot - the drop target the player
+// chose by dragging there. The item must be legal for the slot. An empty slot
+// just takes it (the source tile empties); an occupied slot swaps, sending the
+// displaced item back to the source backpack tile. Returns the slot, or null
+// if the item can't go there.
+export function equipFromBackpackToSlot(
+  backpackIndex: number,
+  slotId: EquipmentSlotId,
+): EquipmentSlotId | null {
+  const item = get(backpack)[backpackIndex];
+  if (!isItem(item)) return null;
+  if (!legalEquipmentSlots(item).includes(slotId)) return null;
+  const displaced = get(equipped)[slotId] ?? null;
+  backpack.update((slots) => {
+    const next = slots.slice();
+    next[backpackIndex] = displaced; // displaced equipped item (or null) takes the source tile
+    return next;
+  });
+  equipped.update((eq) => ({ ...eq, [slotId]: item }));
+  return slotId;
+}
+
 // Apply a mutator to the item in `slotId`. Pass `null` from the mutator to
 // unequip (slot becomes empty). Returns the new item (or null).
 export function updateEquippedAt(

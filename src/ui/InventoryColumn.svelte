@@ -2,13 +2,107 @@
   import {
     displacementPick,
     equipped,
+    itemDrag,
     resolveDisplacementPick,
   } from '../state/inventory';
   import { EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
-  import { itemEmoji, tierOf } from '../domain/item';
-  import { inspector, inspectItem } from '../state/inspector';
+  import { itemEmoji, legalEquipmentSlots, socketSummary, tierOf } from '../domain/item';
+  import { closeInspector, inspector, inspectItem } from '../state/inspector';
   import { gemDropZone } from '../state/gem-drag';
+  import { unequipToBackpack } from '../state/inventory';
+  import { disenchantEquipped } from '../state/disenchant';
+  import { backpackOpen } from '../state/ui';
+  import { get } from 'svelte/store';
   import { t } from '../i18n';
+
+  // === Drag-to-unequip (FEATURE 5) =================================
+  // A filled equipment slot is a drag SOURCE: drag it onto a backpack cell to
+  // unequip into the bag, onto the trash to disenchant, or anywhere else to
+  // cancel (no-op). Pointer-based + gated by a move threshold so a tap still
+  // inspects (click fires only when no real drag happened). Mirrors the
+  // Backpack item-reorder drag, including the floating ghost.
+  let dragSlot = $state<EquipmentSlotId | null>(null);
+  let didDrag = $state(false);
+  let dragGhost = $state<{ x: number; y: number; emoji: string } | null>(null);
+  let cellHot = $state(false); // a backpack cell is under the pointer
+  let trashHot = $state(false); // the trash is under the pointer
+  // Set when a real drag ends, so the click that fires right after pointerup
+  // doesn't also open the Inspector.
+  let suppressClick = false;
+  let pointerStart = { x: 0, y: 0 };
+  const DRAG_THRESHOLD_SQ = 100;
+
+  function onSlotPointerDown(e: PointerEvent, slotId: EquipmentSlotId): void {
+    // Only drag while the bag is open (the drop targets - cells / trash - only
+    // exist then). A displacement pick owns clicks, so don't start a drag then.
+    if (!get(backpackOpen) || $displacementPick) return;
+    dragSlot = slotId;
+    didDrag = false;
+    dragGhost = null;
+    pointerStart = { x: e.clientX, y: e.clientY };
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // setPointerCapture can throw for synthetic pointers; the drag still
+      // works via bubbling move/up - we just lose the capture optimisation.
+    }
+  }
+
+  function onSlotPointerMove(e: PointerEvent): void {
+    if (dragSlot === null) return;
+    if (!didDrag) {
+      const dx = e.clientX - pointerStart.x;
+      const dy = e.clientY - pointerStart.y;
+      if (dx * dx + dy * dy <= DRAG_THRESHOLD_SQ) return;
+      didDrag = true;
+    }
+    const item = $equipped[dragSlot];
+    dragGhost = { x: e.clientX, y: e.clientY, emoji: item ? itemEmoji(item) : '' };
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    trashHot = !!el?.closest('[data-trash]');
+    cellHot = !trashHot && !!el?.closest('[data-cell-index]');
+  }
+
+  function onSlotPointerUp(): void {
+    const slotId = dragSlot;
+    const wasDrag = didDrag;
+    const droppedOnTrash = trashHot;
+    const droppedOnCell = cellHot;
+    dragSlot = null;
+    didDrag = false;
+    dragGhost = null;
+    cellHot = false;
+    trashHot = false;
+    if (slotId === null || !wasDrag) return; // a tap: leave it to onclick.
+    suppressClick = true; // a real drag happened: swallow the trailing click.
+
+    if (droppedOnTrash) {
+      // Disenchant the equipped item (and its gems) for crystals.
+      if (disenchantEquipped(slotId)) {
+        const ins = get(inspector);
+        if (ins?.source === 'inventory' && ins.slotId === slotId) closeInspector();
+      }
+    } else if (droppedOnCell) {
+      // Unequip into the bag (first empty cell; rejected if the bag is full).
+      const landed = unequipToBackpack(slotId);
+      if (landed !== -1) {
+        const ins = get(inspector);
+        if (ins?.source === 'inventory' && ins.slotId === slotId) closeInspector();
+      }
+    }
+    // else dropped elsewhere / on another slot: no-op (item stays equipped).
+  }
+
+  // While a backpack item is dragged toward the column, every slot it could
+  // legally equip into reads as a drop candidate, and the slot under the
+  // pointer reads as the live target.
+  function isItemDropCandidate(slotId: EquipmentSlotId): boolean {
+    const d = $itemDrag;
+    return !!d && legalEquipmentSlots(d.item).includes(slotId);
+  }
+  function isItemDropTarget(slotId: EquipmentSlotId): boolean {
+    return $itemDrag?.targetSlot === slotId;
+  }
 
   // True while a dragged gem is hovering THIS equipped item (auto-socket
   // target). gemDropZone carries `slot:<itemId>` for a valid equipped-slot
@@ -30,6 +124,10 @@
   }
 
   function onSlotClick(slotId: EquipmentSlotId, item: ReturnType<typeof getItem>): void {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     if ($displacementPick && isPickTarget(slotId)) {
       const landed = resolveDisplacementPick(slotId);
       if (landed !== null) {
@@ -68,23 +166,47 @@
         class:inspecting={isInspecting(slotId)}
         class:pick-target={pickTarget}
         class:gem-target={isGemTarget(item.id)}
+        class:item-drop-candidate={isItemDropCandidate(slotId)}
+        class:item-drop-target={isItemDropTarget(slotId)}
+        class:dragging={didDrag && dragSlot === slotId}
         title={t(slot.nameKey)}
         data-inspector-source="inventory"
         data-slot-id={slotId}
         onclick={() => onSlotClick(slotId, item)}
+        onpointerdown={(e) => onSlotPointerDown(e, slotId)}
+        onpointermove={onSlotPointerMove}
+        onpointerup={onSlotPointerUp}
+        onpointercancel={onSlotPointerUp}
       >
         <span class="emoji">{itemEmoji(item)}</span>
         <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
-          T{tierOf(item)}
+          {socketSummary(item).filled}/{socketSummary(item).total}
         </span>
       </button>
     {:else}
-      <div class="slot" title={t(slot.nameKey)}>
+      <div
+        class="slot"
+        class:item-drop-candidate={isItemDropCandidate(slotId)}
+        class:item-drop-target={isItemDropTarget(slotId)}
+        title={t(slot.nameKey)}
+        data-slot-id={slotId}
+      >
         <span class="emoji">{slot.emoji}</span>
       </div>
     {/if}
   {/each}
 </aside>
+
+{#if dragGhost && didDrag}
+  <div
+    class="unequip-ghost"
+    class:over-trash={trashHot}
+    style="left: {dragGhost.x}px; top: {dragGhost.y}px;"
+    aria-hidden="true"
+  >
+    <span class="emoji">{dragGhost.emoji}</span>
+  </div>
+{/if}
 
 <style>
   .inventory {
@@ -125,6 +247,11 @@
     opacity: 1;
     border-color: #3a3a48;
     padding: 0;
+    /* Suppress touch gestures so a touch drag isn't stolen by scroll / pan. */
+    touch-action: none;
+  }
+  .slot.filled.dragging {
+    opacity: 0.3;
   }
   .slot.filled:hover {
     background: #20202a;
@@ -144,6 +271,19 @@
     border-color: #ffcc44;
     box-shadow: inset 0 0 0 2px #ffcc44;
     background: #2a2410;
+  }
+  /* Drag-to-equip: every slot a dragged backpack item could legally go into
+     reads as a candidate; the slot under the pointer is the live target.
+     Green, to distinguish from the gold gem-socket and blue picker hues. */
+  .slot.item-drop-candidate {
+    opacity: 1;
+    border-color: #5a8c66;
+  }
+  .slot.item-drop-target {
+    opacity: 1;
+    border-color: #7ddc8c;
+    box-shadow: inset 0 0 0 2px #7ddc8c;
+    background: #16241a;
   }
   .slot.pick-target {
     animation: pick-pulse 900ms ease-in-out infinite;
@@ -196,5 +336,28 @@
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.4);
     font-variant-numeric: lining-nums;
+  }
+
+  /* Floating ghost while an equipped item is dragged out to the bag / trash.
+     Mirrors the Backpack drag-ghost; turns red over the trash. */
+  .unequip-ghost {
+    position: fixed;
+    width: 72px;
+    height: 72px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 200;
+    background: #14141a;
+    border: 1px solid #ffcc44;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+    opacity: 0.95;
+  }
+  .unequip-ghost.over-trash {
+    border-color: #ef4444;
+    box-shadow: 0 12px 28px rgba(120, 0, 0, 0.6);
   }
 </style>
