@@ -1,8 +1,8 @@
 // Shop stock generation per docs/shop.md. Numbers from the doc's placeholder
 // pricing table; tier distribution biased by floor depth.
 
-import type { Item } from './item';
-import type { Gem } from './gem';
+import { tierOf, type Item } from './item';
+import { gemLevel, type Gem } from './gem';
 import { randomItem, randomGem } from './random';
 
 export interface ShopItemSlot {
@@ -58,6 +58,26 @@ function rollPrice(tier: number): number {
 // drifts up with floor depth so late-shop gems cost more than early ones.
 function rollGemPrice(floor: number): number {
   return Math.floor(rand(80, 160) + floor * 10);
+}
+
+// === Selling back to the shop =======================================
+// The shop buys gear / gems back for SELL_FRACTION of their market value (gold,
+// not crystals - that's disenchanting). An item is worth its tier value plus the
+// value of every gem still socketed in it, so selling socketed gear isn't a trap.
+export const SELL_FRACTION = 0.5;
+// Flat market value for a tier-less gem (≈ the midpoint of rollGemPrice's band),
+// scaled by combine level.
+const GEM_MARKET_VALUE = 120;
+
+export function gemSellValue(gem: Gem): number {
+  return Math.floor(GEM_MARKET_VALUE * gemLevel(gem) * SELL_FRACTION);
+}
+
+export function itemSellValue(item: Item): number {
+  const [lo, hi] = TIER_PRICE_RANGE[tierOf(item)] ?? [100, 200];
+  const frame = Math.floor(((lo + hi) / 2) * SELL_FRACTION);
+  const gems = item.sockets.reduce((sum, g) => sum + (g ? gemSellValue(g) : 0), 0);
+  return frame + gems;
 }
 
 export function generateShopStock(floor: number): ShopStock {

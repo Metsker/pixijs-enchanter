@@ -1,9 +1,11 @@
 import { get, writable } from 'svelte/store';
 import type { ShopStock } from '../domain/shop';
-import { generateShopStock } from '../domain/shop';
-import { backpack, addItem, addGemToBackpack } from './backpack';
+import { generateShopStock, itemSellValue, gemSellValue } from '../domain/shop';
+import { isItem } from '../domain/item';
+import { backpack, addItem, addGemToBackpack, removeItem, removeBackpackGemById } from './backpack';
 import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
+import { heldGem } from './gem-move';
 import { canEquipDirect, equipItemDirect } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { sfx } from '../audio/sfx';
@@ -144,6 +146,41 @@ export function buyGem(shopIndex: number): boolean {
     gems[shopIndex] = null;
     return { ...s, gems };
   });
+  return true;
+}
+
+// === Sell to the shop ===============================================
+// Selling is only offered while a shop is open (the bag shows a Sell drop-zone).
+// Gold flows back at SELL_FRACTION; the topbar's coin sfx fires off addGold.
+
+// Sell the backpack item at `index` (and the value of any gems socketed in it).
+// Closes the Inspector if it was pointed at this tile. Returns true if sold.
+export function sellItemFromBackpack(index: number): boolean {
+  const slot = get(backpack)[index];
+  if (!isItem(slot)) return false;
+  const value = itemSellValue(slot);
+  removeItem(index);
+  addGold(value);
+  const ins = get(inspector);
+  if (ins?.source === 'backpack' && ins.index === index) closeInspector();
+  return true;
+}
+
+// Sell a loose backpack gem by instance id. Returns true if sold.
+export function sellGemFromBackpack(gemId: string): boolean {
+  const removed = removeBackpackGemById(gemId);
+  if (!removed) return false;
+  addGold(gemSellValue(removed));
+  return true;
+}
+
+// Sell the gem currently HELD by a drag (already lifted out of its origin):
+// credit gold and consume it. Returns true if a gem was held.
+export function sellHeldGem(): boolean {
+  const held = get(heldGem);
+  if (!held) return false;
+  addGold(gemSellValue(held.gem));
+  heldGem.set(null);
   return true;
 }
 
