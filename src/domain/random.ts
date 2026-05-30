@@ -56,6 +56,18 @@ const GEM_IDS_BY_COLOR: Record<SocketColor, string[]> = (() => {
   return acc;
 })();
 
+// Effect-only defIds grouped by colour. A pre-socketed item must include at
+// least one EFFECT gem (a support with no effect to bind to is inert), so an
+// item never drops "support only" / doing nothing. Every colour has effect
+// gems, so there is always a valid pick.
+const EFFECT_GEM_IDS_BY_COLOR: Record<SocketColor, string[]> = (() => {
+  const acc: Record<SocketColor, string[]> = { red: [], green: [], blue: [] };
+  for (const def of Object.values(GEM_CATALOGUE)) {
+    if (def.role === 'effect') acc[colorForClass(def.class)].push(def.id);
+  }
+  return acc;
+})();
+
 const ALL_COLORS: SocketColor[] = ['red', 'green', 'blue'];
 
 // Type-biased colour roll: any colour can appear on any item, but the item's
@@ -92,9 +104,16 @@ function rollSockets(socketColors: SocketColor[]): (Gem | null)[] {
   const count = Math.min(capacity, 1 + Math.floor(Math.random() * 2)); // 1 or 2
   let placed = 0;
   for (let i = 0; i < capacity && placed < count; i++) {
-    const pool = GEM_IDS_BY_COLOR[socketColors[i]];
+    const color = socketColors[i];
+    const pool = GEM_IDS_BY_COLOR[color];
     if (pool.length === 0) continue;
-    sockets[i] = { id: nextGemId(), defId: pick(pool) };
+    // The LAST (rightmost) pre-socketed gem is forced to be an effect: that
+    // guarantees the item is never support-only (inert), and any support
+    // placed to its left binds to it (nearest effect to the right).
+    const isLast = placed === count - 1;
+    const effectPool = EFFECT_GEM_IDS_BY_COLOR[color];
+    const fromPool = isLast && effectPool.length > 0 ? effectPool : pool;
+    sockets[i] = { id: nextGemId(), defId: pick(fromPool) };
     placed += 1;
   }
   return sockets;
