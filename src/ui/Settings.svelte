@@ -5,6 +5,9 @@
   import { settings, setDifficulty, type Difficulty } from '../state/settings';
   import { run, startNewRun } from '../state/run';
   import { requestConfirm } from '../state/confirm';
+  import { audioPrefs, toggleMute } from '../audio/sfx';
+  import { simSpeed, SIM_SPEEDS, setSimSpeed } from '../state/sim-speed';
+  import { clearSave } from '../state/save';
   import { t } from '../i18n';
 
   // The difficulty choices, in ascending order. Each carries its own
@@ -33,6 +36,22 @@
         onConfirm: startNewRun,
       });
     }
+  }
+
+  // Restart from Settings: confirm first (close the panel so the modal isn't
+  // hidden behind it), then wipe the save + start a fresh run.
+  function onRestart(): void {
+    closeSettings();
+    requestConfirm({
+      title: t('settings.restart.title'),
+      body: t('settings.restartRun.body'),
+      confirmLabel: t('settings.restart.confirm'),
+      tone: 'danger',
+      onConfirm: () => {
+        clearSave();
+        startNewRun();
+      },
+    });
   }
 
   // ESC closes the panel (matches ConfirmModal's capture behaviour).
@@ -95,6 +114,47 @@
           {/each}
         </div>
         <p class="note">{t('settings.note')}</p>
+
+        <h4 class="section">{t('settings.sound')}</h4>
+        <button
+          type="button"
+          class="option"
+          aria-pressed={!$audioPrefs.muted}
+          onclick={toggleMute}
+        >
+          <span class="opt-emoji">{$audioPrefs.muted ? '🔇' : '🔊'}</span>
+          <span class="opt-text">
+            <span class="opt-name">{t('settings.sound')}</span>
+            <span class="opt-desc">
+              {$audioPrefs.muted ? t('settings.sound.off') : t('settings.sound.on')}
+            </span>
+          </span>
+        </button>
+
+        <h4 class="section">{t('settings.fightSpeed')}</h4>
+        <div class="speed-row" role="radiogroup" aria-label={t('settings.fightSpeed')}>
+          {#each SIM_SPEEDS as s (s)}
+            <button
+              type="button"
+              class="speed-btn"
+              class:selected={$simSpeed === s}
+              role="radio"
+              aria-checked={$simSpeed === s}
+              onclick={() => setSimSpeed(s)}
+            >
+              {s}×
+            </button>
+          {/each}
+        </div>
+        <p class="note">{t('settings.fightSpeed.desc')}</p>
+
+        <button type="button" class="option danger" onclick={onRestart}>
+          <span class="opt-emoji">🔄</span>
+          <span class="opt-text">
+            <span class="opt-name">{t('settings.restartRun')}</span>
+            <span class="opt-desc">{t('settings.restartRun.desc')}</span>
+          </span>
+        </button>
       </div>
     </div>
   </div>
@@ -114,6 +174,9 @@
   }
   .modal {
     width: min(460px, 100%);
+    /* Taller now that it carries sound / speed / restart - cap to the viewport
+       and let the body scroll so it never overflows a short screen. */
+    max-height: calc(100dvh - 32px);
     background: #1c1c24;
     border: 1px solid #3a3a48;
     border-radius: 12px;
@@ -154,6 +217,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
   .section {
     margin: 0;
@@ -225,5 +291,49 @@
     line-height: 1.4;
     border-top: 1px solid #2a2a34;
     padding-top: 12px;
+  }
+
+  /* Fight-speed: a segmented row of multiplier buttons. */
+  .speed-row {
+    display: flex;
+    gap: 8px;
+  }
+  .speed-btn {
+    flex: 1;
+    appearance: none;
+    background: #14141a;
+    border: 1px solid #2a2a34;
+    border-radius: 10px;
+    padding: 12px;
+    color: #cdd;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    min-height: 44px;
+    font-variant-numeric: lining-nums tabular-nums;
+    transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+  }
+  .speed-btn:hover {
+    background: #1f1f28;
+  }
+  .speed-btn.selected {
+    background: #2a2a34;
+    border-color: #ffcc44;
+    color: #ffcc44;
+  }
+  .speed-btn:focus-visible {
+    outline: 2px solid #ffcc44;
+    outline-offset: 2px;
+  }
+
+  /* Destructive restart row: red-tinted variant of the option row. */
+  .option.danger {
+    border-color: #5a2a2a;
+  }
+  .option.danger .opt-name {
+    color: #e88;
+  }
+  .option.danger:hover {
+    background: #2a1414;
   }
 </style>

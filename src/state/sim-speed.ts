@@ -34,3 +34,8 @@ export function cycleSimSpeed(): void {
     return SIM_SPEEDS[(i + 1) % SIM_SPEEDS.length];
   });
 }
+
+// Set an explicit speed (the Settings panel offers each as its own button).
+export function setSimSpeed(s: number): void {
+  if ((SIM_SPEEDS as readonly number[]).includes(s)) simSpeed.set(s);
+}

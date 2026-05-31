@@ -36,7 +36,7 @@ import { sellHeldGem } from './shop';
 //   - a socket cell ([data-gem-socket] + item id + index) -> placeIntoSocket
 //   - an equipped item slot ([data-slot-id]) -> auto-socket into its first
 //     empty compatible socket (placeHeldIntoItemFirstEmpty), else reject
-//   - a backpack cell ([data-cell-index]) or the Inspector stash
+//   - a backpack cell ([data-cell-index]) or the Gems split's padding
 //     ([data-gem-stash]) -> placeIntoStash (the backpack is the stash)
 //   - anything else -> cancelHeld (return the gem to its origin)
 //
@@ -147,11 +147,6 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     }
   }
 
-  // Inspector stash strip: drop to un-socket / stash.
-  if ((el as Element).closest('[data-gem-stash]')) {
-    return { kind: 'stash', valid: true };
-  }
-
   // Equipped item slot: auto-socket into its first empty compatible socket.
   const slotEl = (el as Element).closest<HTMLElement>('[data-slot-id]');
   if (slotEl) {
@@ -179,6 +174,12 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     if (Number.isInteger(cellIndex)) {
       return { kind: 'backpack-cell', index: cellIndex, valid: true };
     }
+    return { kind: 'stash', valid: true };
+  }
+
+  // Gems-split panel padding (not a specific cell): drop to un-socket / stash.
+  // Checked AFTER cells so a drop onto a gem cell still combines / reorders.
+  if ((el as Element).closest('[data-gem-stash]')) {
     return { kind: 'stash', valid: true };
   }
 

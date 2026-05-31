@@ -101,6 +101,13 @@ function pct(fraction: number): string {
   return `${Math.round(fraction * 100)}%`;
 }
 
+// A multiplier knob (x1.6, x0.49) for display: round to 2 decimals and drop
+// trailing zeros, so a leveled factor like Math.pow(0.7, 2) reads "0.49" rather
+// than "0.48999999999999994".
+function num(n: number): string {
+  return parseFloat(n.toFixed(2)).toString();
+}
+
 // "to a random enemy" / "to all enemies" / "to the nearest enemy".
 function targetPhrase(proc: ProcDef): string {
   const each = proc.count > 1 ? `${proc.count} ` : '';
@@ -182,11 +189,11 @@ function statSummary(stat: StatDef): string {
 function supportSummary(mod: SupportMod): string {
   switch (mod.kind) {
     case 'scale':
-      return `x${mod.factor} to the bound effect`;
+      return `x${num(mod.factor)} to the bound effect`;
     case 'count':
       return `+${mod.plus} target on the bound proc`;
     case 'cooldown':
-      return `x${mod.factor} cooldown on the bound proc`;
+      return `x${num(mod.factor)} cooldown on the bound proc`;
     case 'crit':
       return `the bound proc may crit (+${pct(mod.chanceAdd)})`;
     case 'rider':

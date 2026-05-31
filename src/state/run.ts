@@ -9,6 +9,8 @@ import { resetStash } from './gem-stash';
 import { resetHeldGem } from './gem-move';
 import { resetTopbar } from './topbar';
 import { closeInspector, inspectItem } from './inspector';
+import { closeGemInspector } from './gem-inspector';
+import { closeItemsSplit, closeGemsSplit, closeStatsSplit, closeSettings } from './ui';
 import { equipped } from './inventory';
 import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
 import type { Item } from '../domain/item';
@@ -120,11 +122,22 @@ export function completeRoom(): void {
   closeShop();
   closeItemOffer();
 
+  const nextScreen = wasBoss ? 'run-complete' : 'map';
+  // Back to the map: close every rail pane so the map shows uncluttered (panes
+  // can be reopened over the map afterwards).
+  if (nextScreen === 'map') {
+    closeInspector();
+    closeGemInspector();
+    closeItemsSplit();
+    closeGemsSplit();
+    closeStatsSplit();
+  }
+
   run.update((s) => ({
     ...s,
     lastCompletedRoomId: s.currentRoomId,
     currentRoomId: null,
-    screen: wasBoss ? 'run-complete' : 'map',
+    screen: nextScreen,
     fightWon: false,
   }));
 }
@@ -141,7 +154,13 @@ export function startNewRun(): void {
   // Inspector's close-effect can't dump it back into the new run's stash.
   resetHeldGem();
   resetTopbar();
+  // Close every rail panel + popup so a new run starts on a clean board.
   closeInspector();
+  closeGemInspector();
+  closeItemsSplit();
+  closeGemsSplit();
+  closeStatsSplit();
+  closeSettings();
   closeShop();
   closeItemOffer();
   run.set(makeInitial());

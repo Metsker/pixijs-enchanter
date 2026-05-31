@@ -3,7 +3,13 @@ import { isItem, type Item } from '../domain/item';
 import { isGem, type Gem } from '../domain/gem';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
 
-export const BACKPACK_CAPACITY = 20;
+// The bag has NO hard capacity: it grows to fit whatever the player carries.
+// We keep a trailing buffer of empty slots so there is always room to add and
+// always a few visible drop targets, and an initial / floor size so an empty
+// bag still shows a full grid. normalizeBackpack (below) enforces both on every
+// store write, so adds never fail and the grid grows dynamically.
+export const BACKPACK_MIN_SLOTS = 10;
+const BACKPACK_TRAILING_BUFFER = 4;
 
 // The backpack grid now holds equipment Items AND loose Gems together (the
 // former separate gemStash is gone - the backpack IS the stash). Each slot is
@@ -12,25 +18,54 @@ export const BACKPACK_CAPACITY = 20;
 export type BackpackSlot = Item | Gem | null;
 
 function makeInitial(): BackpackSlot[] {
-  return Array.from({ length: BACKPACK_CAPACITY }, () => null);
+  return Array.from({ length: BACKPACK_MIN_SLOTS }, () => null);
 }
 
-export const backpack = writable<BackpackSlot[]>(makeInitial());
+// Grow / trim the slot array so it always holds every item plus a trailing
+// buffer of empties (and never drops below the floor). Trimming only ever
+// removes trailing nulls beyond the buffer, never a filled slot.
+export function normalizeBackpack(slots: BackpackSlot[]): BackpackSlot[] {
+  let lastFilled = -1;
+  for (let i = 0; i < slots.length; i++) if (slots[i] !== null) lastFilled = i;
+  const want = Math.max(BACKPACK_MIN_SLOTS, lastFilled + 1 + BACKPACK_TRAILING_BUFFER);
+  if (slots.length < want) {
+    return slots.concat(Array.from({ length: want - slots.length }, () => null));
+  }
+  if (slots.length > want) return slots.slice(0, want);
+  return slots;
+}
+
+// A writable that normalizes (grows / trims to keep the buffer) on every write,
+// so every existing mutation + the save loader's backpack.set get the dynamic
+// sizing for free, without touching their call sites.
+function createBackpack() {
+  const inner = writable<BackpackSlot[]>(makeInitial());
+  return {
+    subscribe: inner.subscribe,
+    set: (slots: BackpackSlot[]) => inner.set(normalizeBackpack(slots)),
+    update: (fn: (slots: BackpackSlot[]) => BackpackSlot[]) =>
+      inner.update((slots) => normalizeBackpack(fn(slots))),
+  };
+}
+
+export const backpack = createBackpack();
 
 export function resetBackpack(): void {
   backpack.set(makeInitial());
 }
 
-// Drop placement: new acquisitions go to the first empty slot in reading
-// order. Returns the index the item landed at, or -1 if the Backpack was
-// full (per spec the dropped item is destroyed with no refund or
-// notification).
+// Drop placement: new acquisitions go to the first empty slot in reading order,
+// appending a fresh slot if none is free (the bag is unrestricted, so an add
+// never fails). Returns the index the item landed at.
 export function addItem(item: Item): number {
   let placed = -1;
   backpack.update((slots) => {
-    const idx = slots.findIndex((s) => s === null);
-    if (idx === -1) return slots;
     const next = slots.slice();
+    let idx = next.findIndex((s) => s === null);
+    if (idx === -1) {
+      idx = next.length;
+      next.push(null);
+    }
     next[idx] = item;
     placed = idx;
     return next;
@@ -38,15 +73,17 @@ export function addItem(item: Item): number {
   return placed;
 }
 
-// Drop a loose gem into the backpack's first empty slot, mirroring addItem.
-// Returns the landing index, or -1 if the backpack was full (the gem is lost,
-// same policy as items).
+// Drop a loose gem into the backpack's first empty slot (appending if needed),
+// mirroring addItem. The bag is unrestricted, so the gem is never lost.
 export function addGemToBackpack(gem: Gem): number {
   let placed = -1;
   backpack.update((slots) => {
-    const idx = slots.findIndex((s) => s === null);
-    if (idx === -1) return slots;
     const next = slots.slice();
+    let idx = next.findIndex((s) => s === null);
+    if (idx === -1) {
+      idx = next.length;
+      next.push(null);
+    }
     next[idx] = gem;
     placed = idx;
     return next;

@@ -167,6 +167,27 @@ export const sfx = {
     tone({ freq: 880, dur: 0.08, type: 'triangle', gain: 0.25 });
     tone({ freq: 1320, dur: 0.1, type: 'triangle', gain: 0.25, delay: 0.06 });
   },
+  // --- UI feel: soft, low-gain so they sit under everything else ---
+  uiOpen(): void {
+    // A pane slides in: short rising sine.
+    tone({ freq: 480, sweepTo: 780, dur: 0.09, type: 'sine', gain: 0.07, attack: 0.008 });
+  },
+  uiClose(): void {
+    // A pane leaves: falling counterpart.
+    tone({ freq: 540, sweepTo: 320, dur: 0.08, type: 'sine', gain: 0.06, attack: 0.008 });
+  },
+  pickUp(): void {
+    // Grab a pane to reorder: a small lift.
+    tone({ freq: 440, sweepTo: 640, dur: 0.06, type: 'triangle', gain: 0.1 });
+  },
+  drop(): void {
+    // Release the reordered pane: a settle.
+    tone({ freq: 560, sweepTo: 320, dur: 0.07, type: 'triangle', gain: 0.12 });
+  },
+  swap(): void {
+    // Panes cross during a reorder: a faint tick (fires per swap, kept tiny).
+    tone({ freq: 680, dur: 0.03, type: 'sine', gain: 0.05, attack: 0.004 });
+  },
   victory(): void {
     tone({ freq: 660, dur: 0.18, type: 'triangle', gain: 0.3 });
     tone({ freq: 880, dur: 0.18, type: 'triangle', gain: 0.3, delay: 0.16 });

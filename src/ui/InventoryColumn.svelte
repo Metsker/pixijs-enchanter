@@ -7,7 +7,7 @@
   import { gemDropZone } from '../state/gem-drag';
   import { unequipToBackpack } from '../state/inventory';
   import { disenchantEquipped } from '../state/disenchant';
-  import { backpackOpen } from '../state/ui';
+  import { bagOpen } from '../state/ui';
   import { get } from 'svelte/store';
   import { t } from '../i18n';
 
@@ -29,9 +29,9 @@
   const DRAG_THRESHOLD_SQ = 100;
 
   function onSlotPointerDown(e: PointerEvent, slotId: EquipmentSlotId): void {
-    // Only drag while the bag is open (the drop targets - cells / trash - only
-    // exist then).
-    if (!get(backpackOpen)) return;
+    // Only drag while a bag split is open (the drop targets - cells / trash -
+    // only exist then).
+    if (!get(bagOpen)) return;
     dragSlot = slotId;
     didDrag = false;
     dragGhost = null;
@@ -190,26 +190,27 @@
 
 <style>
   .inventory {
-    position: relative;
-    /* Sit above the Backpack scrim (z 95) so the column is never visually
-       darkened or blurred when the Backpack opens. */
-    z-index: 96;
-    flex: 0 0 auto;
-    width: 80px;
-    /* Grid with 9 equal rows so all slots always fit the available height
-       regardless of viewport - prevents overflow on landscape mobile. */
-    display: grid;
-    grid-template-rows: repeat(9, 1fr);
-    gap: 8px;
-    padding: 12px 8px;
-    background: #1c1c24;
-    border-right: 1px solid #2a2a34;
+    /* Inline in the top bar: a centred row of the nine slots that fills the
+       middle of the bar. No chrome of its own - the bar supplies the background
+       and border. Each slot is square and capped, shrinking to fit on narrow
+       screens (no scroll). */
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
     user-select: none;
   }
 
   .slot {
     position: relative;
-    min-height: 0;
+    /* Slots share the row width evenly, square (aspect-ratio), capped so they
+       don't balloon on wide screens; min-width:0 lets them shrink on phones. */
+    flex: 1 1 0;
+    max-width: 64px;
+    min-width: 0;
+    aspect-ratio: 1 / 1;
     border: 1px solid #2a2a34;
     border-radius: 8px;
     background: #14141a;
@@ -271,21 +272,17 @@
     line-height: 1;
   }
 
-  /* Short landscape viewports: nine slots have to fit in less vertical
-     space, so shrink padding / gap / emoji size. The grid layout above
-     auto-divides the column height into 9 rows, so we don't need a
-     min-height override - just trim the chrome. */
-  @media (max-height: 500px) {
+  /* Narrow screens: nine slots have to fit one row, so tighten the gap +
+     chrome and shrink the emoji so they don't crowd. */
+  @media (max-width: 600px) {
     .inventory {
-      width: 64px;
-      padding: 6px 4px;
       gap: 4px;
     }
     .emoji {
-      font-size: 1.3rem;
+      font-size: 1.2rem;
     }
     .tier {
-      font-size: 0.65rem;
+      font-size: 0.6rem;
       padding: 0 3px;
     }
   }

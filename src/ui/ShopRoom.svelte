@@ -4,169 +4,149 @@
   import { topbar } from '../state/topbar';
   import { inspectItem, inspector } from '../state/inspector';
   import { inspectShopGem, gemInspector } from '../state/gem-inspector';
-  import { itemEmoji, tierOf } from '../domain/item';
-  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
-  import SocketPips from './SocketPips.svelte';
+  import ItemCard from './ItemCard.svelte';
+  import GemCard from './GemCard.svelte';
   import { t } from '../i18n';
 
-  const TIER_COLORS: Record<number, string> = {
-    1: '#9ca3af',
-    2: '#22c55e',
-    3: '#3b82f6',
-    4: '#a855f7',
-    5: '#f97316',
-    6: '#ef4444',
-    7: '#fbbf24',
-  };
-
+  // The shop is part of the pane layout: a left-aligned pane with stacked
+  // sections (items / gems / consumables), each a wrapping card grid. Cards open
+  // the in-rail inspector when tapped (buying happens from its footer); the
+  // detail panes flow in to the right.
   function onItemClick(index: number): void {
-    const stock = $shopStock;
-    if (!stock) return;
-    const slot = stock.items[index];
-    if (!slot) return;
-    inspectItem({ source: 'shop', index, item: slot.item, price: slot.price });
+    const slot = $shopStock?.items[index];
+    if (slot) inspectItem({ source: 'shop', index, item: slot.item, price: slot.price });
   }
-
   function isInspectingShop(i: number): boolean {
     const s = $inspector;
     return s?.source === 'shop' && s.index === i;
   }
 
-  // Clicking a gem tile PREVIEWS it in the gem inspector (description, value,
-  // level-up, what it fits) - the actual purchase happens from there via its Buy
-  // button, so the player always sees what a gem does before paying.
   function onGemClick(index: number): void {
-    const stock = $shopStock;
-    const slot = stock?.gems[index];
+    const slot = $shopStock?.gems[index];
     if (slot) inspectShopGem(slot.gem, index, slot.price);
   }
-
   function isInspectingGem(i: number): boolean {
     return $gemInspector?.shop?.index === i;
   }
 </script>
 
 <section class="shop">
-  <header class="shop-header">
-    <h2>🛒 {t('map.kind.shop')}</h2>
+  <header class="shop-head">
+    <h2><span class="head-emoji">🛒</span> {t('map.kind.shop')}</h2>
     <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
   </header>
 
   {#if $shopStock}
     {@const stock = $shopStock}
-    <div class="shop-body">
-      <div class="left-col">
-        <div class="items">
-          <div class="items-label">{t('shop.items')}</div>
-          <div class="items-grid">
-            {#each stock.items as slot, i (i)}
-              {#if slot}
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                  class="item-tile"
-                  class:inspecting={isInspectingShop(i)}
-                  data-inspector-source="shop"
-                  onclick={() => onItemClick(i)}
-                >
-                  <span class="emoji">{itemEmoji(slot.item)}</span>
-                  <span
-                    class="tier"
-                    style="--tier-color: {TIER_COLORS[tierOf(slot.item)] ?? '#666'}"
-                  >
-                    T{tierOf(slot.item)}
-                  </span>
-                  <SocketPips item={slot.item} />
-                  <span class="price">🪙 {slot.price}</span>
-                </div>
-              {:else}
-                <div class="item-tile sold">
-                  <span class="sold-label">{t('shop.sold')}</span>
-                </div>
-              {/if}
-            {/each}
-          </div>
-        </div>
-
-        <div class="gems">
-          <div class="items-label">{t('shop.gems')}</div>
-          <div class="items-grid">
-            {#each stock.gems as slot, i (i)}
-              {#if slot}
-                {@const gd = gemDisplay(slot.gem)}
-                <button
-                  type="button"
-                  class="gem-tile"
-                  class:inspecting={isInspectingGem(i)}
-                  style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#666'}"
-                  title={gd ? `${gd.name} - ${gd.summary}` : ''}
-                  onclick={() => onGemClick(i)}
-                >
-                  <span class="emoji">{gd?.emoji ?? '💠'}</span>
-                  <span class="gem-name">{gd?.name ?? ''}</span>
-                  <span class="price">🪙 {slot.price}</span>
-                </button>
-              {:else}
-                <div class="item-tile sold">
-                  <span class="sold-label">{t('shop.sold')}</span>
-                </div>
-              {/if}
-            {/each}
-          </div>
+    <div class="body">
+      <div class="group">
+        <div class="group-label">{t('shop.items')}</div>
+        <div class="cards">
+          {#each stock.items as slot, i (i)}
+            {#if slot}
+              <ItemCard
+                item={slot.item}
+                price={slot.price}
+                source="shop"
+                selected={isInspectingShop(i)}
+                onClick={() => onItemClick(i)}
+              />
+            {:else}
+              <div class="sold">{t('shop.sold')}</div>
+            {/if}
+          {/each}
         </div>
       </div>
 
-      <div class="consumables">
-        <div class="items-label">{t('shop.consumables')}</div>
+      <div class="group">
+        <div class="group-label">{t('shop.gems')}</div>
+        <div class="cards">
+          {#each stock.gems as slot, i (i)}
+            {#if slot}
+              <GemCard
+                gem={slot.gem}
+                price={slot.price}
+                selected={isInspectingGem(i)}
+                onClick={() => onGemClick(i)}
+              />
+            {:else}
+              <div class="sold">{t('shop.sold')}</div>
+            {/if}
+          {/each}
+        </div>
+      </div>
 
-        <button
-          type="button"
-          class="consumable"
-          disabled={stock.crystals.remaining <= 0 ||
-            $topbar.gold < Math.min(stock.crystals.perPackSize, stock.crystals.remaining) * stock.crystals.pricePerCrystal}
-          onclick={buyCrystalPack}
-        >
-          <div class="row">
+      <div class="group">
+        <div class="group-label">{t('shop.consumables')}</div>
+        <div class="cards">
+          <button
+            type="button"
+            class="consumable"
+            disabled={stock.crystals.remaining <= 0 ||
+              $topbar.gold <
+                Math.min(stock.crystals.perPackSize, stock.crystals.remaining) *
+                  stock.crystals.pricePerCrystal}
+            onclick={buyCrystalPack}
+          >
             <span class="emoji">💎</span>
             <span class="name">
-              {t('shop.crystalPack', { n: Math.min(stock.crystals.perPackSize, stock.crystals.remaining) })}
+              {t('shop.crystalPack', {
+                n: Math.min(stock.crystals.perPackSize, stock.crystals.remaining),
+              })}
             </span>
-            <span class="stock">×{stock.crystals.remaining} left</span>
-          </div>
-          <div class="price">
-            🪙 {Math.min(stock.crystals.perPackSize, stock.crystals.remaining) * stock.crystals.pricePerCrystal}
-          </div>
-        </button>
+            <span class="stock">×{stock.crystals.remaining}</span>
+            <span class="price">
+              🪙 {Math.min(stock.crystals.perPackSize, stock.crystals.remaining) *
+                stock.crystals.pricePerCrystal}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   {/if}
 </section>
 
 <style>
+  /* Left-aligned shop pane: a header over stacked card sections. Matches the
+     other rail panes' chrome (flat #1c1c24, #3a3a48 divider). */
   .shop {
-    flex: 1;
+    flex: 0 0 auto;
+    align-self: stretch;
+    /* A quarter of the screen like every other split. */
+    width: 25%;
+    min-width: min(300px, 100%);
     display: flex;
     flex-direction: column;
-    background: radial-gradient(ellipse at top, #1a1e28 0%, #0a0a0e 70%);
-    padding: 16px 20px;
-    gap: 16px;
     min-height: 0;
-    overflow-y: auto;
+    background: #1c1c24;
+    border-right: 1px solid #3a3a48;
+    user-select: none;
+    scroll-snap-align: start;
   }
-  .shop-header {
+  .shop-head {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
+    border-bottom: 1px solid #2a2a34;
   }
   h2 {
     margin: 0;
-    font-size: 1.3rem;
+    font-size: 1rem;
     font-weight: 600;
     color: #ddd;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
-  h2 :global(.emoji),
-  .emoji {
+  .head-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 2rem;
+    line-height: 1;
   }
   .leave {
     appearance: none;
@@ -174,163 +154,75 @@
     border: 1px solid #4a4a58;
     color: #fff;
     border-radius: 8px;
-    padding: 10px 18px;
-    font-size: 0.9rem;
+    padding: 8px 14px;
+    font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
-    min-height: 40px;
+    min-height: 36px;
   }
   .leave:hover {
     background: #4a4a58;
     border-color: #ffcc44;
   }
 
-  .shop-body {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 16px;
+  /* Stacked sections (items / gems / consumables), each a horizontal card grid
+     that wraps - the whole pane scrolls vertically. */
+  .body {
+    flex: 1;
     min-height: 0;
-  }
-  .items-label {
-    font-size: 0.82rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #788;
-    margin-bottom: 8px;
-  }
-  .items-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-  }
-  .item-tile {
-    position: relative;
-    aspect-ratio: 1.4 / 1;
-    border: 1px solid #2a2a34;
-    border-radius: 8px;
-    background: #14141a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    cursor: pointer;
-    transition: background-color 80ms ease, border-color 80ms ease;
-    padding: 10px;
-  }
-  .item-tile:hover {
-    background: #1c1c24;
-    border-color: #4a4a58;
-  }
-  .item-tile.inspecting {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
-  }
-  .item-tile.sold {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-  .item-tile .emoji {
-    font-size: 2rem;
-    line-height: 1;
-  }
-  .item-tile .tier {
-    font-size: 0.85rem;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--tier-color, #666);
-    color: var(--tier-color, #999);
-    background: rgba(0, 0, 0, 0.3);
-    font-variant-numeric: lining-nums;
-  }
-  .item-tile .price {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #ffd866;
-    font-variant-numeric: lining-nums tabular-nums;
-  }
-  .sold-label {
-    color: #555;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  /* Left column stacks the item grid over the gem grid. */
-  .left-col {
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    min-height: 0;
+    padding: 12px 10px;
   }
-  .gem-tile {
-    position: relative;
-    aspect-ratio: 1.4 / 1;
-    border: 1px solid #2a2a34;
-    border-left: 3px solid var(--gem-color, #666);
-    border-radius: 8px;
-    background: #14141a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    cursor: pointer;
-    padding: 8px;
-    color: #ddd;
-    appearance: none;
-    transition: background-color 80ms ease, border-color 80ms ease;
-  }
-  .gem-tile:hover:not(:disabled) {
-    background: #1c1c24;
-  }
-  .gem-tile.inspecting {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
-  }
-  .gem-tile:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .gem-tile .emoji {
-    font-size: 1.7rem;
-    line-height: 1;
-  }
-  .gem-name {
-    font-size: 0.72rem;
-    color: #bbc;
-    text-align: center;
-    line-height: 1.1;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .gem-tile .price {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #ffd866;
-    font-variant-numeric: lining-nums tabular-nums;
-  }
-
-  .consumables {
+  .group {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
-  .consumable {
-    appearance: none;
-    background: #14141a;
+  .group-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #788;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+
+  .sold {
+    aspect-ratio: 1 / 1;
     border: 1px solid #2a2a34;
     border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
+    background: #101015;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.4;
+    color: #555;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Crystal pack as a square card matching the item / gem cards in the grid. */
+  .consumable {
+    appearance: none;
+    aspect-ratio: 1 / 1;
+    border: 1px solid #2a2a34;
+    border-radius: 8px;
+    background: #14141a;
     color: #ddd;
-    text-align: left;
+    cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px;
     transition: background-color 80ms ease, border-color 80ms ease;
   }
   .consumable:hover:not(:disabled) {
@@ -341,24 +233,23 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .consumable .emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.8rem;
+    line-height: 1;
   }
-  .row .emoji {
-    font-size: 1.5rem;
+  .consumable .name {
+    font-size: 0.74rem;
+    color: #bbc;
+    text-align: center;
+    line-height: 1.1;
   }
-  .row .name {
-    flex: 1;
-    font-size: 1.05rem;
-  }
-  .row .stock {
-    font-size: 0.85rem;
+  .consumable .stock {
+    font-size: 0.68rem;
     color: #788;
   }
   .consumable .price {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     color: #ffd866;
     font-variant-numeric: lining-nums tabular-nums;

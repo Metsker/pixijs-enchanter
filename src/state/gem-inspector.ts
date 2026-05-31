@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { Gem } from '../domain/gem';
 
 // The gem-detail "window": one reusable read-out for a single gem (description,
@@ -26,15 +26,29 @@ export interface GemInspectSubject {
 
 export const gemInspector = writable<GemInspectSubject | null>(null);
 
+// True when the gem window is already showing this exact gem - a second click
+// on the same entry should toggle it off.
+function isShowing(gem: Gem): boolean {
+  return get(gemInspector)?.gem.id === gem.id;
+}
+
 // Inspect a gem the player OWNS (bag / stash / socket / rest / victory chest):
-// the window offers Insert + Destroy.
+// the window offers Insert + Destroy. Toggles off on a repeat click of the same gem.
 export function inspectGem(gem: Gem): void {
+  if (isShowing(gem)) {
+    gemInspector.set(null);
+    return;
+  }
   gemInspector.set({ gem });
 }
 
 // Inspect a SHOP gem: preview only, with a Buy action. The player isn't holding
-// it, so it can't be inserted or destroyed.
+// it, so it can't be inserted or destroyed. Toggles off on a repeat click.
 export function inspectShopGem(gem: Gem, index: number, price: number): void {
+  if (isShowing(gem)) {
+    gemInspector.set(null);
+    return;
+  }
   gemInspector.set({ gem, shop: { index, price } });
 }
 

@@ -5,6 +5,7 @@
 // shop crystal pack; crystals are NOT dropped anywhere else (ADR 0003).
 
 import { get } from 'svelte/store';
+import { gemLevel } from '../domain/gem';
 import type { Gem, GemDef, SocketColor } from '../domain/gem';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
 import { tierOf, type Item } from '../domain/item';
@@ -87,13 +88,20 @@ export function craftGem(rng: () => number = Math.random): Gem | null {
   return gem;
 }
 
-// Destroy a stash gem by instance id: remove it and refund DESTROY_REFUND
-// crystals. The scrap loop. Returns true if a gem was removed (and refunded),
-// false if no such gem was in the stash (no crystals granted).
+// Crystals refunded for scrapping a stash gem: DESTROY_REFUND per combine level
+// (a Lv2 gem refunds 2x, a Lv3 3x), so a leveled gem is worth more dead than a
+// base one - matching disenchant.ts's gemRefund for loose / socketed gems.
+export function gemDestroyRefund(gem: Gem): number {
+  return DESTROY_REFUND * gemLevel(gem);
+}
+
+// Destroy a stash gem by instance id: remove it and refund its crystal value
+// (DESTROY_REFUND scaled by level). The scrap loop. Returns true if a gem was
+// removed (and refunded), false if no such gem was in the stash.
 export function destroyGem(gemId: string): boolean {
   const removed = removeGemFromStashById(gemId);
   if (!removed) return false;
-  refundCrystals(DESTROY_REFUND);
+  refundCrystals(gemDestroyRefund(removed));
   return true;
 }
 

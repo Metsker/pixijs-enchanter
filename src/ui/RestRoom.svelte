@@ -1,132 +1,125 @@
 <script lang="ts">
   import { completeRoom } from '../state/run';
-  import { gemStash } from '../state/gem-stash';
-  import { canCraftGem, craftGem, destroyGem, CRAFT_COST, DESTROY_REFUND } from '../state/rest';
-  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
-  import { inspectGem } from '../state/gem-inspector';
+  import { canCraftGem, craftGem, CRAFT_COST } from '../state/rest';
+  import { topbar } from '../state/topbar';
   import { t } from '../i18n';
 
-  import { topbar } from '../state/topbar';
-
-  // The Craft button's enabled state tracks the live crystal balance: this
-  // derived re-runs whenever the topbar store ticks. canCraftGem() peeks the
-  // same balance and guards onCraft defensively (the button is already
-  // disabled when unaffordable).
+  // Left-aligned Rest pane (same layout as the shop / armory): a header over a
+  // single Craft action that rolls a random gem into the bag for crystals. The
+  // loose gems live in the Gems bag, not here.
   const affordable = $derived($topbar.crystals >= CRAFT_COST);
 
   function onCraft(): void {
     if (!canCraftGem()) return;
     craftGem();
   }
-
-  function onDestroy(gemId: string): void {
-    destroyGem(gemId);
-  }
 </script>
 
 <section class="rest">
-  <header class="scene">
-    <div class="emoji">🔥</div>
-    <h2>{t('rest.title')}</h2>
-    <p>{t('rest.tagline')}</p>
+  <header class="rest-head">
+    <h2><span class="head-emoji">🔥</span> {t('rest.title')}</h2>
+    <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
   </header>
 
-  <div class="bench">
-    <button
-      type="button"
-      class="craft"
-      disabled={!affordable}
-      title={affordable ? t('rest.craft.hint') : t('rest.craft.notEnough')}
-      onclick={onCraft}
-    >
-      {t('rest.craft', { cost: CRAFT_COST })}
-    </button>
-    <p class="craft-hint">{t('rest.craft.hint')}</p>
+  <div class="body">
+    <p class="subtitle">{t('rest.tagline')}</p>
 
-    <div class="stash">
-      <div class="stash-label">{t('rest.stash.title')}</div>
-      {#if $gemStash.length === 0}
-        <div class="stash-empty">{t('rest.stash.empty')}</div>
-      {:else}
-        <ul class="stash-list">
-          {#each $gemStash as g (g.id)}
-            {@const d = gemDisplay(g)}
-            <li
-              class="gem"
-              style="--gem-color: {d ? SOCKET_COLOR_HEX[d.color] : '#666'}"
-            >
-              <button
-                type="button"
-                class="gem-info"
-                title={t('rest.stash.inspect')}
-                onclick={() => inspectGem(g)}
-              >
-                <span class="gem-emoji">{d?.emoji ?? '?'}</span>
-                <span class="gem-text">
-                  <span class="gem-name">{d?.name ?? g.defId}</span>
-                  <span class="gem-summary">{d?.summary ?? ''}</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                class="destroy"
-                title={t('rest.destroy.title', { name: d?.name ?? g.defId, refund: DESTROY_REFUND })}
-                onclick={() => onDestroy(g.id)}
-              >
-                {t('rest.destroy')} · 💎 {DESTROY_REFUND}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+    <div class="group">
+      <button
+        type="button"
+        class="craft"
+        disabled={!affordable}
+        title={affordable ? t('rest.craft.hint') : t('rest.craft.notEnough')}
+        onclick={onCraft}
+      >
+        {t('rest.craft', { cost: CRAFT_COST })}
+      </button>
+      <p class="craft-hint">{t('rest.craft.hint')}</p>
     </div>
   </div>
-
-  <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
 </section>
 
 <style>
+  /* Left-aligned Rest pane: a quarter of the screen like every other split,
+     same flat chrome (#1c1c24, #3a3a48 divider). */
   .rest {
-    flex: 1;
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 25%;
+    min-width: min(300px, 100%);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 18px;
-    background: radial-gradient(ellipse at center, #1c1410 0%, #0a0a0e 70%);
-    padding: 24px 16px;
-    overflow-y: auto;
     min-height: 0;
+    background: #1c1c24;
+    border-right: 1px solid #3a3a48;
+    user-select: none;
+    scroll-snap-align: start;
   }
-  .scene {
-    text-align: center;
+  .rest-head {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 8px;
-  }
-  .emoji {
-    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 4rem;
-    line-height: 1;
-    filter: drop-shadow(0 0 24px rgba(255, 120, 60, 0.6));
+    justify-content: space-between;
+    gap: 10px;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
+    border-bottom: 1px solid #2a2a34;
   }
   h2 {
     margin: 0;
+    font-size: 1rem;
     font-weight: 600;
+    color: #ddd;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
-  .scene p {
-    margin: 0;
-    color: #aab;
-    max-width: 38ch;
+  .head-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 2rem;
+    line-height: 1;
+  }
+  .leave {
+    appearance: none;
+    background: #3a3a48;
+    border: 1px solid #4a4a58;
+    color: #fff;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 36px;
+  }
+  .leave:hover {
+    background: #4a4a58;
+    border-color: #ffcc44;
   }
 
-  .bench {
-    width: 100%;
-    max-width: 460px;
+  /* Same layout as the shop: a scrolling body with sections. */
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 16px;
+    padding: 12px 10px;
   }
+  .subtitle {
+    margin: 0;
+    color: #9aa;
+    font-size: 0.85rem;
+    line-height: 1.35;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Craft action: crystal-tinted, distinct from the grey CTAs. */
   .craft {
     width: 100%;
     appearance: none;
@@ -157,138 +150,6 @@
     margin: 0;
     font-size: 0.78rem;
     color: #889;
-    text-align: center;
-  }
-
-  .stash {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 6px;
-  }
-  .stash-label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #788;
-    padding: 0 2px;
-  }
-  .stash-empty {
-    font-size: 0.82rem;
-    color: #667;
-    line-height: 1.4;
-    padding: 8px 2px;
-  }
-  .stash-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .gem {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border: 1px solid #2a2a34;
-    /* Left edge tinted by the gem's COLOUR (red / green / blue), matching the
-       Inspector stash, so the player can read which sockets it fits. */
-    border-left: 3px solid var(--gem-color, #2a2a34);
-    border-radius: 6px;
-    background: #14141a;
-  }
-  /* The gem identity (emoji + name + summary) is a button that opens the gem
-     inspector; the Destroy button sits beside it. */
-  .gem-info {
-    display: grid;
-    grid-template-columns: 32px 1fr;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    appearance: none;
-    background: transparent;
-    border: none;
-    padding: 0;
-    margin: 0;
-    text-align: left;
-    color: inherit;
-    cursor: pointer;
-    border-radius: 4px;
-  }
-  .gem-info:hover .gem-name {
-    color: #fff;
-  }
-  .gem-info:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
-  }
-  .gem-emoji {
-    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.4rem;
-    line-height: 1;
-    justify-self: center;
-  }
-  .gem-text {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-  }
-  .gem-name {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #e6e6ee;
-  }
-  .gem-summary {
-    font-size: 0.74rem;
-    color: #9aa;
-    line-height: 1.25;
-  }
-  .destroy {
-    appearance: none;
-    background: transparent;
-    border: 1px solid #5a2a2a;
-    color: #e88;
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 40px;
-    white-space: nowrap;
-    transition: background-color 100ms ease, border-color 100ms ease;
-  }
-  .destroy:hover {
-    background: #2a1414;
-    border-color: #c44;
-  }
-  .destroy:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
-  }
-
-  .leave {
-    appearance: none;
-    background: #3a3a48;
-    border: 1px solid #4a4a58;
-    color: #fff;
-    border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 44px;
-    margin-top: auto;
-  }
-  .leave:hover {
-    background: #4a4a58;
-    border-color: #ffcc44;
-  }
-  .leave:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
+    line-height: 1.35;
   }
 </style>

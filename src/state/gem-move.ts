@@ -227,6 +227,20 @@ export function placeIntoStash(): void {
   heldGem.set(null);
 }
 
+// One-shot: pull the gem out of `item`'s socket `index` straight into the bag -
+// the inverse of socketing (the gem inspector's Unsocket button). Persists for
+// equipped / backpack / reward items via writeBackSockets. No-op on an empty
+// socket. The bag is unrestricted, so it always lands.
+export function unsocketGemToBag(item: Item, index: number): boolean {
+  const gem = item.sockets[index];
+  if (!gem) return false;
+  const sockets = item.sockets.slice();
+  sockets[index] = null;
+  writeBackSockets(item, sockets);
+  addGemToStash(gem);
+  return true;
+}
+
 // --- combine (level up) -------------------------------------------------
 //
 // Dropping a held gem onto ANOTHER gem of the same defId combines them

@@ -1,36 +1,18 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
-
-  // Custom pop-in/out: preserves the .backpack's translate(-50%, -50%)
-  // centering transform while animating scale and opacity. svelte's built-in
-  // `scale` transition replaces transform entirely and would un-center us.
-  function popPanel(_node: Element, { duration = 180 }: { duration?: number } = {}) {
-    return {
-      duration,
-      easing: cubicOut,
-      css: (t: number) => `
-        transform: translate(-50%, -50%) scale(${0.94 + 0.06 * t});
-        opacity: ${t};
-      `,
-    };
-  }
+  import { revealInRail } from '../utils/revealInRail';
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
-  import { backpackOpen, toggleBackpack } from '../state/ui';
+  import { closeItemsSplit, closeGemsSplit } from '../state/ui';
   import { isItem, itemEmoji, legalEquipmentSlots, tierOf, type Item } from '../domain/item';
-  import { isGem, type Gem } from '../domain/gem';
+  import { isGem, type Gem, type SocketColor } from '../domain/gem';
   import { gemColor } from '../domain/gem-fit';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import SocketPips from './SocketPips.svelte';
   import { startGemDrag, gemDropZone } from '../state/gem-drag';
-  import { inspectGem } from '../state/gem-inspector';
+  import { inspectGem, closeGemInspector } from '../state/gem-inspector';
   import { socketGemIntoItem } from '../state/gem-move';
   import { equipFromBackpack, equipFromBackpackToSlot, equipped, itemDrag, itemFitsSlot } from '../state/inventory';
-  import { disenchantItemFromBackpack, destroyBackpackItemKeepGems, gemRefund, itemRefund } from '../state/disenchant';
-  import { requestDestroy } from '../state/destroy-prompt';
-  import { shopStock, sellItemFromBackpack } from '../state/shop';
-  import { itemSellValue, gemSellValue } from '../domain/shop';
-  import type { EquipmentSlotId } from '../domain/equipment';
+  import { EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, type EquipmentSlotId } from '../domain/equipment';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -46,38 +28,92 @@
   import { get } from 'svelte/store';
   import { closeInspector, inspector, inspectItem } from '../state/inspector';
 
-  // Bag tabs: the grid filters to items or gems. Empty cells show in BOTH tabs
-  // as free drop targets (a slot is shared - either type can fill it), and the
-  // drag logic still addresses cells by their real backpack index, so reorder /
-  // combine / equip / trash all keep working under the filter.
-  let activeTab = $state<'items' | 'gems'>('items');
-  const itemCount = $derived($backpack.filter((s) => isItem(s)).length);
-  const gemCount = $derived($backpack.filter((s) => isGem(s)).length);
+  // Which kind this split shows. The bag is one `backpack` store; each split is
+  // a filtered view of it (items, or loose gems = the stash). Mounted once per
+  // kind in App.svelte and gated by its own open store.
+  let { kind }: { kind: 'items' | 'gems' } = $props();
+  const isItems = $derived(kind === 'items');
+  const closeSplit = (): void => (kind === 'items' ? closeItemsSplit() : closeGemsSplit());
+  // Filled cells of this kind (for the header count).
+  const count = $derived($backpack.filter((s) => (isItems ? isItem(s) : isGem(s))).length);
 
-  // Cells matching the active tab plus empty cells (shared free slots), in slot
-  // order. Each keeps its real backpack index, so drag / reorder / combine /
-  // equip all still address the right slot under the filter.
+  // Gems split only: narrow the grid to one socket colour (null = all colours).
+  let colorFilter = $state<SocketColor | null>(null);
+  const GEM_COLORS: SocketColor[] = ['red', 'green', 'blue'];
+
+  // Items split only: narrow the grid to one equipment slot (null = all). One
+  // chip per slot, matching the equipment bar - an item matches when that slot
+  // is one of its legal slots (so an armour piece filters by its own slot).
+  let typeFilter = $state<EquipmentSlotId | null>(null);
+
+  // Whether the "All" chip is active, and a clear, for this split's filter.
+  const noFilter = $derived(isItems ? typeFilter === null : colorFilter === null);
+  function clearFilter(): void {
+    if (isItems) typeFilter = null;
+    else colorFilter = null;
+  }
+
+  // Cells of this kind plus empty cells (shared free slots), in slot order. Each
+  // keeps its real backpack index, so drag / reorder / combine / equip / trash
+  // all still address the right slot under the filter. In the gems split a
+  // colour filter hides non-matching gems (empties stay as drop targets).
   const tabCells = $derived(
     $backpack
       .map((slot, i) => ({ slot, i }))
-      .filter(({ slot }) =>
-        slot === null || (activeTab === 'items' ? isItem(slot) : isGem(slot)),
-      ),
+      .filter(({ slot }) => {
+        if (slot === null) return true;
+        if (isItems)
+          return isItem(slot) && (typeFilter === null || legalEquipmentSlots(slot).includes(typeFilter));
+        if (!isGem(slot)) return false;
+        return colorFilter === null || gemColor(slot) === colorFilter;
+      }),
   );
 
-  // Render a CLEAN rectangular grid: complete rows of 4, at least 16 cells (4
-  // rows). We show every matching item plus enough empty slots to fill those
-  // rows, hiding only the trailing empties beyond - so the bag never shows a
-  // ragged extra cell. If the active type leaves too few real cells, pad with
-  // non-interactive fillers so the rows stay complete.
-  const GRID_COLS = 4;
-  const MIN_CELLS = 16;
+  // Render a CLEAN rectangular grid that tracks the pane size on BOTH axes:
+  // columns AUTO-FILL the width (more columns as the pane widens, constant tile
+  // size) and rows are sized to the available HEIGHT, so the visible cell count
+  // fills the panel and only scrolls once the contents exceed it. We measure the
+  // realised column count + how many tiles fit the height, and complete the last
+  // row to the column count (padding with non-interactive fillers if the active
+  // filter leaves too few real cells), so the grid is never ragged.
+  const MIN_ROWS = 2;
+  let gridEl = $state<HTMLDivElement>();
+  let cols = $state(2);
+  let rows = $state(MIN_ROWS);
+  $effect(() => {
+    const el = gridEl;
+    if (!el) return;
+    // Re-measure on resize (the pane flex-grows / shrinks as panes open + close
+    // and the viewport changes).
+    const measure = (): void => {
+      const cs = getComputedStyle(el);
+      const c = cs.gridTemplateColumns.split(' ').filter(Boolean).length;
+      if (c > 0) cols = c;
+      // Square tiles, so a cell's height is its width; count how many rows of
+      // them (plus the row gap) fit the grid's content height.
+      const cell = el.querySelector('.cell');
+      const tile = cell ? cell.getBoundingClientRect().height : 0;
+      const gap = parseFloat(cs.rowGap) || 0;
+      const avail =
+        el.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      if (tile > 0 && avail > 0) {
+        rows = Math.max(MIN_ROWS, Math.floor((avail + gap) / (tile + gap)));
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
   const grid = $derived.by(() => {
     let lastFilled = -1;
     tabCells.forEach((c, idx) => {
       if (c.slot !== null) lastFilled = idx;
     });
-    const need = Math.max(MIN_CELLS, Math.ceil((lastFilled + 1) / GRID_COLS) * GRID_COLS);
+    const c = Math.max(1, cols);
+    // Fill the visible area (cols x rows), and grow to hold every filled cell -
+    // always a whole number of rows, so the last row is never ragged.
+    const need = Math.max(c * rows, Math.ceil((lastFilled + 1) / c) * c);
     const cells = tabCells.slice(0, need);
     return { cells, fillers: need - cells.length };
   });
@@ -85,11 +121,6 @@
   let dragging = $state<number | null>(null);
   let dragOver = $state<number | null>(null);
   let didDrag = $state(false);
-  // True while a dragged backpack ITEM hovers the trash slot (so the trash
-  // lights up for an item drag, mirroring gemDropZone for a gem drag).
-  let trashHot = $state(false);
-  // Same, for the shop's Sell drop-zone (only present while a shop is open).
-  let sellHot = $state(false);
   let ghostPos = $state<{ x: number; y: number } | null>(null);
   let pointerStart = { x: 0, y: 0 };
   // 10px threshold: clicks with minor jitter won't trigger drag visuals.
@@ -134,26 +165,7 @@
     }
     ghostPos = { x: e.clientX, y: e.clientY };
     const el = document.elementFromPoint(e.clientX, e.clientY);
-
-    // Trash: an item dragged onto the trash slot will be disenchanted on drop.
     const dragged = $backpack[dragging];
-    if (el?.closest('[data-trash]') && isItem(dragged)) {
-      trashHot = true;
-      sellHot = false;
-      itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
-      dragOver = null;
-      return;
-    }
-    // Sell (shop only): an item dragged onto the Sell zone sells for gold.
-    if (el?.closest('[data-sell]') && isItem(dragged)) {
-      sellHot = true;
-      trashHot = false;
-      itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
-      dragOver = null;
-      return;
-    }
-    trashHot = false;
-    sellHot = false;
 
     // An equipment slot the dragged item is legal for takes priority over a
     // backpack reorder target.
@@ -176,35 +188,7 @@
     if (dragging !== null) {
       if (didDrag) {
         const equipTarget = get(itemDrag)?.targetSlot ?? null;
-        if (trashHot && isItem($backpack[dragging])) {
-          // Dropped on the trash: disenchant the item for crystals. If it holds
-          // gems, prompt first (keep them, or scrap everything). Close the
-          // Inspector if it was showing this tile.
-          const idx = dragging;
-          const item = $backpack[idx];
-          const closeIfInspecting = (): void => {
-            const ins = get(inspector);
-            if (ins?.source === 'backpack' && ins.index === idx) closeInspector();
-          };
-          if (isItem(item) && item.sockets.some((g) => g !== null)) {
-            requestDestroy({
-              item,
-              onKeepGems: () => {
-                destroyBackpackItemKeepGems(idx);
-                closeIfInspecting();
-              },
-              onDestroyAll: () => {
-                disenchantItemFromBackpack(idx);
-                closeIfInspecting();
-              },
-            });
-          } else if (disenchantItemFromBackpack(idx)) {
-            closeIfInspecting();
-          }
-        } else if (sellHot && isItem($backpack[dragging])) {
-          // Dropped on the shop's Sell zone: sell the item (+ its gems) for gold.
-          sellItemFromBackpack(dragging);
-        } else if (equipTarget) {
+        if (equipTarget) {
           // Dropped on a compatible equipment slot: equip it there.
           const idx = dragging;
           if (equipFromBackpackToSlot(idx, equipTarget) !== null) {
@@ -251,44 +235,40 @@
     dragOver = null;
     ghostPos = null;
     didDrag = false;
-    trashHot = false;
-    sellHot = false;
     itemDrag.set(null);
   }
 
-  // Gem tap disambiguation: a single tap opens the gem inspector (after a short
-  // window); a double tap sockets the gem straight into the SELECTED (inspected)
-  // item's first open matching socket. The window is needed because opening the
-  // gem inspector covers the bag, which would otherwise swallow the second tap.
-  let gemTap: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  // A loose gem: a tap opens (toggles) the gem inspector IMMEDIATELY; a quick
+  // second tap on the same gem sockets it into the SELECTED (inspected) item's
+  // first open matching socket. The inspector is a side pane now (not a modal
+  // covering the bag), so the second tap still lands on the gem - no need to
+  // delay the first tap to disambiguate, which is what made open/close laggy.
+  let lastGemTap: { id: string; t: number } | null = null;
   const GEM_DBL_MS = 250;
   function onGemTap(gem: Gem): void {
-    if (gemTap && gemTap.id === gem.id) {
-      clearTimeout(gemTap.timer);
-      gemTap = null;
-      equipGemIntoSelected(gem);
+    const now = Date.now();
+    if (lastGemTap && lastGemTap.id === gem.id && now - lastGemTap.t < GEM_DBL_MS) {
+      lastGemTap = null;
+      if (equipGemIntoSelected(gem)) closeGemInspector();
       return;
     }
-    if (gemTap) clearTimeout(gemTap.timer);
-    const timer = setTimeout(() => {
-      gemTap = null;
-      inspectGem(gem);
-    }, GEM_DBL_MS);
-    gemTap = { id: gem.id, timer };
+    lastGemTap = { id: gem.id, t: now };
+    inspectGem(gem);
   }
 
   // Socket `gem` into the currently inspected item (its first open colour-matched
-  // socket), if one is open. No-op when nothing editable is selected.
-  function equipGemIntoSelected(gem: Gem): void {
+  // socket), if one is open. Returns whether it socketed; false when nothing
+  // editable is selected or no matching socket is free.
+  function equipGemIntoSelected(gem: Gem): boolean {
     const ins = get(inspector);
     if (!ins || (ins.source !== 'inventory' && ins.source !== 'backpack' && ins.source !== 'rewards')) {
-      return;
+      return false;
     }
     const color = gemColor(gem);
-    if (!color) return;
+    if (!color) return false;
     const item = ins.item;
     const hasSlot = item.sockets.some((s, i) => s === null && item.socketColors[i] === color);
-    if (hasSlot) socketGemIntoItem(gem, item);
+    return hasSlot ? socketGemIntoItem(gem, item) : false;
   }
 
   // Double-click a backpack ITEM: equip it into its first EMPTY legal slot (only
@@ -312,60 +292,79 @@
   }
 </script>
 
-{#if $backpackOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="backpack-scrim"
-    transition:fade={{ duration: 150 }}
-    onclick={toggleBackpack}
-  ></div>
-  <div
-    class="backpack"
-    role="dialog"
-    aria-modal="false"
-    aria-label={t('backpack.title')}
-    transition:popPanel
-  >
-    <header class="toolbar">
-      <h2>{t('backpack.title')}</h2>
+<!-- A bag split: items or gems. The gems panel root carries data-gem-stash so a
+     gem dragged onto its empty space un-sockets / stashes (cell drops still
+     combine / reorder - the gem-drag hit-test checks cells first). Mounted per
+     kind and gated by the parent (App.svelte). -->
+<div
+  class="backpack"
+  class:bag-items={isItems}
+  class:bag-gems={!isItems}
+  role="dialog"
+  aria-label={t(isItems ? 'backpack.tab.items' : 'backpack.tab.gems')}
+  data-gem-stash={isItems ? null : ''}
+  use:revealInRail
+  transition:fade={{ duration: 140 }}
+>
+    <header class="toolbar" data-pane-header>
+      <h2>
+        <span class="head-emoji">{isItems ? '🎒' : '💠'}</span>
+        {t(isItems ? 'backpack.tab.items' : 'backpack.tab.gems')} ({count})
+      </h2>
       <div class="actions">
         <button type="button" class="btn" onclick={sortBackpack}>{t('backpack.sort')}</button>
         <button
           type="button"
           class="btn icon"
           aria-label={t('backpack.close')}
-          onclick={toggleBackpack}
+          onclick={closeSplit}
         >
           ✕
         </button>
       </div>
     </header>
 
-    <div class="tabs" role="tablist">
+    <!-- Filter row: item-type chips on the Items split, socket-colour dots on
+         the Gems split. "All" clears the filter. -->
+    <div class="gem-filters" role="group" aria-label={t('backpack.filter.all')}>
       <button
         type="button"
-        class="tab"
-        class:active={activeTab === 'items'}
-        role="tab"
-        aria-selected={activeTab === 'items'}
-        onclick={() => (activeTab = 'items')}
+        class="gem-filter all"
+        class:active={noFilter}
+        onclick={clearFilter}
       >
-        {t('backpack.tab.items')} ({itemCount})
+        {t('backpack.filter.all')}
       </button>
-      <button
-        type="button"
-        class="tab"
-        class:active={activeTab === 'gems'}
-        role="tab"
-        aria-selected={activeTab === 'gems'}
-        onclick={() => (activeTab = 'gems')}
-      >
-        {t('backpack.tab.gems')} ({gemCount})
-      </button>
+      {#if isItems}
+        {#each EQUIPMENT_SLOT_ORDER as slot (slot)}
+          <button
+            type="button"
+            class="gem-filter type-chip"
+            class:active={typeFilter === slot}
+            title={t(EQUIPMENT_SLOTS[slot].nameKey)}
+            aria-label={t(EQUIPMENT_SLOTS[slot].nameKey)}
+            aria-pressed={typeFilter === slot}
+            onclick={() => (typeFilter = typeFilter === slot ? null : slot)}
+          >
+            {EQUIPMENT_SLOTS[slot].emoji}
+          </button>
+        {/each}
+      {:else}
+        {#each GEM_COLORS as c (c)}
+          <button
+            type="button"
+            class="gem-filter dot"
+            class:active={colorFilter === c}
+            style="--c: {SOCKET_COLOR_HEX[c]}"
+            aria-label={c}
+            aria-pressed={colorFilter === c}
+            onclick={() => (colorFilter = colorFilter === c ? null : c)}
+          ></button>
+        {/each}
+      {/if}
     </div>
 
-    <div class="grid" role="grid">
+    <div class="grid" role="grid" bind:this={gridEl}>
       {#each grid.cells as { slot, i } (i)}
         {@const gem = isGem(slot) ? gemDisplay(slot) : null}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -381,9 +380,9 @@
           class:inspecting={isInspecting(i)}
           style={gem ? `--gem-color: ${SOCKET_COLOR_HEX[gem.color]}` : ''}
           title={isItem(slot)
-            ? `🗑️ 💎 ${itemRefund(slot)}${$shopStock ? ` · 🪙 ${itemSellValue(slot)}` : ''}`
-            : isGem(slot)
-              ? `${gem?.name ?? ''} - ${gem?.summary ?? ''} · 🗑️ 💎 ${gemRefund(slot)}${$shopStock ? ` · 🪙 ${gemSellValue(slot)}` : ''}`
+            ? t(`item.type.${slot.itemType}`)
+            : gem
+              ? `${gem.name} - ${gem.summary}`
               : ''}
           data-cell-index={i}
           data-inspector-source="backpack"
@@ -421,34 +420,6 @@
         <div class="cell filler" aria-hidden="true"></div>
       {/each}
     </div>
-
-    <!-- Trash slot (disenchant): drop a gem or item here to scrap it for
-         crystals instantly (FEATURE 2). Separate from the 20 grid slots. -->
-    <div
-      class="trash"
-      class:trash-armed={$gemDropZone === 'trash' || trashHot}
-      data-trash
-      title={t('backpack.trash.hint')}
-    >
-      <span class="trash-emoji">🗑️</span>
-      <span class="trash-label">{t('backpack.trash')}</span>
-    </div>
-
-    <!-- Sell drop-zone: only while a shop is open. Drag an item or gem here to
-         sell it for gold (50% of value). Mirrors the trash, but gold not crystals. -->
-    {#if $shopStock}
-      <div
-        class="sell"
-        class:sell-armed={$gemDropZone === 'sell' || sellHot}
-        data-sell
-        title={t('backpack.sell.hint')}
-      >
-        <span class="sell-emoji">🪙</span>
-        <span class="sell-label">{t('backpack.sell')}</span>
-      </div>
-    {/if}
-
-    <footer class="hint">{t('backpack.hint')}</footer>
   </div>
 
   {#if dragging !== null && ghostPos && isItem($backpack[dragging])}
@@ -468,50 +439,34 @@
       <SocketPips item={ghostItem} />
     </div>
   {/if}
-{/if}
 
 <style>
-  .backpack-scrim {
-    position: fixed;
-    top: 56px; /* below the TopBar */
-    bottom: 0;
-    left: 80px; /* clear the InventoryColumn */
-    right: 0;
-    background: rgba(8, 8, 12, 0.45);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    z-index: 95;
-  }
+  /* In-rail bag panel: a fixed-width flex column stretched to the rail's full
+     height, snapping as the player scrolls/swipes. (Was a centered modal.) */
   .backpack {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(480px, 90vw);
-    max-height: calc(100dvh - 96px);
+    flex: 0 0 auto;
+    align-self: stretch;
+    /* Every split is exactly a quarter of the screen: four tile to fill it, a
+       fifth scrolls off (reached via the rail arrows). The floor keeps it usable
+       where a quarter would be too narrow. */
+    width: 25%;
+    min-width: min(300px, 100%);
+    min-height: 0;
     background: #1c1c24;
-    border: 1px solid #3a3a48;
-    border-radius: 12px;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
-    z-index: 100;
+    border-left: 1px solid #3a3a48;
     display: flex;
     flex-direction: column;
     user-select: none;
     touch-action: none;
+    scroll-snap-align: start;
   }
 
-  /* On short landscape viewports the grid cells can squeeze; cap the
-     panel height and let the grid scroll vertically if all 5 rows don't
-     fit. */
+  /* On short landscape viewports the grid cells can squeeze; trim chrome and
+     let the grid scroll vertically if all rows don't fit. */
   @media (max-height: 500px) {
-    .backpack {
-      max-height: calc(100dvh - 72px);
-    }
     .grid {
       gap: 4px;
       padding: 8px;
-      overflow-y: auto;
-      min-height: 0;
     }
   }
 
@@ -519,7 +474,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 14px;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
     border-bottom: 1px solid #2a2a34;
   }
 
@@ -529,6 +486,14 @@
     font-weight: 600;
     letter-spacing: 0.02em;
     color: #ddd;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .head-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 2rem;
+    line-height: 1;
   }
 
   .actions {
@@ -563,45 +528,70 @@
     outline-offset: 2px;
   }
 
-  .tabs {
+  /* Filter row: item-type chips (items) or socket-colour dots (gems). */
+  .gem-filters {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
     padding: 8px 12px 0;
   }
-  .tab {
+  .gem-filter {
     appearance: none;
-    flex: 1;
     background: #181820;
     border: 1px solid #2a2a34;
-    border-bottom: none;
     color: #99a;
-    border-radius: 8px 8px 0 0;
-    padding: 8px 10px;
-    font-size: 0.85rem;
-    font-weight: 600;
+    border-radius: 6px;
     cursor: pointer;
-    min-height: 34px;
-    transition: background-color 100ms ease, color 100ms ease;
+    min-height: 28px;
+    transition: border-color 100ms ease, background-color 100ms ease;
   }
-  .tab:hover {
-    background: #20202a;
+  .gem-filter.all {
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .gem-filter.dot {
+    width: 28px;
+    padding: 0;
+    background:
+      radial-gradient(circle at center, var(--c) 0 9px, transparent 10px),
+      #181820;
+  }
+  .gem-filter.type-chip {
+    width: 30px;
+    padding: 0;
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .gem-filter:hover {
+    border-color: #4a4a58;
     color: #ccd;
   }
-  .tab.active {
-    background: #2a2a34;
+  .gem-filter.active {
+    border-color: #ffcc44;
     color: #ffcc44;
-    border-color: #3a3a48;
+    box-shadow: inset 0 0 0 1px #ffcc44;
   }
-  .tab:focus-visible {
+  .gem-filter:focus-visible {
     outline: 2px solid #ffcc44;
     outline-offset: 2px;
   }
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* Auto-fill: columns scale with the pane width, tiles keep a constant size
+       (~120-150px). The row-completion logic above measures the realised count. */
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 6px;
     padding: 12px;
+    /* Fill the panel and scroll internally so the trash / sell / hint stay
+       pinned at the bottom of the bag panel. */
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
   }
 
   .cell {
@@ -709,81 +699,6 @@
     border: 1px solid #c084fc;
     pointer-events: none;
     font-variant-numeric: lining-nums;
-  }
-
-  /* Trash / disenchant slot. Separate from the grid, visually distinct (red),
-     lights up while a gem or item is dragged over it. */
-  .trash {
-    margin: 0 12px 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px;
-    border: 1px dashed #5a2a2a;
-    border-radius: 8px;
-    background: #1a1012;
-    color: #e88;
-    user-select: none;
-  }
-  .trash-emoji {
-    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.4rem;
-    line-height: 1;
-    pointer-events: none;
-  }
-  .trash-label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    pointer-events: none;
-  }
-  .trash.trash-armed {
-    border-style: solid;
-    border-color: #ef4444;
-    background: #2a1414;
-    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.6);
-  }
-
-  /* Sell drop-zone (shop only): gold-toned counterpart to the trash. */
-  .sell {
-    margin: 0 12px 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px;
-    border: 1px dashed #5a4a2a;
-    border-radius: 8px;
-    background: #1a160e;
-    color: #ffd28a;
-    user-select: none;
-  }
-  .sell-emoji {
-    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.4rem;
-    line-height: 1;
-    pointer-events: none;
-  }
-  .sell-label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    pointer-events: none;
-  }
-  .sell.sell-armed {
-    border-style: solid;
-    border-color: #ffcc44;
-    background: #2a2212;
-    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.6);
-  }
-
-  .hint {
-    padding: 8px 14px 12px;
-    font-size: 0.8rem;
-    color: #788;
   }
 
   .drag-ghost {

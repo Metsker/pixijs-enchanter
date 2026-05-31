@@ -3,36 +3,19 @@
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
   import { topbar } from '../state/topbar';
-  import { backpackOpen, toggleBackpack, settingsOpen, openSettings } from '../state/ui';
-  import { audioPrefs, sfx, toggleMute } from '../audio/sfx';
-  import { simSpeed, cycleSimSpeed } from '../state/sim-speed';
-  import { clearSave } from '../state/save';
-  import { startNewRun } from '../state/run';
+  import {
+    itemsSplitOpen,
+    gemsSplitOpen,
+    statsSplitOpen,
+    toggleItemsSplit,
+    toggleGemsSplit,
+    toggleStatsSplit,
+    settingsOpen,
+    openSettings,
+  } from '../state/ui';
+  import InventoryColumn from './InventoryColumn.svelte';
+  import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
-
-  // Restart uses a two-click confirm so a stray tap doesn't wipe a
-  // run mid-play. First click arms the button (icon flips to ⚠️ and
-  // hover text changes); a second click within 3s commits, otherwise
-  // the armed state auto-clears.
-  let confirmingRestart = $state(false);
-  let confirmTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function onRestartClick(): void {
-    if (confirmingRestart) {
-      confirmingRestart = false;
-      if (confirmTimer) clearTimeout(confirmTimer);
-      confirmTimer = null;
-      clearSave();
-      startNewRun();
-      return;
-    }
-    confirmingRestart = true;
-    if (confirmTimer) clearTimeout(confirmTimer);
-    confirmTimer = setTimeout(() => {
-      confirmingRestart = false;
-      confirmTimer = null;
-    }, 3000);
-  }
 
   // Gold ticks up smoothly when claimed from the victory chest (and on
   // any other change too). Round on render so the counter shows whole
@@ -71,41 +54,12 @@
     </div>
   </div>
 
+  <!-- Equipment slots live inline in the header, filling the middle. -->
+  <InventoryColumn />
+
   <div class="progress">
     {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
   </div>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    class:armed={confirmingRestart}
-    aria-label={confirmingRestart ? t('topbar.confirmRestart') : t('topbar.restart')}
-    title={confirmingRestart ? t('topbar.confirmRestart') : t('topbar.restart')}
-    onclick={onRestartClick}
-  >
-    <span class="emoji">{confirmingRestart ? '⚠️' : '🔄'}</span>
-  </button>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    aria-label={t('topbar.toggleMute')}
-    aria-pressed={$audioPrefs.muted}
-    onclick={toggleMute}
-    title={t('topbar.toggleMute')}
-  >
-    <span class="emoji">{$audioPrefs.muted ? '🔇' : '🔊'}</span>
-  </button>
-
-  <button
-    type="button"
-    class="backpack-toggle speed"
-    aria-label={t('topbar.simSpeed')}
-    title={t('topbar.simSpeed')}
-    onclick={cycleSimSpeed}
-  >
-    <span class="value">{$simSpeed}×</span>
-  </button>
 
   <button
     type="button"
@@ -122,19 +76,45 @@
   <button
     type="button"
     class="backpack-toggle"
-    class:active={$backpackOpen}
-    aria-label={t('topbar.toggleBackpack')}
-    aria-pressed={$backpackOpen}
-    onclick={toggleBackpack}
+    class:active={$itemsSplitOpen}
+    aria-label={t('topbar.toggleItems')}
+    aria-pressed={$itemsSplitOpen}
+    onclick={toggleItemsSplit}
+    title={t('topbar.toggleItems')}
   >
     <span class="emoji">🎒</span>
+  </button>
+
+  <button
+    type="button"
+    class="backpack-toggle"
+    class:active={$gemsSplitOpen}
+    aria-label={t('topbar.toggleGems')}
+    aria-pressed={$gemsSplitOpen}
+    onclick={toggleGemsSplit}
+    title={t('topbar.toggleGems')}
+  >
+    <span class="emoji">💠</span>
+  </button>
+
+  <button
+    type="button"
+    class="backpack-toggle"
+    class:active={$statsSplitOpen}
+    aria-label={t('topbar.toggleStats')}
+    aria-pressed={$statsSplitOpen}
+    onclick={toggleStatsSplit}
+    title={t('topbar.toggleStats')}
+  >
+    <span class="emoji">📊</span>
   </button>
 </header>
 
 <style>
   .topbar {
     flex: 0 0 auto;
-    height: 56px;
+    /* Taller to give the inline equipment slots room to breathe. */
+    min-height: 84px;
     display: flex;
     align-items: center;
     gap: 1.5rem;
@@ -209,10 +189,10 @@
   }
 
   .progress {
-    margin-left: auto;
     font-size: 1.05rem;
     color: #9aa;
     font-variant-numeric: lining-nums tabular-nums;
+    white-space: nowrap;
   }
 
   .backpack-toggle {
@@ -235,22 +215,9 @@
     background: #2a2a34;
   }
 
-  /* Sim-speed button shows its multiplier as text rather than an emoji. */
-  .backpack-toggle.speed .value {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: #cdd;
-    font-variant-numeric: lining-nums tabular-nums;
-  }
-
   .backpack-toggle.active {
     background: #3a3a48;
     border-color: #ffcc44;
-  }
-
-  .backpack-toggle.armed {
-    background: #4a2424;
-    border-color: #ef4444;
   }
 
   .backpack-toggle:focus-visible {

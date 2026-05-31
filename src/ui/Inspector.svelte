@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
+  import { fade } from 'svelte/transition';
   import { get } from 'svelte/store';
   import { closeInspector, inspector } from '../state/inspector';
   import { completeRoom, run } from '../state/run';
@@ -14,7 +13,15 @@
     unequipToBackpack,
   } from '../state/inventory';
   import { addItem, backpack } from '../state/backpack';
-  import { buyAndEquipItem, buyItem, canBuyAndEquipItem, canBuyItem } from '../state/shop';
+  import {
+    buyAndEquipItem,
+    buyItem,
+    canBuyAndEquipItem,
+    canBuyItem,
+    sellItemFromBackpack,
+    shopStock,
+  } from '../state/shop';
+  import { itemSellValue } from '../domain/shop';
   import { removeRewardItem, pendingRewards } from '../state/rewards';
   import { canPickItem, pickItem } from '../state/item-offer';
   import {
@@ -24,19 +31,25 @@
     tierOf,
     type Item,
   } from '../domain/item';
-  import type { Gem, SocketColor } from '../domain/gem';
+  import { type Gem, type SocketColor } from '../domain/gem';
   import { seededSocketColorForType } from '../domain/random';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { computeBindings } from '../domain/gem-resolution';
   import { gemFitsSocketAt } from '../domain/gem-fit';
   import { cancelHeld, heldGem } from '../state/gem-move';
   import { startGemDrag, gemDropZone, isGemDragActive } from '../state/gem-drag';
-  import { inspectGem } from '../state/gem-inspector';
-  import { gemStash } from '../state/gem-stash';
-  import { disenchantRewardItem, destroyRewardItemKeepGems, itemRefund } from '../state/disenchant';
+  import { inspectGem, gemInspector } from '../state/gem-inspector';
+  import {
+    disenchantRewardItem,
+    destroyRewardItemKeepGems,
+    disenchantItemFromBackpack,
+    destroyBackpackItemKeepGems,
+    disenchantEquipped,
+    itemRefund,
+  } from '../state/disenchant';
   import { requestDestroy } from '../state/destroy-prompt';
   import { t } from '../i18n';
-  import { clickOutside } from '../utils/clickOutside';
+  import { revealInRail } from '../utils/revealInRail';
 
   const TIER_COLORS: Record<number, string> = {
     1: '#9ca3af',
@@ -128,23 +141,21 @@
     return gemFitsSocketAt(held.gem, colItem, index);
   }
 
-  // Pointer-down on a FILLED socket starts a gem drag (drag it out to a stash /
-  // another socket / an equipped item). Empty sockets and read-only previews
-  // are inert. The gem-drag controller gates on a move threshold, so a tap that
-  // doesn't move neither lifts the gem nor opens anything.
+  // Pointer-down on a FILLED socket. On an OWNED item it starts a gem drag (drag
+  // it out to another socket / an equipped item) and a tap (no movement) opens
+  // the gem inspector. On a READ-ONLY preview (shop / item-offer / the compare
+  // column) you can't move gems, but a tap still inspects the socketed gem.
+  // Empty sockets are always inert.
   function onSocketPointerDown(e: PointerEvent, item: Item, index: number): void {
-    if (!socketsEditable) return;
     const gem = item.sockets[index];
-    if (!gem) return; // empty socket: nothing to drag.
-    // Drag to move the gem; a tap (no movement) opens the gem inspector.
+    if (!gem) return;
+    if (!socketsEditable) {
+      inspectGem(gem);
+      return;
+    }
     startGemDrag({ kind: 'socket', item, index }, e, () => inspectGem(gem));
   }
 
-  // Pointer-down on a loose stash gem starts a drag (into a socket / equipped
-  // item, or back into the backpack); a tap opens the gem inspector instead.
-  function onStashPointerDown(e: PointerEvent, gem: Gem): void {
-    startGemDrag({ kind: 'backpack', gemId: gem.id }, e, () => inspectGem(gem));
-  }
 
   // True while a dragged gem is hovering THIS open item's socket whose drop
   // zone id matches, so the socket highlights as the live drop target.
@@ -249,7 +260,7 @@
         }
         queueMicrotask(() => {
           document
-            .querySelector<HTMLElement>(`.backpack [data-cell-index="${landedIndex}"]`)
+            .querySelector<HTMLElement>(`.bag-items [data-cell-index="${landedIndex}"]`)
             ?.focus();
         });
       }
@@ -344,6 +355,48 @@
       });
     }
   }
+
+  // Disenchant / Sell are now per-item buttons on owned items (equipped /
+  // backpack), replacing the bag's old trash + sell drop-zones.
+  const owned = $derived(
+    $inspector?.source === 'inventory' || $inspector?.source === 'backpack',
+  );
+
+  // Disenchant the inspected owned item for crystals. A backpack item that still
+  // holds gems prompts to keep them (detach to the bag) or scrap everything,
+  // mirroring the old trash-drop; an equipped item scraps outright.
+  function handleDisenchant(): void {
+    const s = $inspector;
+    if (!s) return;
+    if (s.source === 'backpack') {
+      if (s.item.sockets.some((g) => g !== null)) {
+        requestDestroy({
+          item: s.item,
+          onKeepGems: () => {
+            destroyBackpackItemKeepGems(s.index);
+            closeInspector();
+          },
+          onDestroyAll: () => {
+            disenchantItemFromBackpack(s.index);
+            closeInspector();
+          },
+        });
+        return;
+      }
+      if (disenchantItemFromBackpack(s.index)) closeInspector();
+    } else if (s.source === 'inventory') {
+      if (disenchantEquipped(s.slotId)) closeInspector();
+    }
+  }
+
+  // Sell the inspected backpack item to the shop for gold (only while a shop is
+  // open). Equipped items aren't sellable directly - unequip first.
+  function handleSell(): void {
+    const s = $inspector;
+    if (!s || s.source !== 'backpack') return;
+    sellItemFromBackpack(s.index);
+    closeInspector();
+  }
 </script>
 
 {#if $inspector}
@@ -351,24 +404,17 @@
   {@const item = subject.item}
   <aside
     class="inspector"
-    class:with-compare={comparison !== null}
     aria-label={t('inspector.title')}
-    transition:fly={{ x: 580, duration: 220, easing: cubicOut, opacity: 1 }}
+    use:revealInRail
+    transition:fade={{ duration: 140 }}
   >
-    <header class="header">
+    <header class="header" data-pane-header>
       <span class="emoji">{itemEmoji(item)}</span>
       <div class="title">
         <div class="kind">{t(`item.type.${item.itemType}`)}</div>
         <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
           {t('inspector.tier', { tier: tierOf(item) })}
         </div>
-        {#if socketsEditable}
-          <!-- Disenchant hint: total crystals from trashing this item (the
-               item frame plus every gem socketed in it). -->
-          <div class="disenchant-hint" title={t('inspector.disenchant.title')}>
-            🗑️ 💎 {itemRefund(item)}
-          </div>
-        {/if}
       </div>
       <button
         type="button"
@@ -385,97 +431,130 @@
          another socket, or onto an equipped item - and every socket is a DROP
          target while a gem is being dragged. Bound supports show a "binds to"
          connector to their effect; inert supports are dimmed. -->
-    <!-- One interactive socket column for an item. Rendered once normally, or
-         twice (inspected + equipped) side-by-side when comparing - and gems
-         drag freely between the two columns via the shared by-id gem-move. -->
+    <!-- One interactive socket - the building block for both the normal list and
+         the compare view. Gems drag freely between the inspected + equipped
+         item's sockets via the shared by-id gem-move. -->
+    {#snippet socketCell(
+      colItem: Item,
+      colEditable: boolean,
+      colBindings: ReturnType<typeof computeBindings>,
+      i: number,
+    )}
+      {@const gem = colItem.sockets[i]}
+      {@const d = display(gem)}
+      {@const socketHex = SOCKET_COLOR_HEX[colItem.socketColors[i]] ?? '#666'}
+      {@const isSupport = d?.role === 'support'}
+      {@const isBound = isSupport ? colBindings.boundSupports.has(i) : false}
+      {@const inert = isSupport ? colBindings.inertSupports.has(i) : false}
+      {@const supportMismatch = isSupport ? colBindings.incompatibleSupports.has(i) : false}
+      {@const isHeldOrigin =
+        $heldGem !== null &&
+        $heldGem.from.kind === 'socket' &&
+        $heldGem.from.itemId === colItem.id &&
+        $heldGem.from.index === i}
+      {@const fitsThis = heldFitsItemSocket(colItem, i)}
+      {@const dropTarget = colEditable && $heldGem !== null && fitsThis}
+      {@const incompatible = colEditable && $heldGem !== null && !fitsThis}
+      {@const armed = isArmedSocket(colItem.id, i)}
+      {@const isSelected = gem !== null && $gemInspector?.gem.id === gem.id}
+      <button
+        type="button"
+        class="socket"
+        class:filled={d !== null}
+        class:support={isSupport}
+        class:effect={d?.role === 'effect'}
+        class:inert={inert || supportMismatch}
+        class:bound={isBound}
+        class:drop-target={dropTarget}
+        class:armed
+        class:selected={isSelected}
+        class:incompatible
+        class:held-origin={isHeldOrigin}
+        class:interactive={colEditable || d !== null}
+        class:draggable={colEditable && d !== null}
+        disabled={!colEditable && d === null}
+        data-gem-socket
+        data-item-id={colItem.id}
+        data-socket-index={i}
+        style="--socket-color: {socketHex}"
+        title={socketTitle(d, !!$heldGem, dropTarget, incompatible)}
+        onpointerdown={(e) => onSocketPointerDown(e, colItem, i)}
+      >
+        <span class="socket-emoji">{d ? d.emoji : '·'}</span>
+        <span class="socket-info">
+          {#if d}
+            <span class="socket-name">
+              {d.name}
+              {#if d.level > 1}<span class="gem-level">Lv{d.level}</span>{/if}
+            </span>
+            <span class="socket-summary">{d.summary}</span>
+            {#if isSupport && isBound}
+              <span class="socket-bind">↳ {t('inspector.socket.bindsAll')}</span>
+            {:else if isSupport && supportMismatch}
+              <span class="socket-bind inert-note">{t('inspector.socket.mismatch')}</span>
+            {:else if inert}
+              <span class="socket-bind inert-note">{t('inspector.socket.inert')}</span>
+            {/if}
+          {:else}
+            <span class="socket-name empty">{t('inspector.socket.empty')}</span>
+          {/if}
+        </span>
+        <span
+          class="socket-role"
+          class:role-effect={d?.role === 'effect'}
+          class:role-support={isSupport}
+        >
+          {#if d}{d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}{/if}
+        </span>
+      </button>
+    {/snippet}
+
+    <!-- Normal: a single labelled column of the item's sockets. -->
     {#snippet socketColumn(colItem: Item, colEditable: boolean, label: string)}
       {@const colBindings = computeBindings(colItem.sockets)}
       <div class="socket-col">
         <div class="sockets-label">{label}</div>
         <div class="sockets">
-          {#each colItem.sockets as gem, i (i)}
-            {@const d = display(gem)}
-            {@const socketHex = SOCKET_COLOR_HEX[colItem.socketColors[i]] ?? '#666'}
-            {@const isSupport = d?.role === 'support'}
-            {@const isBound = isSupport ? colBindings.boundSupports.has(i) : false}
-            {@const inert = isSupport ? colBindings.inertSupports.has(i) : false}
-            {@const supportMismatch = isSupport ? colBindings.incompatibleSupports.has(i) : false}
-            {@const isHeldOrigin =
-              $heldGem !== null &&
-              $heldGem.from.kind === 'socket' &&
-              $heldGem.from.itemId === colItem.id &&
-              $heldGem.from.index === i}
-            {@const fitsThis = heldFitsItemSocket(colItem, i)}
-            {@const dropTarget = colEditable && $heldGem !== null && fitsThis}
-            {@const incompatible = colEditable && $heldGem !== null && !fitsThis}
-            {@const armed = isArmedSocket(colItem.id, i)}
+          {#each colItem.sockets as _gem, i (i)}
             <div class="socket-row">
-              <button
-                type="button"
-                class="socket"
-                class:filled={d !== null}
-                class:support={isSupport}
-                class:effect={d?.role === 'effect'}
-                class:inert={inert || supportMismatch}
-                class:bound={isBound}
-                class:drop-target={dropTarget}
-                class:armed
-                class:incompatible
-                class:held-origin={isHeldOrigin}
-                class:interactive={colEditable}
-                class:draggable={colEditable && d !== null}
-                disabled={!colEditable}
-                data-gem-socket
-                data-item-id={colItem.id}
-                data-socket-index={i}
-                style="--socket-color: {socketHex}"
-                title={socketTitle(d, !!$heldGem, dropTarget, incompatible)}
-                onpointerdown={(e) => onSocketPointerDown(e, colItem, i)}
-              >
-                <span class="socket-emoji">{d ? d.emoji : '·'}</span>
-                <span class="socket-info">
-                  {#if d}
-                    <span class="socket-name">
-                      {d.name}
-                      {#if d.level > 1}<span class="gem-level">Lv{d.level}</span>{/if}
-                    </span>
-                    <span class="socket-summary">{d.summary}</span>
-                    {#if isSupport && isBound}
-                      <span class="socket-bind">↳ {t('inspector.socket.bindsAll')}</span>
-                    {:else if isSupport && supportMismatch}
-                      <span class="socket-bind inert-note">{t('inspector.socket.mismatch')}</span>
-                    {:else if inert}
-                      <span class="socket-bind inert-note">{t('inspector.socket.inert')}</span>
-                    {/if}
-                  {:else}
-                    <span class="socket-name empty">{t('inspector.socket.empty')}</span>
-                  {/if}
-                </span>
-                <span
-                  class="socket-role"
-                  class:role-effect={d?.role === 'effect'}
-                  class:role-support={isSupport}
-                >
-                  {#if d}{d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}{/if}
-                </span>
-              </button>
+              {@render socketCell(colItem, colEditable, colBindings, i)}
             </div>
           {/each}
         </div>
       </div>
     {/snippet}
 
-    <div class="body" data-gem-zone>
-      <div class="columns" class:dual={comparison !== null}>
-        {@render socketColumn(
-          item,
-          socketsEditable,
-          comparison ? t('inspector.compare.selected') : t('inspector.sockets'),
-        )}
-        {#if comparison}
-          {@render socketColumn(comparison, socketsEditable, t('inspector.compare.equipped'))}
-        {/if}
+    <!-- Compare: each EQUIPPED socket sits directly under the matching selected
+         socket (paired by index) in one column, rather than two side-by-side. -->
+    {#snippet comparePairs(equipped: Item)}
+      {@const selBindings = computeBindings(item.sockets)}
+      {@const eqBindings = computeBindings(equipped.sockets)}
+      {@const rowCount = Math.max(item.sockets.length, equipped.sockets.length)}
+      <div class="sockets">
+        {#each Array(rowCount) as _, i (i)}
+          <div class="compare-pair">
+            {#if i < item.sockets.length}
+              <div class="socket-row">
+                {@render socketCell(item, socketsEditable, selBindings, i)}
+              </div>
+            {/if}
+            {#if i < equipped.sockets.length}
+              <div class="socket-row equipped">
+                <span class="cmp-tag">{t('inspector.compare.equipped')}</span>
+                {@render socketCell(equipped, socketsEditable, eqBindings, i)}
+              </div>
+            {/if}
+          </div>
+        {/each}
       </div>
+    {/snippet}
+
+    <div class="body" data-gem-zone>
+      {#if comparison}
+        {@render comparePairs(comparison)}
+      {:else}
+        {@render socketColumn(item, socketsEditable, t('inspector.sockets'))}
+      {/if}
 
       <!-- Add socket (Rest only, owned item, under the tier cap). Improves the
            item's tier by one empty socket for crystals. -->
@@ -498,36 +577,6 @@
         </button>
       {/if}
 
-      <!-- Gem stash strip (the backpack's loose gems). Drag a gem out to a
-           socket / equipped item, or drag a socketed gem in here to un-socket
-           it. The whole strip is a drop zone (data-gem-stash). -->
-      <div
-        class="stash"
-        class:drop-armed={$gemDropZone === 'stash'}
-        data-gem-stash
-      >
-        <div class="sockets-label stash-label">{t('inspector.stash.title')}</div>
-        {#if $gemStash.length === 0}
-          <div class="stash-empty">{t('inspector.stash.empty')}</div>
-        {:else}
-          <div class="stash-grid">
-            {#each $gemStash as g (g.id)}
-              {@const sd = display(g)}
-              <button
-                type="button"
-                class="stash-gem draggable"
-                style="--socket-color: {sd ? SOCKET_COLOR_HEX[sd.color] : '#666'}"
-                title={sd ? sd.summary : ''}
-                onpointerdown={(e) => onStashPointerDown(e, g)}
-              >
-                <span class="socket-emoji">{sd?.emoji ?? '?'}</span>
-                <span class="stash-gem-name">{sd?.name ?? ''}</span>
-                {#if sd && sd.level > 1}<span class="gem-level">Lv{sd.level}</span>{/if}
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
     </div>
 
     {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'rewards' || subject.source === 'item-offer'}
@@ -581,6 +630,19 @@
               {t('inspector.buyAndEquip', { price: subject.price })}
             </button>
           {/if}
+          {#if owned}
+            <!-- Per-item Disenchant / Sell (replacing the bag's old drop-zones).
+                 Sell only while a shop is open, and only for backpack items
+                 (unequip first to sell equipped gear). -->
+            {#if subject.source === 'backpack' && $shopStock}
+              <button type="button" class="cta secondary" onclick={handleSell}>
+                {t('inspector.sell', { price: itemSellValue(item) })}
+              </button>
+            {/if}
+            <button type="button" class="cta danger" onclick={handleDisenchant}>
+              {t('inspector.disenchant', { refund: itemRefund(item) })}
+            </button>
+          {/if}
         {/if}
       </footer>
     {/if}
@@ -588,57 +650,61 @@
 {/if}
 
 <style>
+  /* In-rail detail panel: a fixed-width flex column that stretches to the rail's
+     full height and snaps as the player scrolls/swipes. (Was a fixed right-edge
+     side panel.) */
   .inspector {
-    position: fixed;
-    top: 56px;
-    right: 0;
-    bottom: 0;
-    width: 360px;
-    max-width: calc(100vw - 16px);
+    flex: 0 0 auto;
+    align-self: stretch;
+    /* Every split is exactly a quarter of the screen: four tile to fill it, a
+       fifth scrolls off (reached via the rail arrows), and opening one never
+       resizes the others. A lone split shows the room beside it. The floor keeps
+       it usable where a quarter would be too narrow. */
+    width: 25%;
+    min-width: min(300px, 100%);
     background: #1c1c24;
     border-left: 1px solid #2a2a34;
-    box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
-    z-index: 110;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    scroll-snap-align: start;
     user-select: none;
-    transition: width 180ms ease;
   }
-  /* Widen to fit two socket columns side-by-side when comparing. */
-  .inspector.with-compare {
-    width: min(660px, calc(100vw - 16px));
-  }
-
-  @media (max-width: 900px) {
-    .inspector {
-      width: min(360px, 50vw);
-    }
-    .inspector.with-compare {
-      width: calc(100vw - 16px);
-    }
-  }
-
-  /* Socket area: one column normally, two side-by-side when comparing. */
-  .columns {
+  /* Compare view: each selected socket is paired with the equipped socket
+     directly below it, grouped and separated by a dashed rule. The compare pane
+     is a normal quarter-width split (no special width). */
+  .compare-pair {
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    gap: 4px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed #2a2a34;
   }
-  .columns.dual {
-    flex-direction: row;
-    gap: 10px;
-    align-items: flex-start;
+  .compare-pair:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
   }
-  .columns.dual .socket-col {
-    flex: 1 1 0;
-    min-width: 0;
+  /* The equipped reference: tagged + slightly indented under its selected pair. */
+  .cmp-tag {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #788;
+    padding-left: 2px;
+  }
+  .socket-row.equipped {
+    padding-left: 12px;
+    /* The equipped reference reads dimmer than the selected item's sockets. */
+    opacity: 0.6;
   }
 
   .header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 12px 14px;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
     border-bottom: 1px solid #2a2a34;
   }
   .header .emoji {
@@ -666,15 +732,6 @@
     border: 1px solid var(--tier-color, #666);
     color: var(--tier-color, #999);
     background: rgba(0, 0, 0, 0.3);
-    font-variant-numeric: lining-nums;
-  }
-  /* Disenchant-refund hints (crystals returned by trashing). */
-  .disenchant-hint {
-    align-self: flex-start;
-    margin-top: 3px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #d8b34a;
     font-variant-numeric: lining-nums;
   }
   .close {
@@ -758,8 +815,18 @@
     box-shadow: inset 0 0 0 2px #ffcc44;
     opacity: 1;
   }
+  /* Gem currently open in the gem inspector. An inset ring, so the gem's colour
+     left-border stays visible (no border-color override). */
+  .socket.selected {
+    box-shadow: inset 0 0 0 2px #ffcc44;
+    opacity: 1;
+  }
+  /* Hover recolours only the top/right/bottom edges so the gem's colour
+     left-border is never hidden. */
   .socket.interactive:not(:disabled):hover {
-    border-color: #4a4a58;
+    border-top-color: #4a4a58;
+    border-right-color: #4a4a58;
+    border-bottom-color: #4a4a58;
     background: #181820;
   }
   /* Socket COLOUR: the left edge reads as the socket's colour (what fits
@@ -828,13 +895,6 @@
     border: 1px solid #c084fc;
     vertical-align: middle;
     font-variant-numeric: lining-nums;
-  }
-  .stash-gem .gem-level {
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    font-size: 0.62rem;
-    padding: 1px 3px;
   }
   .socket-summary {
     font-size: 0.88rem;
@@ -923,71 +983,6 @@
     outline-offset: 2px;
   }
 
-  /* === Gem stash ================================================ */
-  .stash {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px dashed #2a2a34;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .stash.drop-armed {
-    border-top-color: #ffcc44;
-    background: #2a2410;
-    border-radius: 6px;
-    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
-  }
-  .stash-label {
-    margin-bottom: 0;
-  }
-  .stash-empty {
-    font-size: 0.9rem;
-    color: #667;
-    line-height: 1.3;
-    padding: 2px;
-  }
-  .stash-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .stash-gem {
-    position: relative;
-    appearance: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    width: 62px;
-    padding: 7px 4px;
-    border: 1px solid #2a2a34;
-    /* Socket colour reads as the left edge, like the sockets (no colour ring). */
-    border-left: 3px solid var(--socket-color, #666);
-    border-radius: 6px;
-    background: #14141a;
-    color: #ccd;
-    cursor: pointer;
-    min-height: 56px;
-    transition: border-color 100ms ease, background-color 100ms ease;
-  }
-  .stash-gem.draggable {
-    touch-action: none;
-  }
-  .stash-gem:hover {
-    border-color: #4a4a58;
-    background: #181820;
-  }
-  .stash-gem:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
-  }
-  .stash-gem-name {
-    font-size: 0.74rem;
-    text-align: center;
-    line-height: 1.1;
-    color: #9aa;
-  }
   .footer {
     padding: 12px 14px;
     border-top: 1px solid #2a2a34;

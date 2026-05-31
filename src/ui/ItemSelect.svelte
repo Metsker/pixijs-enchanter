@@ -2,26 +2,15 @@
   import { completeRoom } from '../state/run';
   import { itemOffer } from '../state/item-offer';
   import { inspectItem, inspector } from '../state/inspector';
-  import { itemEmoji, tierOf } from '../domain/item';
-  import SocketPips from './SocketPips.svelte';
+  import ItemCard from './ItemCard.svelte';
   import { t } from '../i18n';
 
-  const TIER_COLORS: Record<number, string> = {
-    1: '#9ca3af',
-    2: '#22c55e',
-    3: '#3b82f6',
-    4: '#a855f7',
-    5: '#f97316',
-    6: '#ef4444',
-    7: '#fbbf24',
-  };
-
+  // The Armory is a left-aligned pane (same layout as the shop): a header over a
+  // section of offered items in a wrapping card grid. Tapping a card opens the
+  // in-rail inspector (source 'item-offer', whose CTA picks it); picking advances.
   function onItemClick(index: number): void {
-    const offer = $itemOffer;
-    if (!offer) return;
-    const item = offer.items[index];
-    if (!item) return;
-    inspectItem({ source: 'item-offer', index, item });
+    const item = $itemOffer?.items[index];
+    if (item) inspectItem({ source: 'item-offer', index, item });
   }
 
   function isInspectingOffer(i: number): boolean {
@@ -30,73 +19,76 @@
   }
 </script>
 
-<section class="item-room">
-  <header class="item-room-header">
-    <h2>📦 {t('itemSelect.title')}</h2>
+<section class="armory">
+  <header class="armory-head">
+    <h2><span class="head-emoji">📦</span> {t('itemSelect.title')}</h2>
     <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
   </header>
 
-  <p class="subtitle">{t('itemSelect.subtitle')}</p>
-
   {#if $itemOffer}
     {@const offer = $itemOffer}
-    <div class="items-grid">
-      {#each offer.items as slot, i (i)}
-        {#if slot}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="item-tile"
-            class:inspecting={isInspectingOffer(i)}
-            data-inspector-source="item-offer"
-            onclick={() => onItemClick(i)}
-          >
-            <span class="emoji">{itemEmoji(slot)}</span>
-            <span
-              class="tier"
-              style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#666'}"
-            >
-              T{tierOf(slot)}
-            </span>
-            <SocketPips item={slot} />
-          </div>
-        {:else}
-          <div class="item-tile taken">
-            <span class="taken-label">{t('itemSelect.taken')}</span>
-          </div>
-        {/if}
-      {/each}
+    <div class="body">
+      <div class="group">
+        <p class="subtitle">{t('itemSelect.subtitle')}</p>
+        <div class="cards">
+          {#each offer.items as slot, i (i)}
+            {#if slot}
+              <ItemCard
+                item={slot}
+                source="item-offer"
+                selected={isInspectingOffer(i)}
+                onClick={() => onItemClick(i)}
+              />
+            {:else}
+              <div class="taken">{t('itemSelect.taken')}</div>
+            {/if}
+          {/each}
+        </div>
+      </div>
     </div>
   {/if}
 </section>
 
 <style>
-  .item-room {
-    flex: 1;
+  /* Left-aligned Armory pane: a quarter of the screen like every other split,
+     same flat chrome (#1c1c24, #3a3a48 divider). */
+  .armory {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 25%;
+    min-width: min(300px, 100%);
     display: flex;
     flex-direction: column;
-    background:
-      radial-gradient(ellipse at top, rgba(255, 204, 68, 0.06) 0%, transparent 60%),
-      linear-gradient(180deg, #14141a 0%, #1c1c24 100%);
-    padding: 16px 20px;
-    gap: 14px;
     min-height: 0;
-    overflow-y: auto;
+    background: #1c1c24;
+    border-right: 1px solid #3a3a48;
+    user-select: none;
+    scroll-snap-align: start;
   }
-  .item-room-header {
+  .armory-head {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
+    border-bottom: 1px solid #2a2a34;
   }
   h2 {
     margin: 0;
-    font-size: 1.3rem;
+    font-size: 1rem;
     font-weight: 600;
     color: #ddd;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
-  h2 :global(.emoji),
-  .emoji {
+  .head-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 2rem;
+    line-height: 1;
   }
   .leave {
     appearance: none;
@@ -104,84 +96,56 @@
     border: 1px solid #4a4a58;
     color: #fff;
     border-radius: 8px;
-    padding: 10px 18px;
-    font-size: 0.9rem;
+    padding: 8px 14px;
+    font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
-    min-height: 40px;
+    min-height: 36px;
   }
   .leave:hover {
     background: #4a4a58;
     border-color: #ffcc44;
   }
+
+  /* Same layout as the shop: a scrolling body with a section (intro + a card
+     grid that wraps horizontally). */
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px 10px;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
   .subtitle {
     margin: 0;
     color: #9aa;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    line-height: 1.35;
   }
-
-  .items-grid {
+  .cards {
     display: grid;
-    grid-template-columns: repeat(3, minmax(160px, 220px));
-    gap: 12px;
-    justify-content: center;
-    margin-top: 4px;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
   }
-  @media (max-width: 720px) {
-    .items-grid {
-      grid-template-columns: 1fr;
-      max-width: 320px;
-      margin: 4px auto 0;
-    }
-  }
-
-  .item-tile {
-    position: relative;
-    aspect-ratio: 1.4 / 1;
+  .taken {
+    aspect-ratio: 1 / 1;
     border: 1px solid #2a2a34;
     border-radius: 8px;
-    background: #14141a;
+    background: #101015;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    cursor: pointer;
-    transition: background-color 80ms ease, border-color 80ms ease,
-      transform 80ms ease;
-    padding: 14px;
-  }
-  .item-tile:hover {
-    background: #1c1c24;
-    border-color: #4a4a58;
-    transform: translateY(-2px);
-  }
-  .item-tile.inspecting {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
-  }
-  .item-tile.taken {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-  .item-tile .emoji {
-    font-size: 2.6rem;
-    line-height: 1;
-  }
-  .item-tile .tier {
-    font-size: 0.85rem;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--tier-color, #666);
-    color: var(--tier-color, #999);
-    background: rgba(0, 0, 0, 0.3);
-    font-variant-numeric: lining-nums;
-  }
-  .taken-label {
+    opacity: 0.4;
     color: #555;
-    font-size: 0.85rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
   }
 </style>

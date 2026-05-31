@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { fly, fade } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
+  import { fade } from 'svelte/transition';
+  import { revealInRail } from '../utils/revealInRail';
   import { gemInspector, closeGemInspector } from '../state/gem-inspector';
   import { gemDisplay, gemDisplayForDef, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { GEM_CATALOGUE } from '../domain/gem-catalogue';
   import { gemColor } from '../domain/gem-fit';
   import { gemLevel, isGem, type Gem } from '../domain/gem';
   import { gemRefund, disenchantGemFromBackpack, disenchantRewardGem } from '../state/disenchant';
-  import { socketGemIntoItem } from '../state/gem-move';
-  import { buyGem, canBuyGem } from '../state/shop';
+  import { socketGemIntoItem, unsocketGemToBag } from '../state/gem-move';
+  import { buyGem, canBuyGem, sellGemFromBackpack } from '../state/shop';
+  import { gemSellValue } from '../domain/shop';
   import { topbar } from '../state/topbar';
   import { equipped } from '../state/inventory';
   import { backpack, addGemToBackpack } from '../state/backpack';
@@ -144,6 +145,34 @@
     if (ok) closeGemInspector();
   }
 
+  // Sell a loose bag gem to the shop for gold (only while a shop is open).
+  const canSell = $derived(looseInBag && $shopStock !== null);
+  function onSell(): void {
+    if (!gem || !canSell) return;
+    sellGemFromBackpack(gem.id);
+    closeGemInspector();
+  }
+
+  // The owned item this gem is socketed in (equipped / backpack / reward chest),
+  // if any - so we can pull it back out into the bag. Shop / offer previews
+  // aren't editable, so they don't count.
+  const socketedIn = $derived.by((): { item: Item; index: number } | null => {
+    if (!gem || shop) return null;
+    const g = gem;
+    for (const { item, key } of allItems) {
+      if (!OWNED.has(key)) continue;
+      const index = item.sockets.findIndex((s) => s?.id === g.id);
+      if (index >= 0) return { item, index };
+    }
+    return null;
+  });
+  const canUnsocket = $derived(socketedIn !== null);
+  function onUnsocket(): void {
+    const target = socketedIn;
+    if (!target) return;
+    if (unsocketGemToBag(target.item, target.index)) closeGemInspector();
+  }
+
   // "Fits these items -> Insert": socket the gem straight into this item's first
   // open matching socket, then close (the gem now lives in the item).
   function onInsert(item: Item): void {
@@ -183,24 +212,21 @@
 
 {#if gem}
   {@const d = disp}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="gi-scrim" transition:fade={{ duration: 120 }} onclick={closeGemInspector}></div>
   <div
     class="gi"
     role="dialog"
-    aria-modal="true"
     aria-label={d?.name ?? gem.defId}
-    transition:fly={{ y: 16, duration: 180, easing: cubicOut, opacity: 0 }}
+    use:revealInRail
+    transition:fade={{ duration: 140 }}
   >
-    <header class="gi-head" style="--gem-color: {color ? SOCKET_COLOR_HEX[color] : '#666'}">
+    <header class="gi-head" data-pane-header style="--gem-color: {color ? SOCKET_COLOR_HEX[color] : '#666'}">
       <span class="gi-emoji">{d?.emoji ?? '💎'}</span>
       <div class="gi-title">
         <div class="gi-name">
           {d?.name ?? gem.defId}
           {#if level > 1}<span class="gi-level">Lv{level}</span>{/if}
         </div>
-        <div class="gi-role" class:support={d?.role === 'support'}>
+        <div class="gi-role">
           {d?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
         </div>
       </div>
@@ -210,51 +236,6 @@
     <div class="gi-body">
       <!-- Description: the gem's current effect, generated from its def + level. -->
       <p class="gi-desc">{d?.summary ?? ''}</p>
-
-      {#if shop}
-        <!-- Shop preview: a Buy action; the gem isn't owned, so no insert/destroy. -->
-        <div class="gi-row">
-          <span class="gi-label">{t('gemInspector.destroyValue')}</span>
-          <span class="gi-value">💎 {refund}</span>
-        </div>
-        <button
-          type="button"
-          class="gi-buy"
-          disabled={!buy.ok}
-          title={buy.reason}
-          onclick={onBuy}
-        >
-          {t('inspector.buy', { price: shop.price })}
-        </button>
-      {:else}
-        {#if canDestroy}
-          <!-- A loose gem (bag or chest): a real Destroy button carrying the
-               crystal value. -->
-          <div class="gi-actions">
-            {#if isRewardGem}
-              <!-- Victory chest: Take the gem straight into the bag. -->
-              <button
-                type="button"
-                class="gi-act take"
-                disabled={bagFull}
-                title={bagFull ? t('inspector.cta.backpackFull') : ''}
-                onclick={onTake}
-              >
-                {t('inspector.take')}
-              </button>
-            {/if}
-            <button type="button" class="gi-act destroy" onclick={onDestroy}>
-              {t('gemInspector.destroy', { refund })}
-            </button>
-          </div>
-        {:else}
-          <!-- Socketed gem: not directly destroyable here, just show its value. -->
-          <div class="gi-row destroy-row">
-            <span class="gi-label">{t('gemInspector.destroyValue')}</span>
-            <span class="gi-value">💎 {refund}</span>
-          </div>
-        {/if}
-      {/if}
 
       <!-- Level-up preview: current effect -> next level, so the change is read
            straight off the numbers combat will use. -->
@@ -327,43 +308,86 @@
         {/if}
       </section>
     </div>
+
+    <!-- Actions live in a footer at the bottom of the panel, matching the item
+         inspector: Buy (shop) / Take + Sell + Destroy (loose / reward) /
+         Unsocket (socketed in an owned item) / a value label (otherwise). -->
+    <footer class="gi-foot">
+      {#if shop}
+        <button
+          type="button"
+          class="cta"
+          disabled={!buy.ok}
+          title={buy.reason}
+          onclick={onBuy}
+        >
+          {t('inspector.buy', { price: shop.price })}
+        </button>
+      {:else if canDestroy}
+        {#if isRewardGem}
+          <button
+            type="button"
+            class="cta"
+            disabled={bagFull}
+            title={bagFull ? t('inspector.cta.backpackFull') : ''}
+            onclick={onTake}
+          >
+            {t('inspector.take')}
+          </button>
+        {/if}
+        {#if canSell}
+          <button type="button" class="cta secondary" onclick={onSell}>
+            {t('gemInspector.sell', { price: gemSellValue(gem) })}
+          </button>
+        {/if}
+        <button type="button" class="cta danger" onclick={onDestroy}>
+          {t('gemInspector.destroy', { refund })}
+        </button>
+      {:else if canUnsocket}
+        <!-- Socketed in an owned item: pull it back out into the bag. -->
+        <button type="button" class="cta" onclick={onUnsocket}>
+          {t('gemInspector.unsocket')}
+        </button>
+      {:else}
+        <div class="gi-row destroy-row">
+          <span class="gi-label">{t('gemInspector.destroyValue')}</span>
+          <span class="gi-value">💎 {refund}</span>
+        </div>
+      {/if}
+    </footer>
   </div>
 {/if}
 
 <style>
-  .gi-scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(8, 8, 12, 0.55);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
-    z-index: 130;
-  }
+  /* In-rail gem panel: a fixed-width flex column stretched to the rail's full
+     height, snapping as the player scrolls/swipes. (Was a centered modal.) */
   .gi {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(420px, 92vw);
-    max-height: calc(100dvh - 80px);
+    flex: 0 0 auto;
+    align-self: stretch;
+    /* Every split is exactly a quarter of the screen: four tile to fill it, a
+       fifth scrolls off (reached via the rail arrows). The floor keeps it usable
+       where a quarter would be too narrow. */
+    width: 25%;
+    min-width: min(300px, 100%);
     display: flex;
     flex-direction: column;
+    min-height: 0;
     background: #1c1c24;
-    border: 1px solid #3a3a48;
-    border-radius: 12px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
-    z-index: 131;
+    border-left: 1px solid #3a3a48;
+    scroll-snap-align: start;
     overflow: hidden;
   }
 
+  /* Header mirrors the item inspector: emoji + name + a colour-coded badge
+     (the gem's socket colour, the way the item shows its tier) + close. */
   .gi-head {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
+    display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 14px 12px;
+    gap: 0.75rem;
+    height: 76px;
+    box-sizing: border-box;
+    padding: 0 14px;
     border-bottom: 1px solid #2a2a34;
-    border-left: 4px solid var(--gem-color, #666);
   }
   .gi-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -371,12 +395,16 @@
     line-height: 1;
   }
   .gi-title {
+    flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .gi-name {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #eee;
+    color: #ddd;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -391,15 +419,19 @@
     padding: 1px 5px;
     font-variant-numeric: lining-nums;
   }
+  /* Role badge - styled like the item inspector's tier badge, tinted by the
+     gem's socket colour (red / green / blue) so it reads role + colour at once. */
   .gi-role {
-    margin-top: 2px;
-    font-size: 0.72rem;
+    align-self: flex-start;
+    font-size: 0.78rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #f6a;
-  }
-  .gi-role.support {
-    color: #6ad;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--gem-color, #666);
+    color: var(--gem-color, #999);
+    background: rgba(0, 0, 0, 0.3);
   }
   .gi-close {
     appearance: none;
@@ -423,6 +455,8 @@
   }
 
   .gi-body {
+    flex: 1;
+    min-height: 0;
     padding: 12px 14px 16px;
     overflow-y: auto;
     display: flex;
@@ -453,73 +487,57 @@
     color: #cdd;
     font-weight: 600;
   }
-  /* Loose-gem action row: Take (chest only) + Destroy, side by side. */
-  .gi-actions {
+  /* Action footer at the bottom of the panel (matches the item inspector). */
+  .gi-foot {
+    padding: 12px 14px;
+    border-top: 1px solid #2a2a34;
     display: flex;
+    flex-direction: column;
     gap: 8px;
   }
-  .gi-act {
-    flex: 1;
-    appearance: none;
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 44px;
-    transition: background-color 100ms ease, border-color 100ms ease;
-  }
-  .gi-act.take {
-    background: #2a2418;
-    border: 1px solid #5a4a30;
-    color: #ffd28a;
-  }
-  .gi-act.take:hover:not(:disabled) {
-    background: #3a2c1c;
-    border-color: #ffcc44;
-  }
-  .gi-act.take:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .gi-act.destroy {
-    background: transparent;
-    border: 1px solid #5a2a2a;
-    color: #e88;
-  }
-  .gi-act.destroy:hover {
-    background: #2a1414;
-    border-color: #c44;
-  }
-  .gi-act:focus-visible {
-    outline: 2px solid #ffcc44;
-    outline-offset: 2px;
-  }
-
-  .gi-buy {
-    appearance: none;
+  /* Footer action buttons - the exact same .cta family the item inspector uses,
+     stacked full-width, so the two inspectors read identically. */
+  .cta {
     width: 100%;
-    background: #2a2418;
-    border: 1px solid #5a4a30;
-    color: #ffd28a;
+    appearance: none;
+    background: #3a3a48;
+    border: 1px solid #4a4a58;
+    color: #fff;
     border-radius: 8px;
     padding: 12px;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     font-weight: 600;
     cursor: pointer;
     min-height: 44px;
     font-variant-numeric: lining-nums tabular-nums;
     transition: background-color 100ms ease, border-color 100ms ease;
   }
-  .gi-buy:hover:not(:disabled) {
-    background: #3a2c1c;
+  .cta.secondary {
+    background: #1c1c24;
+    color: #ddd;
+  }
+  .cta.secondary:hover:not(:disabled) {
+    background: #2a2a34;
     border-color: #ffcc44;
   }
-  .gi-buy:disabled {
-    opacity: 0.45;
+  .cta.danger {
+    background: transparent;
+    border-color: #5a2a2a;
+    color: #e88;
+  }
+  .cta.danger:hover:not(:disabled) {
+    background: #2a1414;
+    border-color: #c44;
+  }
+  .cta:hover:not(:disabled) {
+    background: #4a4a58;
+    border-color: #ffcc44;
+  }
+  .cta:disabled {
+    opacity: 0.5;
     cursor: not-allowed;
   }
-  .gi-buy:focus-visible {
+  .cta:focus-visible {
     outline: 2px solid #ffcc44;
     outline-offset: 2px;
   }
@@ -530,7 +548,7 @@
     gap: 6px;
   }
   .gi-sec-head {
-    font-size: 0.7rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #788;
