@@ -101,27 +101,32 @@
   // === Empty-socket gem picker =====================================
   // Tapping an EMPTY socket of an owned item opens an inline dropdown of every
   // loose bag gem whose colour fits that socket; picking one sockets it there.
-  // `socketMenu` holds the open socket's index (for the inspected item), or null.
-  let socketMenu = $state<number | null>(null);
+  // `socketMenu` identifies the open socket BY ITEM + index, so the picker works
+  // for either item in the compare view (the candidate or the equipped one).
+  let socketMenu = $state<{ item: Item; index: number } | null>(null);
   function closeSocketMenu(): void {
     socketMenu = null;
+  }
+  function isPickerOpen(it: Item, index: number): boolean {
+    return socketMenu !== null && socketMenu.item.id === it.id && socketMenu.index === index;
+  }
+  function toggleSocketMenu(it: Item, index: number): void {
+    socketMenu = isPickerOpen(it, index) ? null : { item: it, index };
   }
   // Loose bag gems that fit a socket of the given colour, in bag order.
   function pickerGems(color: SocketColor): Gem[] {
     return $backpack.filter((s): s is Gem => isGem(s) && gemColor(s) === color);
   }
-  function onPickGem(picked: Gem, index: number): void {
-    const subj = $inspector;
-    if (!subj) return;
+  function onPickGem(picked: Gem, it: Item, index: number): void {
     // "Change": if the socket is occupied, free it first (its gem returns to the
     // bag), then drop the picked gem into the now-empty socket.
-    if (subj.item.sockets[index]) unsocketGemToBag(subj.item, index);
-    if (socketBagGemIntoSocket(picked, subj.item, index)) closeSocketMenu();
+    if (it.sockets[index]) unsocketGemToBag(it, index);
+    if (socketBagGemIntoSocket(picked, it, index)) closeSocketMenu();
   }
   // The per-socket "change" (⇄): open the same bag-gem picker on a FILLED
   // socket to swap its gem for another. Toggles like tapping an empty socket.
-  function onChangeSocket(index: number): void {
-    socketMenu = socketMenu === index ? null : index;
+  function onChangeSocket(it: Item, index: number): void {
+    toggleSocketMenu(it, index);
   }
   // Inline unsocket (the per-socket ✕): pull the gem out of socket `index` of
   // the inspected item straight into the bag. The item re-derives in place.
@@ -195,11 +200,9 @@
   function onSocketPointerDown(e: PointerEvent, item: Item, index: number): void {
     const gem = item.sockets[index];
     if (!gem) {
-      // Empty socket on an OWNED item: toggle the gem picker for it. (A read-only
-      // preview's empty socket stays inert.)
-      if (socketsEditable && item.id === subject?.item.id) {
-        socketMenu = socketMenu === index ? null : index;
-      }
+      // Empty socket on an OWNED item: toggle the gem picker for THAT item (so
+      // the compare view can fill either column). Read-only previews stay inert.
+      if (socketsEditable) toggleSocketMenu(item, index);
       return;
     }
     if (!socketsEditable) {
@@ -413,9 +416,9 @@
       {@const addHint =
         gem === null &&
         colEditable &&
-        colItem.id === item.id &&
-        socketMenu !== i &&
+        !isPickerOpen(colItem, i) &&
         pickerGems(colItem.socketColors[i]).length > 0}
+      {@const canSwap = colEditable && gem !== null && pickerGems(colItem.socketColors[i]).length > 0}
       <button
         type="button"
         class="socket"
@@ -428,6 +431,8 @@
         class:armed
         class:selected={isSelected}
         class:add-hint={addHint}
+        class:has-actions={colEditable && gem !== null}
+        class:has-actions-wide={canSwap}
         class:incompatible
         class:held-origin={isHeldOrigin}
         class:interactive={colEditable || d !== null}
@@ -444,8 +449,12 @@
         <span class="socket-info">
           {#if d}
             <span class="socket-name">
-              {d.name}
+              <span class="socket-name-text">{d.name}</span>
               {#if d.level > 1}<span class="gem-level">Lv{d.level}</span>{/if}
+              <!-- Role tag inline next to the name (matches the bag list). -->
+              <span class="socket-role" class:role-effect={d.role === 'effect'} class:role-support={isSupport}>
+                {d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}
+              </span>
             </span>
             <span class="socket-summary">{d.summary}</span>
             {#if isSupport && isBound}
@@ -455,48 +464,49 @@
             {:else if inert}
               <span class="socket-bind inert-note">{t('inspector.socket.inert')}</span>
             {/if}
-          {:else if addHint}
-            <span class="socket-name add">{t('inspector.socket.addAvailable')}</span>
           {:else}
+            <!-- An add-hint empty socket keeps the "Empty socket" label; the "+"
+                 emoji + highlighted border are the only cue that a gem fits. -->
             <span class="socket-name empty">{t('inspector.socket.empty')}</span>
           {/if}
-        </span>
-        <span
-          class="socket-role"
-          class:role-effect={d?.role === 'effect'}
-          class:role-support={isSupport}
-        >
-          {#if d}{d.role === 'support' ? t('inspector.socket.support') : t('inspector.socket.effect')}{/if}
         </span>
       </button>
     {/snippet}
 
-    <!-- Inline actions on a FILLED socket of an owned item: "change" (⇄, opens
-         the bag-gem picker to swap the gem) then "unsocket" (✕, pulls the gem
-         back into the bag). Neither opens the gem inspector. -->
+    <!-- Actions OVERLAID on the top-right of a FILLED socket of an owned item:
+         "change" (⇄, opens the bag-gem picker to swap the gem) and "unsocket"
+         (✕, pulls the gem back into the bag). Overlaid (not beside) so the same
+         markup works in the wide single view AND the narrow compare chips. The
+         socket reserves matching right padding (.has-actions) so content never
+         slides under them. -->
     {#snippet socketActions(colItem: Item, index: number)}
-      <button
-        type="button"
-        class="socket-act change"
-        data-socket-change
-        aria-label={t('inspector.changeGem')}
-        title={t('inspector.changeGem')}
-        onclick={() => onChangeSocket(index)}
-      >⇄</button>
-      <button
-        type="button"
-        class="socket-act unsocket-btn"
-        aria-label={t('inspector.unsocket')}
-        title={t('inspector.unsocket')}
-        onclick={() => onUnsocketAt(colItem, index)}
-      >✕</button>
+      <div class="socket-overlay">
+        <!-- "Change" only appears when there's actually a bag gem to swap in. -->
+        {#if pickerGems(colItem.socketColors[index]).length > 0}
+          <button
+            type="button"
+            class="ov-act change"
+            data-socket-change
+            aria-label={t('inspector.changeGem')}
+            title={t('inspector.changeGem')}
+            onclick={() => onChangeSocket(colItem, index)}
+          >⇄</button>
+        {/if}
+        <button
+          type="button"
+          class="ov-act remove"
+          aria-label={t('inspector.unsocket')}
+          title={t('inspector.unsocket')}
+          onclick={() => onUnsocketAt(colItem, index)}
+        >✕</button>
+      </div>
     {/snippet}
 
     <!-- Gem picker: opened by tapping an EMPTY socket of an owned item. Lists
          every loose bag gem whose colour fits that socket; picking one sockets
          it there. Closes on pick / outside click / re-tapping the socket. -->
-    {#snippet socketPicker(index: number)}
-      {@const color = item.socketColors[index]}
+    {#snippet socketPicker(colItem: Item, index: number)}
+      {@const color = colItem.socketColors[index]}
       {@const gems = pickerGems(color)}
       <div
         class="socket-picker"
@@ -510,13 +520,13 @@
           <div class="picker-empty">{t('inspector.socketPicker.empty')}</div>
         {:else}
           <div class="picker-head">
-            {item.sockets[index]
+            {colItem.sockets[index]
               ? t('inspector.socketPicker.swap')
               : t('inspector.socketPicker.title')}
           </div>
           {#each gems as g (g.id)}
             {@const gd = display(g)}
-            <button type="button" class="picker-gem" onclick={() => onPickGem(g, index)}>
+            <button type="button" class="picker-gem" onclick={() => onPickGem(g, colItem, index)}>
               <span class="picker-emoji">{gd?.emoji ?? '💎'}</span>
               <span class="picker-info">
                 <span class="picker-name">
@@ -545,8 +555,8 @@
                   {@render socketActions(colItem, i)}
                 {/if}
               </div>
-              {#if colEditable && colItem.id === item.id && socketMenu === i}
-                {@render socketPicker(i)}
+              {#if colEditable && colItem.id === item.id && isPickerOpen(colItem, i)}
+                {@render socketPicker(colItem, i)}
               {/if}
             </div>
           {/each}
@@ -554,42 +564,99 @@
       </div>
     {/snippet}
 
-    <!-- Compare: each EQUIPPED socket sits directly under the matching selected
-         socket (paired by index) in one column, rather than two side-by-side. -->
-    {#snippet comparePairs(equipped: Item)}
+    <!-- Compact socket cell for the side-by-side compare: a colour-coded chip
+         with the gem emoji + name (truncated) + level. Tap a filled cell to open
+         its detail in the gem window; tap an empty (editable) cell to pick a gem;
+         drag works as everywhere. No inline name/summary/buttons, so two columns
+         fit the narrow pane without crowding. -->
+    {#snippet compactSocket(colItem: Item, colEditable: boolean, colBindings: ReturnType<typeof computeBindings>, i: number)}
+      {@const g = colItem.sockets[i]}
+      {@const cd = display(g)}
+      {@const hex = SOCKET_COLOR_HEX[colItem.socketColors[i]] ?? '#5c6a6a'}
+      {@const isSupport = cd?.role === 'support'}
+      {@const inert = isSupport && (colBindings.inertSupports.has(i) || colBindings.incompatibleSupports.has(i))}
+      {@const isSel = g !== null && $gemInspector?.gem.id === g.id}
+      {@const armed = isArmedSocket(colItem.id, i)}
+      {@const addHint = g === null && colEditable && !isPickerOpen(colItem, i) && pickerGems(colItem.socketColors[i]).length > 0}
+      {@const canSwap = colEditable && g !== null && pickerGems(colItem.socketColors[i]).length > 0}
+      <button
+        type="button"
+        class="csocket"
+        class:filled={g !== null}
+        class:inert
+        class:selected={isSel}
+        class:armed
+        class:add-hint={addHint}
+        class:has-actions={colEditable && g !== null}
+        class:has-actions-wide={canSwap}
+        class:interactive={colEditable || g !== null}
+        class:draggable={colEditable && g !== null}
+        disabled={!colEditable && g === null}
+        data-gem-socket
+        data-item-id={colItem.id}
+        data-socket-index={i}
+        style="--socket-color: {hex}"
+        title={cd
+          ? `${cd.name}${cd.level > 1 ? ` Lv${cd.level}` : ''} - ${cd.summary}`
+          : addHint
+            ? t('inspector.socket.addAvailable')
+            : t('inspector.socket.empty')}
+        onpointerdown={(e) => onSocketPointerDown(e, colItem, i)}
+      >
+        <span class="cs-emoji">{cd ? cd.emoji : addHint ? '+' : '·'}</span>
+        <span class="cs-name" class:empty={!cd}>{cd ? cd.name : t('inspector.socket.empty')}</span>
+        {#if cd && cd.level > 1}<span class="cs-lv">Lv{cd.level}</span>{/if}
+      </button>
+    {/snippet}
+
+    <!-- Compare: two compact columns (candidate vs equipped) side by side. Both
+         are interactive (the equipped one is owned too), so you can compare AND
+         tweak / fill either, then Swap. The gem picker drops below the columns. -->
+    {#snippet compareColumns(equipped: Item)}
       {@const selBindings = computeBindings(item.sockets)}
       {@const eqBindings = computeBindings(equipped.sockets)}
-      {@const rowCount = Math.max(item.sockets.length, equipped.sockets.length)}
-      <div class="sockets">
-        {#each Array(rowCount) as _, i (i)}
-          <div class="compare-pair">
-            {#if i < item.sockets.length}
-              <div class="socket-row">
-                <div class="socket-line">
-                  {@render socketCell(item, socketsEditable, selBindings, i)}
-                  {#if socketsEditable && item.sockets[i]}
-                    {@render socketActions(item, i)}
-                  {/if}
-                </div>
-                {#if socketsEditable && socketMenu === i}
-                  {@render socketPicker(i)}
+      <div class="compare">
+        <div class="compare-col">
+          <div class="cmp-head">
+            <span class="cmp-tag selected">{t('inspector.compare.selected')}</span>
+            <span class="cmp-tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#5c6a6a'}">T{tierOf(item)}</span>
+          </div>
+          <div class="csockets">
+            {#each item.sockets as _g, i (i)}
+              <div class="csocket-wrap">
+                {@render compactSocket(item, socketsEditable, selBindings, i)}
+                {#if socketsEditable && item.sockets[i]}
+                  {@render socketActions(item, i)}
                 {/if}
               </div>
-            {/if}
-            {#if i < equipped.sockets.length}
-              <div class="socket-row equipped">
-                <span class="cmp-tag">{t('inspector.compare.equipped')}</span>
-                {@render socketCell(equipped, socketsEditable, eqBindings, i)}
-              </div>
-            {/if}
+            {/each}
           </div>
-        {/each}
+        </div>
+        <div class="compare-col equipped">
+          <div class="cmp-head">
+            <span class="cmp-tag">{t('inspector.compare.equipped')}</span>
+            <span class="cmp-tier" style="--tier-color: {TIER_COLORS[tierOf(equipped)] ?? '#5c6a6a'}">T{tierOf(equipped)}</span>
+          </div>
+          <div class="csockets">
+            {#each equipped.sockets as _g, i (i)}
+              <div class="csocket-wrap">
+                {@render compactSocket(equipped, socketsEditable, eqBindings, i)}
+                {#if socketsEditable && equipped.sockets[i]}
+                  {@render socketActions(equipped, i)}
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
       </div>
+      {#if socketMenu}
+        {@render socketPicker(socketMenu.item, socketMenu.index)}
+      {/if}
     {/snippet}
 
     <div class="body" data-gem-zone>
       {#if comparison}
-        {@render comparePairs(comparison)}
+        {@render compareColumns(comparison)}
       {:else}
         {@render socketColumn(item, socketsEditable, t('inspector.sockets'))}
       {/if}
@@ -667,32 +734,158 @@
     flex-direction: column;
     min-height: 0;    user-select: none;
   }
-  /* Compare view: each selected socket is paired with the equipped socket
-     directly below it, grouped and separated by a dashed rule. The compare pane
-     is a normal quarter-width split (no special width). */
-  .compare-pair {
+  /* Compare view: two compact columns side by side (candidate | equipped), so
+     both stay readable in the narrow pane without the old stacked-pairs crowding.
+     Each socket is a colour-coded chip (emoji + truncated name + level); tapping
+     opens its detail / picker. */
+  .compare {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .compare-col {
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding-bottom: 10px;
-    border-bottom: 1px dashed #18262a;
+    gap: 6px;
   }
-  .compare-pair:last-child {
-    padding-bottom: 0;
-    border-bottom: none;
+  /* The equipped column reads a touch dimmer than the candidate. */
+  .compare-col.equipped {
+    opacity: 0.78;
   }
-  /* The equipped reference: tagged + slightly indented under its selected pair. */
+  .cmp-head {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
   .cmp-tag {
     font-size: 0.66rem;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     color: #6f7d7d;
-    padding-left: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .socket-row.equipped {
-    padding-left: 12px;
-    /* The equipped reference reads dimmer than the selected item's sockets. */
-    opacity: 0.6;
+  /* The candidate's tag carries the teal accent so the live/editable column reads
+     as the focus. */
+  .cmp-tag.selected {
+    color: #3cc7b8;
+  }
+  .cmp-tier {
+    flex: none;
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--tier-color, #5c6a6a);
+    color: var(--tier-color, #849393);
+    background: rgba(0, 0, 0, 0.3);
+    font-variant-numeric: lining-nums;
+  }
+  .csockets {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  /* Sized to match a bag list row (same height / padding / emoji + name sizes)
+     so the compare chips feel substantial rather than cramped. */
+  .csocket {
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    min-height: 52px;
+    border: 1px solid #18262a;
+    border-left: 4px solid var(--socket-color, #5c6a6a);
+    border-radius: 8px;
+    background: #0c1517;
+    color: inherit;
+    transition: border-color 100ms ease, background-color 100ms ease, box-shadow 100ms ease,
+      opacity 100ms ease;
+  }
+  .csocket.interactive:not(:disabled) {
+    cursor: pointer;
+  }
+  .csocket.draggable {
+    touch-action: none;
+  }
+  .csocket:not(.filled):not(.add-hint) {
+    opacity: 0.5;
+  }
+  .csocket.inert {
+    opacity: 0.5;
+  }
+  .csocket.interactive:not(:disabled):hover {
+    border-top-color: #374d52;
+    border-right-color: #374d52;
+    border-bottom-color: #374d52;
+    background: #0f181b;
+  }
+  .csocket.selected,
+  .csocket.armed {
+    box-shadow: inset 0 0 0 2px #3cc7b8;
+    opacity: 1;
+  }
+  .csocket.add-hint {
+    opacity: 1;
+    border-top-color: #2f6f69;
+    border-right-color: #2f6f69;
+    border-bottom-color: #2f6f69;
+    animation: socket-add-pulse 1.8s ease-in-out infinite;
+  }
+  .csocket:disabled {
+    cursor: not-allowed;
+  }
+  .csocket:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  .cs-emoji {
+    flex: none;
+    min-width: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.55rem;
+    line-height: 1;
+  }
+  .csocket.add-hint .cs-emoji {
+    color: #3cc7b8;
+    font-weight: 700;
+  }
+  .cs-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #dde7e7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cs-name.empty {
+    font-weight: 500;
+    color: #667;
+  }
+  .cs-lv {
+    flex: none;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: #f0e0ff;
+    background: rgba(124, 58, 200, 0.85);
+    border: 1px solid #c084fc;
+    font-variant-numeric: lining-nums;
   }
 
   .header {
@@ -776,61 +969,81 @@
     flex-direction: column;
     gap: 2px;
   }
-  /* The socket button and its unsocket ✕ sit side by side; the picker (a
-     sibling below) spans the full width. */
-  .socket-line {
+  /* Relative anchor for the overlaid socket actions; the picker (a sibling
+     below) spans the full width. */
+  .socket-line,
+  .csocket-wrap {
+    position: relative;
+  }
+  /* Socket actions OVERLAID on the top-right of a filled socket: "change" (⇄)
+     + "unsocket" (✕), small icon buttons with a backdrop so they read over the
+     socket. Sits above the cell (the cell reserves right padding via
+     .has-actions so its content never slides under them). */
+  /* A horizontal row on the right edge, VERTICALLY CENTRED so it sits the same
+     way the bag list's row actions do (coherent look between bag + inspector).
+     The ✕ stays anchored at the edge; ⇄ appears to its left when a swap exists. */
+  .socket-overlay {
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    transform: translateY(-50%);
     display: flex;
-    align-items: stretch;
-    gap: 4px;
+    flex-direction: row;
+    gap: 3px;
+    z-index: 2;
   }
-  .socket-line .socket {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  /* Inline socket actions: slim full-height buttons to the right of a filled
-     socket - "change" (⇄, swap the gem) then "unsocket" (✕). */
-  .socket-act {
-    flex: 0 0 auto;
-    width: 30px;
+  .ov-act {
+    width: 22px;
+    height: 22px;
     appearance: none;
-    border: 1px solid #28383d;
-    border-radius: 6px;
-    background: #0c1517;
-    color: #9fb0b0;
-    font-size: 0.9rem;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    border: 1px solid #28383d;
+    border-radius: 5px;
+    background: rgba(8, 14, 16, 0.92);
+    color: #9fb0b0;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
     transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
   }
-  .socket-act:focus-visible {
-    outline: 2px solid #3cc7b8;
-    outline-offset: 2px;
-  }
-  .socket-act.change:hover {
+  .ov-act.change:hover {
     background: #102a28;
     border-color: #3cc7b8;
     color: #8fe6dc;
   }
   /* Unsocket reads as a (mild) removal: red on hover. */
-  .socket-act.unsocket-btn {
+  .ov-act.remove {
     border-color: #3a2326;
-    background: #160d0f;
     color: #d98a8a;
   }
-  .socket-act.unsocket-btn:hover {
+  .ov-act.remove:hover {
     background: #2a1417;
     border-color: #c44;
     color: #f0a8a8;
+  }
+  .ov-act:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  /* Reserve room on the right for the overlay actions so content never slides
+     under them: one button (✕), or two (✕ + ⇄) when a swap is possible. */
+  .socket.has-actions,
+  .csocket.has-actions {
+    padding-right: 34px;
+  }
+  .socket.has-actions-wide,
+  .csocket.has-actions-wide {
+    padding-right: 60px;
   }
   .socket {
     width: 100%;
     text-align: left;
     appearance: none;
     display: grid;
-    grid-template-columns: 28px 1fr auto;
+    grid-template-columns: 28px 1fr;
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
@@ -881,9 +1094,6 @@
   .socket.add-hint .socket-emoji {
     color: #3cc7b8;
     font-weight: 700;
-  }
-  .socket-name.add {
-    color: #8fe6dc;
   }
   @keyframes socket-add-pulse {
     0%,
@@ -954,10 +1164,18 @@
     gap: 1px;
     min-width: 0;
   }
+  /* Name line: gem name + level + role tag laid out inline (like the bag rows). */
   .socket-name {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
     font-size: 1.05rem;
     font-weight: 600;
     color: #dde7e7;
+  }
+  .socket-name-text {
+    min-width: 0;
   }
   /* Combine level badge (shown only when level > 1). Inline next to the gem
      name in a socket; absolutely positioned on a compact stash tile. */
@@ -990,14 +1208,13 @@
     color: #c77;
     font-weight: 500;
   }
-  /* Role badge: a small pill so effect vs support still reads now that the
-     socket's left edge carries colour instead of role. */
+  /* Role tag: a small pill inline beside the name (effect / support). */
   .socket-role {
-    font-size: 0.72rem;
+    font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #6f7d7d;
-    align-self: start;
+    white-space: nowrap;
   }
   .socket-role.role-effect,
   .socket-role.role-support {
