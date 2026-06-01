@@ -163,8 +163,6 @@
   function isInEquipped(gemId: string): boolean {
     return Object.values($equipped).some((it) => it && it.sockets.some((s) => s?.id === gemId));
   }
-  let justCombined = $state(false);
-  let combinedTimer: ReturnType<typeof setTimeout> | null = null;
   function onCombine(sourceId: string): void {
     if (!gem || shop) return;
     let targetId = gem.id;
@@ -175,13 +173,9 @@
       targetId = sourceId;
       srcId = gem.id;
     }
-    const leveled = combineGems(targetId, srcId);
-    if (!leveled) return;
+    if (!combineGems(targetId, srcId)) return;
     sfx.powerup();
-    gemInspector.set({ gem: leveled });
-    justCombined = true;
-    if (combinedTimer) clearTimeout(combinedTimer);
-    combinedTimer = setTimeout(() => (justCombined = false), 600);
+    closeGemInspector();
   }
 
   // Sell a loose bag gem to the shop for gold (only while a shop is open).
@@ -257,7 +251,7 @@
       <div class="gi-title">
         <div class="gi-name">
           {d?.name ?? gem.defId}
-          {#if level > 1}<span class="gi-level" class:flash={justCombined}>Lv{level}</span>{/if}
+          {#if level > 1}<span class="gi-level">Lv{level}</span>{/if}
         </div>
         <div class="gi-role">
           {d?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
@@ -452,29 +446,6 @@
     border-radius: 4px;
     padding: 1px 5px;
     font-variant-numeric: lining-nums;
-  }
-  /* Level-up feedback: the badge pops + glows for a moment after a combine. */
-  .gi-level.flash {
-    animation: gi-level-flash 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
-  }
-  @keyframes gi-level-flash {
-    0% {
-      transform: scale(1);
-      box-shadow: 0 0 0 0 rgba(192, 132, 252, 0.9);
-    }
-    35% {
-      transform: scale(1.45);
-      box-shadow: 0 0 14px 4px rgba(192, 132, 252, 0.8);
-    }
-    100% {
-      transform: scale(1);
-      box-shadow: 0 0 0 0 rgba(192, 132, 252, 0);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .gi-level.flash {
-      animation: none;
-    }
   }
   /* Role badge - styled like the item inspector's tier badge, tinted by the
      gem's socket colour (red / green / blue) so it reads role + colour at once. */

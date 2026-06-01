@@ -5,6 +5,7 @@ import { isItem } from '../domain/item';
 import { backpack, addItem, addGemToBackpack, removeItem, removeBackpackGemById } from './backpack';
 import { addGold, topbar } from './topbar';
 import { closeInspector, inspector } from './inspector';
+import { gemInspector } from './gem-inspector';
 import { heldGem } from './gem-move';
 import { sfx } from '../audio/sfx';
 
@@ -47,7 +48,7 @@ export function buyItem(shopIndex: number): boolean {
   if (!canBuyItem(shopIndex).ok) return false;
 
   if (!spendGold(slot.price)) return false;
-  addItem(slot.item);
+  const landed = addItem(slot.item);
   sfx.buy();
 
   shopStock.update((s) => {
@@ -57,8 +58,14 @@ export function buyItem(shopIndex: number): boolean {
     return { ...s, items };
   });
 
-  // The Inspector stays open on the slot (now sold, so Buy reads as disabled) -
-  // the player keeps their place while browsing.
+  // The item is now OWNED: if the Inspector was on this shop slot, re-point it
+  // to the bag item so it shows the owned actions (equip / sell / disenchant)
+  // instead of a (now-disabled) Buy. Otherwise the Inspector is left alone.
+  const ins = get(inspector);
+  if (ins?.source === 'shop' && ins.index === shopIndex) {
+    const owned = get(backpack)[landed];
+    if (isItem(owned)) inspector.set({ source: 'backpack', index: landed, item: owned });
+  }
   return true;
 }
 
@@ -92,6 +99,12 @@ export function buyGem(shopIndex: number): boolean {
     gems[shopIndex] = null;
     return { ...s, gems };
   });
+
+  // The gem is now OWNED: if its shop preview was open, drop the shop flag so
+  // the gem window shows the owned actions (insert / combine / sell / destroy)
+  // instead of Buy.
+  const gi = get(gemInspector);
+  if (gi?.shop?.index === shopIndex) gemInspector.set({ gem: slot.gem });
   return true;
 }
 
