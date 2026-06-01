@@ -42,7 +42,7 @@
 
 <style>
   /* Left-aligned Rest pane: a quarter of the screen like every other split,
-     same flat chrome (#1c1c24, #3a3a48 divider). */
+     same flat chrome (#1f1811, #3e2e22 divider). */
   .rest {
     flex: 0 0 auto;
     align-self: stretch;
@@ -51,8 +51,8 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: #1c1c24;
-    border-right: 1px solid #3a3a48;
+    background: #1f1811;
+    border-right: 1px solid #3e2e22;
     user-select: none;  }
   .rest-head {
     display: flex;
@@ -62,13 +62,13 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
   h2 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
-    color: #ddd;
+    color: #d8cab2;
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -81,8 +81,8 @@
   }
   .leave {
     appearance: none;
-    background: #3a3a48;
-    border: 1px solid #4a4a58;
+    background: #3e2e22;
+    border: 1px solid #53402e;
     color: #fff;
     border-radius: 8px;
     padding: 8px 14px;
@@ -92,8 +92,8 @@
     min-height: 36px;
   }
   .leave:hover {
-    background: #4a4a58;
-    border-color: #ffcc44;
+    background: #53402e;
+    border-color: #ecb44a;
   }
 
   /* Same layout as the shop: a scrolling body with sections. */
@@ -108,7 +108,7 @@
   }
   .subtitle {
     margin: 0;
-    color: #9aa;
+    color: #a89a83;
     font-size: 0.85rem;
     line-height: 1.35;
   }
@@ -135,20 +135,20 @@
   }
   .craft:hover:not(:disabled) {
     background: #3a2c1c;
-    border-color: #ffcc44;
+    border-color: #ecb44a;
   }
   .craft:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .craft:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
   .craft-hint {
     margin: 0;
     font-size: 0.78rem;
-    color: #889;
+    color: #8a7d67;
     line-height: 1.35;
   }
 </style>

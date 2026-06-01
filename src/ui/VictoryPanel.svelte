@@ -127,8 +127,8 @@
     width: 25%;
     min-width: min(300px, 100%);
     min-height: 0;
-    background: #1c1c24;
-    border-left: 1px solid #3a3a48;
+    background: #1f1811;
+    border-left: 1px solid #3e2e22;
     display: flex;
     flex-direction: column;
     user-select: none;  }
@@ -141,7 +141,7 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
   .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -158,7 +158,7 @@
   .name {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #ffcc44;
+    color: #ecb44a;
   }
   /* Gold reward styled like the inspector's tier badge. */
   .gold {
@@ -168,7 +168,7 @@
     padding: 1px 7px;
     border-radius: 4px;
     border: 1px solid #5a4a2a;
-    color: #ffd866;
+    color: #f0cf6e;
     background: rgba(0, 0, 0, 0.3);
     font-variant-numeric: lining-nums tabular-nums;
   }
@@ -192,7 +192,7 @@
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #788;
+    color: #837460;
   }
   .cards {
     display: grid;
@@ -204,8 +204,8 @@
      "Leave" button (same place, same chrome). */
   .leave {
     appearance: none;
-    background: #3a3a48;
-    border: 1px solid #4a4a58;
+    background: #3e2e22;
+    border: 1px solid #53402e;
     color: #fff;
     border-radius: 8px;
     padding: 8px 14px;
@@ -217,11 +217,11 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .leave:hover {
-    background: #4a4a58;
-    border-color: #ffcc44;
+    background: #53402e;
+    border-color: #ecb44a;
   }
   .leave:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 </style>

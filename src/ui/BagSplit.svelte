@@ -22,7 +22,7 @@
     4: '#a855f7',
     5: '#f97316',
     6: '#ef4444',
-    7: '#fbbf24',
+    7: '#e0a93c',
   };
 
   import { get } from 'svelte/store';
@@ -409,7 +409,7 @@
             <span class="emoji">{itemEmoji(slot)}</span>
             <span
               class="tier"
-              style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#666'}"
+              style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#6f6456'}"
             >
               T{tierOf(slot)}
             </span>
@@ -445,7 +445,7 @@
       <span class="emoji">{itemEmoji(ghostItem)}</span>
       <span
         class="tier"
-        style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#666'}"
+        style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#6f6456'}"
       >
         T{tierOf(ghostItem)}
       </span>
@@ -465,8 +465,8 @@
     width: 25%;
     min-width: min(300px, 100%);
     min-height: 0;
-    background: #1c1c24;
-    border-left: 1px solid #3a3a48;
+    background: #1f1811;
+    border-left: 1px solid #3e2e22;
     display: flex;
     flex-direction: column;
     user-select: none;
@@ -488,7 +488,7 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
 
   .toolbar h2 {
@@ -496,7 +496,7 @@
     font-size: 1rem;
     font-weight: 600;
     letter-spacing: 0.02em;
-    color: #ddd;
+    color: #d8cab2;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -514,9 +514,9 @@
 
   .btn {
     appearance: none;
-    background: #2a2a34;
-    border: 1px solid #3a3a48;
-    color: #ddd;
+    background: #2b2018;
+    border: 1px solid #3e2e22;
+    color: #d8cab2;
     border-radius: 6px;
     padding: 6px 12px;
     font-size: 0.85rem;
@@ -525,7 +525,7 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .btn:hover {
-    background: #3a3a48;
+    background: #3e2e22;
   }
   .btn.icon {
     padding: 0;
@@ -535,7 +535,7 @@
     justify-content: center;
   }
   .btn:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 
@@ -549,9 +549,9 @@
   }
   .gem-filter {
     appearance: none;
-    background: #181820;
-    border: 1px solid #2a2a34;
-    color: #99a;
+    background: #1a130d;
+    border: 1px solid #2b2018;
+    color: #978a73;
     border-radius: 6px;
     cursor: pointer;
     min-height: 28px;
@@ -567,7 +567,7 @@
     padding: 0;
     background:
       radial-gradient(circle at center, var(--c) 0 9px, transparent 10px),
-      #181820;
+      #1a130d;
   }
   .gem-filter.type-chip {
     width: 30px;
@@ -577,16 +577,16 @@
     line-height: 1;
   }
   .gem-filter:hover {
-    border-color: #4a4a58;
-    color: #ccd;
+    border-color: #53402e;
+    color: #d0c6b0;
   }
   .gem-filter.active {
-    border-color: #ffcc44;
-    color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
+    border-color: #ecb44a;
+    color: #ecb44a;
+    box-shadow: inset 0 0 0 1px #ecb44a;
   }
   .gem-filter:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 
@@ -608,9 +608,9 @@
   .cell {
     position: relative;
     aspect-ratio: 1 / 1;
-    border: 1px solid #2a2a34;
+    border: 1px solid #2b2018;
     border-radius: 8px;
-    background: #14141a;
+    background: #16100b;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -620,20 +620,20 @@
      backpack cell (no index / handlers), so it just keeps the grid rectangular. */
   .cell.filler {
     opacity: 0.3;
-    background: #101015;
+    background: #110c08;
     cursor: default;
   }
   .cell.dragging {
     opacity: 0.3;
   }
   .cell.over {
-    background: #2a2a34;
-    border-color: #ffcc44;
+    background: #2b2018;
+    border-color: #ecb44a;
   }
   /* Armed while a dragged gem hovers the grid: the whole backpack reads as a
      stash drop target. */
   .cell.stash-armed {
-    border-color: #ffcc44;
+    border-color: #ecb44a;
     box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
   }
   /* Combine target: a same-defId gem cell under a dragged gem. Purple to read
@@ -650,8 +650,8 @@
     box-shadow: inset 0 0 0 1px var(--gem-color, #6ad);
   }
   .cell.inspecting {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
+    border-color: #ecb44a;
+    box-shadow: inset 0 0 0 1px #ecb44a;
   }
 
   .emoji {
@@ -670,8 +670,8 @@
     line-height: 1;
     padding: 2px 5px;
     border-radius: 4px;
-    border: 1px solid var(--tier-color, #666);
-    color: var(--tier-color, #999);
+    border: 1px solid var(--tier-color, #6f6456);
+    color: var(--tier-color, #9b8d76);
     background: rgba(0, 0, 0, 0.4);
     pointer-events: none;
     font-variant-numeric: lining-nums;
@@ -719,8 +719,8 @@
     transform: translate(-50%, -50%);
     pointer-events: none;
     z-index: 200;
-    background: #14141a;
-    border: 1px solid #ffcc44;
+    background: #16100b;
+    border: 1px solid #ecb44a;
     border-radius: 8px;
     display: flex;
     align-items: center;

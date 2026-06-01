@@ -118,7 +118,7 @@ void main() {
   float twinkle = 0.55 + 0.45 * sin(uTime * 0.7 + r * 6.2831);
   float star = smoothstep(0.09, 0.0, length(g)) * step(0.975, r) * twinkle;
   star *= smoothstep(0.15, 0.85, uv.y);
-  col += vec3(0.78, 0.84, 1.0) * star * 0.6;
+  col += vec3(1.0, 0.9, 0.72) * star * 0.6;
 
   // Gentle vignette - corners ~half brightness - to frame the map content.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -160,7 +160,7 @@ void main() {
 
   // Pale cyan dust motes drifting slowly upward.
   float motes = particles(p, 28.0, 0.05, 0.10, 0.965, 1.0);
-  col += vec3(0.6, 0.9, 1.0) * motes * 0.5;
+  col += vec3(1.0, 0.84, 0.55) * motes * 0.5;
 
   // Gentle vignette to frame the pane.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -214,7 +214,7 @@ void main() {
 
   // Faint stars in the upper night sky.
   float stars = particles(p, 40.0, 0.0, 0.07, 0.98, 11.0) * smoothstep(0.45, 1.0, uv.y);
-  col += vec3(0.78, 0.84, 1.0) * stars * 0.4;
+  col += vec3(1.0, 0.9, 0.72) * stars * 0.4;
 
   // Gentle vignette to frame the pane.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -259,7 +259,7 @@ void main() {
 
   // Dust motes drifting up through the light.
   float motes = particles(p, 32.0, 0.04, 0.09, 0.972, 7.0);
-  col += vec3(0.5, 0.8, 1.0) * motes * 0.55;
+  col += vec3(1.0, 0.8, 0.5) * motes * 0.55;
 
   // Gentle vignette to frame the pane.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -340,52 +340,56 @@ export interface BackgroundDef {
 }
 
 export const BACKGROUNDS = {
+  // All five scenes share the warm dark-fantasy palette (Darkest-Dungeon-style
+  // sepia/ember) so the procedural backdrops no longer fight the warm UI chrome.
+  // They stay distinguishable by the HUE of their warmth: map = twilight maroon,
+  // shop = golden candlelight, rest = ember campfire, armory = forge orange,
+  // battle = oxblood energy.
   map: {
     fragment: MAP_FRAGMENT,
     uniforms: {
-      // Matches the scene's existing CSS palette (#0a0a0e -> a cooler indigo top)
-      // with a muted violet for the clouds.
-      uColorBottom: rgb(0.039, 0.039, 0.055),
-      uColorTop: rgb(0.094, 0.078, 0.149),
-      uNebula: rgb(0.32, 0.26, 0.55),
+      // Dusky twilight sky: warm near-black at the foot rising to an ember-maroon
+      // horizon, with burnt-orange clouds (the hamlet-at-sunset read).
+      uColorBottom: rgb(0.043, 0.027, 0.022),
+      uColorTop: rgb(0.176, 0.075, 0.055),
+      uNebula: rgb(0.55, 0.27, 0.13),
     },
   },
   shop: {
     fragment: SHOP_FRAGMENT,
     uniforms: {
-      // Cool teal merchant tones (deep teal #0a1620 -> #102430) with a cyan haze.
-      uColorTop: rgb(0.039, 0.086, 0.125),
-      uColorBottom: rgb(0.063, 0.141, 0.188),
-      uGlow: rgb(0.122, 0.478, 0.541),
+      // Warm candlelit merchant tones (deep umber -> warm amber) with a golden haze.
+      uColorTop: rgb(0.094, 0.058, 0.035),
+      uColorBottom: rgb(0.157, 0.098, 0.047),
+      uGlow: rgb(0.55, 0.33, 0.13),
     },
   },
   rest: {
     fragment: REST_FRAGMENT,
     uniforms: {
-      // Cool night sky at the top, warm ember floor; firelight orange for glow.
-      uColorTop: rgb(0.047, 0.063, 0.094),
-      uColorBottom: rgb(0.102, 0.055, 0.031),
+      // Warm dusk sky at the top, glowing ember floor; firelight orange for glow.
+      uColorTop: rgb(0.078, 0.051, 0.051),
+      uColorBottom: rgb(0.118, 0.063, 0.035),
       uFire: rgb(1.0, 0.42, 0.13),
     },
   },
   armory: {
     fragment: ARMORY_FRAGMENT,
     uniforms: {
-      // Cool blue vault, lighter toward the top; vivid electric-azure light shafts.
-      uColorTop: rgb(0.05, 0.09, 0.16),
-      uColorBottom: rgb(0.03, 0.05, 0.09),
-      uBeam: rgb(0.26, 0.6, 1.0),
+      // Warm forge vault, lighter toward the top; glowing forge-orange light shafts.
+      uColorTop: rgb(0.137, 0.075, 0.039),
+      uColorBottom: rgb(0.063, 0.035, 0.022),
+      uBeam: rgb(1.0, 0.58, 0.2),
     },
   },
   battle: {
     fragment: BATTLE_FRAGMENT,
     fps: 60,
     uniforms: {
-      // The scene's existing purple gradient (#2a2438 -> #0a0810), a violet
-      // energy glow, and warm ember sparks.
-      uColorTop: rgb(0.165, 0.141, 0.22),
-      uColorBottom: rgb(0.039, 0.031, 0.063),
-      uEnergy: rgb(0.4, 0.22, 0.52),
+      // Warm dusk gradient, a churning oxblood-ember energy glow, and warm sparks.
+      uColorTop: rgb(0.176, 0.082, 0.063),
+      uColorBottom: rgb(0.051, 0.031, 0.027),
+      uEnergy: rgb(0.55, 0.2, 0.12),
       uSpark: rgb(1.0, 0.6, 0.3),
     },
   },

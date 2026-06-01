@@ -79,8 +79,8 @@
     width: 25%;
     min-width: min(300px, 100%);
     min-height: 0;
-    background: #1c1c24;
-    border-left: 1px solid #3a3a48;
+    background: #1f1811;
+    border-left: 1px solid #3e2e22;
     display: flex;
     flex-direction: column;
     user-select: none;  }
@@ -91,13 +91,13 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
   .toolbar h2 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
-    color: #ddd;
+    color: #d8cab2;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -109,9 +109,9 @@
   }
   .close {
     appearance: none;
-    background: #2a2a34;
-    border: 1px solid #3a3a48;
-    color: #ddd;
+    background: #2b2018;
+    border: 1px solid #3e2e22;
+    color: #d8cab2;
     border-radius: 6px;
     width: 32px;
     height: 32px;
@@ -121,10 +121,10 @@
     justify-content: center;
   }
   .close:hover {
-    background: #3a3a48;
+    background: #3e2e22;
   }
   .close:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 
@@ -146,7 +146,7 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #788;
+    color: #837460;
     margin-bottom: 6px;
   }
   .row {
@@ -156,15 +156,15 @@
     gap: 12px;
     padding: 7px 8px;
     border-radius: 6px;
-    background: #14141a;
-    border: 1px solid #20202a;
+    background: #16100b;
+    border: 1px solid #231a12;
   }
   .k {
-    color: #bbc;
+    color: #c1b6a0;
     font-size: 0.9rem;
   }
   .v {
-    color: #eee;
+    color: #ece3d3;
     font-weight: 600;
     font-variant-numeric: lining-nums tabular-nums;
   }

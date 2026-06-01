@@ -58,7 +58,7 @@
     4: '#a855f7',
     5: '#f97316',
     6: '#ef4444',
-    7: '#fbbf24',
+    7: '#e0a93c',
   };
 
   // Display info (emoji + name + one-line summary + role) for a placed gem,
@@ -425,7 +425,7 @@
       <span class="emoji">{itemEmoji(item)}</span>
       <div class="title">
         <div class="kind">{t(`item.type.${item.itemType}`)}</div>
-        <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
+        <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#6f6456'}">
           {t('inspector.tier', { tier: tierOf(item) })}
         </div>
       </div>
@@ -455,7 +455,7 @@
     )}
       {@const gem = colItem.sockets[i]}
       {@const d = display(gem)}
-      {@const socketHex = SOCKET_COLOR_HEX[colItem.socketColors[i]] ?? '#666'}
+      {@const socketHex = SOCKET_COLOR_HEX[colItem.socketColors[i]] ?? '#6f6456'}
       {@const isSupport = d?.role === 'support'}
       {@const isBound = isSupport ? colBindings.boundSupports.has(i) : false}
       {@const inert = isSupport ? colBindings.inertSupports.has(i) : false}
@@ -675,8 +675,8 @@
        it usable where a quarter would be too narrow. */
     width: 25%;
     min-width: min(300px, 100%);
-    background: #1c1c24;
-    border-left: 1px solid #2a2a34;
+    background: #1f1811;
+    border-left: 1px solid #2b2018;
     display: flex;
     flex-direction: column;
     min-height: 0;    user-select: none;
@@ -689,7 +689,7 @@
     flex-direction: column;
     gap: 4px;
     padding-bottom: 10px;
-    border-bottom: 1px dashed #2a2a34;
+    border-bottom: 1px dashed #2b2018;
   }
   .compare-pair:last-child {
     padding-bottom: 0;
@@ -700,7 +700,7 @@
     font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #788;
+    color: #837460;
     padding-left: 2px;
   }
   .socket-row.equipped {
@@ -716,7 +716,7 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
   .header .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -732,7 +732,7 @@
   .kind {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #ddd;
+    color: #d8cab2;
   }
   .tier {
     align-self: flex-start;
@@ -740,16 +740,16 @@
     font-weight: 600;
     padding: 2px 7px;
     border-radius: 4px;
-    border: 1px solid var(--tier-color, #666);
-    color: var(--tier-color, #999);
+    border: 1px solid var(--tier-color, #6f6456);
+    color: var(--tier-color, #9b8d76);
     background: rgba(0, 0, 0, 0.3);
     font-variant-numeric: lining-nums;
   }
   .close {
     appearance: none;
     background: transparent;
-    border: 1px solid #2a2a34;
-    color: #ddd;
+    border: 1px solid #2b2018;
+    color: #d8cab2;
     border-radius: 6px;
     width: 32px;
     height: 32px;
@@ -759,7 +759,7 @@
     justify-content: center;
   }
   .close:hover {
-    background: #2a2a34;
+    background: #2b2018;
   }
 
   .body {
@@ -775,7 +775,7 @@
     font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #788;
+    color: #837460;
     padding: 0 2px;
   }
   .sockets {
@@ -798,9 +798,9 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border: 1px solid #2a2a34;
+    border: 1px solid #2b2018;
     border-radius: 6px;
-    background: #14141a;
+    background: #16100b;
     color: inherit;
     min-height: 44px;
     transition: border-color 100ms ease, background-color 100ms ease,
@@ -822,29 +822,29 @@
   }
   /* Live drop target under a dragged gem (matched via gemDropZone). */
   .socket.armed {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 2px #ffcc44;
+    border-color: #ecb44a;
+    box-shadow: inset 0 0 0 2px #ecb44a;
     opacity: 1;
   }
   /* Gem currently open in the gem inspector. An inset ring, so the gem's colour
      left-border stays visible (no border-color override). */
   .socket.selected {
-    box-shadow: inset 0 0 0 2px #ffcc44;
+    box-shadow: inset 0 0 0 2px #ecb44a;
     opacity: 1;
   }
   /* Hover recolours only the top/right/bottom edges so the gem's colour
      left-border is never hidden. */
   .socket.interactive:not(:disabled):hover {
-    border-top-color: #4a4a58;
-    border-right-color: #4a4a58;
-    border-bottom-color: #4a4a58;
-    background: #181820;
+    border-top-color: #53402e;
+    border-right-color: #53402e;
+    border-bottom-color: #53402e;
+    background: #1a130d;
   }
   /* Socket COLOUR: the left edge reads as the socket's colour (what fits
      here), on every socket - empty or filled. The role (effect / support) is
      carried separately by the .socket-role text badge on the right. */
   .socket {
-    border-left: 4px solid var(--socket-color, #666);
+    border-left: 4px solid var(--socket-color, #6f6456);
   }
   /* A bound support and the connector below it share the support accent. */
   .socket.inert {
@@ -857,7 +857,7 @@
   }
   /* Valid drop targets glow while a compatible gem is held. */
   .socket.drop-target {
-    border-color: #ffcc44;
+    border-color: #ecb44a;
     box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.5);
     opacity: 1;
   }
@@ -872,7 +872,7 @@
     cursor: not-allowed;
   }
   .socket:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
   .socket-emoji {
@@ -890,7 +890,7 @@
   .socket-name {
     font-size: 1.05rem;
     font-weight: 600;
-    color: #e6e6ee;
+    color: #ece2d2;
   }
   /* Combine level badge (shown only when level > 1). Inline next to the gem
      name in a socket; absolutely positioned on a compact stash tile. */
@@ -909,7 +909,7 @@
   }
   .socket-summary {
     font-size: 0.88rem;
-    color: #9aa;
+    color: #a89a83;
     line-height: 1.25;
   }
   /* Binding hint: "↳ bound effect name" under a support, or the inert note. */
@@ -929,7 +929,7 @@
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #788;
+    color: #837460;
     align-self: start;
   }
   .socket-role.role-effect,
@@ -976,9 +976,9 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--swatch, #666);
+    background: var(--swatch, #6f6456);
     border: 1px solid rgba(255, 255, 255, 0.35);
-    box-shadow: 0 0 6px var(--swatch, #666);
+    box-shadow: 0 0 6px var(--swatch, #6f6456);
     flex: none;
   }
   .add-socket:hover:not(:disabled) {
@@ -990,13 +990,13 @@
     cursor: not-allowed;
   }
   .add-socket:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 
   .footer {
     padding: 12px 14px;
-    border-top: 1px solid #2a2a34;
+    border-top: 1px solid #2b2018;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1004,8 +1004,8 @@
   .cta {
     width: 100%;
     appearance: none;
-    background: #3a3a48;
-    border: 1px solid #4a4a58;
+    background: #3e2e22;
+    border: 1px solid #53402e;
     color: #fff;
     border-radius: 8px;
     padding: 12px;
@@ -1016,12 +1016,12 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .cta.secondary {
-    background: #1c1c24;
-    color: #ddd;
+    background: #1f1811;
+    color: #d8cab2;
   }
   .cta.secondary:hover:not(:disabled) {
-    background: #2a2a34;
-    border-color: #ffcc44;
+    background: #2b2018;
+    border-color: #ecb44a;
   }
   /* Destructive action (scrap a reward for crystals): red outline. */
   .cta.danger {
@@ -1034,15 +1034,15 @@
     border-color: #c44;
   }
   .cta:hover:not(:disabled) {
-    background: #4a4a58;
-    border-color: #ffcc44;
+    background: #53402e;
+    border-color: #ecb44a;
   }
   .cta:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .cta:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 </style>

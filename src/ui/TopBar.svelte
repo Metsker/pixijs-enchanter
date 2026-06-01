@@ -123,8 +123,8 @@
     align-items: center;
     gap: 1rem;
     padding: 0 0.75rem;
-    background: #1c1c24;
-    border-bottom: 1px solid #2a2a34;
+    background: #1f1811;
+    border-bottom: 1px solid #2b2018;
     user-select: none;
   }
 
@@ -171,7 +171,7 @@
   .value {
     font-size: 1.3rem;
     font-weight: 600;
-    color: #ddd;
+    color: #d8cab2;
     font-variant-numeric: lining-nums tabular-nums;
     display: inline-block;
     transform-origin: center;
@@ -186,7 +186,7 @@
   @keyframes gold-pop {
     0% {
       transform: scale(1);
-      color: #ddd;
+      color: #d8cab2;
       text-shadow: none;
     }
     45% {
@@ -196,14 +196,14 @@
     }
     100% {
       transform: scale(1);
-      color: #ddd;
+      color: #d8cab2;
       text-shadow: none;
     }
   }
 
   .progress {
     font-size: 1.05rem;
-    color: #9aa;
+    color: #a89a83;
     font-variant-numeric: lining-nums tabular-nums;
     white-space: nowrap;
   }
@@ -211,7 +211,7 @@
   .backpack-toggle {
     appearance: none;
     background: transparent;
-    border: 1px solid #2a2a34;
+    border: 1px solid #2b2018;
     border-radius: 8px;
     color: inherit;
     padding: 0 0.6rem;
@@ -225,16 +225,16 @@
   }
 
   .backpack-toggle:hover {
-    background: #2a2a34;
+    background: #2b2018;
   }
 
   .backpack-toggle.active {
-    background: #3a3a48;
-    border-color: #ffcc44;
+    background: #3e2e22;
+    border-color: #ecb44a;
   }
 
   .backpack-toggle:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
 </style>

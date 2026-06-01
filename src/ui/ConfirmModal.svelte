@@ -71,8 +71,8 @@
   }
   .modal {
     width: min(420px, 100%);
-    background: #1c1c24;
-    border: 1px solid #3a3a48;
+    background: #1f1811;
+    border: 1px solid #3e2e22;
     border-radius: 12px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
     display: flex;
@@ -84,32 +84,32 @@
     align-items: center;
     gap: 8px;
     padding: 14px 16px;
-    border-bottom: 1px solid #2a2a34;
+    border-bottom: 1px solid #2b2018;
   }
   .head h3 {
     margin: 0;
     flex: 1;
     font-size: 1.05rem;
     font-weight: 600;
-    color: #eee;
+    color: #ece3d3;
   }
   .close {
     appearance: none;
     background: transparent;
-    border: 1px solid #2a2a34;
-    color: #ddd;
+    border: 1px solid #2b2018;
+    color: #d8cab2;
     border-radius: 6px;
     width: 30px;
     height: 30px;
     cursor: pointer;
   }
   .close:hover {
-    background: #2a2a34;
+    background: #2b2018;
   }
   .body {
     margin: 0;
     padding: 16px;
-    color: #ccd;
+    color: #d0c6b0;
     font-size: 0.92rem;
     line-height: 1.5;
   }
@@ -129,21 +129,21 @@
     min-height: 44px;
   }
   .btn.cancel {
-    background: #2a2a34;
-    border: 1px solid #3a3a48;
-    color: #ddd;
+    background: #2b2018;
+    border: 1px solid #3e2e22;
+    color: #d8cab2;
   }
   .btn.cancel:hover {
-    background: #3a3a48;
+    background: #3e2e22;
   }
   .btn.confirm {
-    background: #3a3a48;
-    border: 1px solid #4a4a58;
+    background: #3e2e22;
+    border: 1px solid #53402e;
     color: #fff;
   }
   .btn.confirm:hover {
-    background: #4a4a58;
-    border-color: #ffcc44;
+    background: #53402e;
+    border-color: #ecb44a;
   }
   .btn.confirm.danger {
     background: #5a2424;

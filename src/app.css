@@ -105,6 +105,39 @@
   /* No text-input UI in the game; suppress the text caret everywhere so
      it can't appear next to glyphs or focused emoji elements. */
   caret-color: transparent;
+
+  /* ── Dark-fantasy palette (warm, Darkest-Dungeon-inspired) ──────────────
+     Single source of truth for the UI's colour identity: warm umber
+     surfaces, aged amber-gold accent, ember firelight + oxblood danger,
+     parchment text. New UI should pull from these tokens. The legacy
+     hard-coded literals scattered across components were swept to match
+     these exact values, so a token and its old literal render identically -
+     the remaining literals can be migrated to var(--token) incrementally.
+     (Gameplay-semantic colours - the red/green/blue gem sockets - live in
+     gem-display.ts and are intentionally NOT part of this neutral ramp.) */
+
+  /* Surfaces: warm near-black -> warm charcoal-brown, low saturation. */
+  --bg: #100b08; /* app / body backdrop */
+  --inset: #16100b; /* wells, deepest insets */
+  --surface-2: #1f1811; /* nested / alternate panel */
+  --surface: #2b2018; /* primary panel + card */
+  --raised: #3e2e22; /* raised surface / hairline */
+  --line: #3e2e22; /* default border */
+  --line-strong: #53402e; /* stronger border / hover edge */
+
+  /* Text: warm parchment down to muted aged stone. */
+  --text: #ece3d3; /* primary */
+  --text-dim: #b6a890; /* secondary */
+  --text-muted: #8a7d67; /* captions / disabled */
+
+  /* Accents. Gold is the brand accent (aged from the old bright #ecb44a);
+     ember = firelight glow, blood = destructive, arcane = magic/gem violet
+     (the one cool counter-accent, kept for the gem identity). */
+  --gold: #ecb44a; /* primary accent */
+  --gold-bright: #f5cd6a; /* hover / highlight */
+  --ember: #ef7d2a; /* warning / firelight */
+  --blood: #d4453a; /* danger / destructive */
+  --arcane: #c084fc; /* magic / gem violet */
 }
 
 /* Browsers default form elements (button, input, select, textarea) to the
@@ -123,8 +156,8 @@ textarea {
 body {
   margin: 0;
   min-height: 100vh;
-  background: #0e0e12;
-  color: #eee;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .emoji {

@@ -13,7 +13,7 @@
     4: '#a855f7',
     5: '#f97316',
     6: '#ef4444',
-    7: '#fbbf24',
+    7: '#e0a93c',
   };
 
   let {
@@ -39,7 +39,7 @@
   onclick={onClick}
 >
   <span class="emoji">{itemEmoji(item)}</span>
-  <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#666'}">
+  <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#6f6456'}">
     T{tierOf(item)}
   </span>
   <SocketPips {item} />
@@ -53,9 +53,9 @@
     position: relative;
     aspect-ratio: 1 / 1;
     appearance: none;
-    border: 1px solid #2a2a34;
+    border: 1px solid #2b2018;
     border-radius: 8px;
-    background: #14141a;
+    background: #16100b;
     color: inherit;
     cursor: pointer;
     display: flex;
@@ -64,15 +64,15 @@
     transition: background-color 80ms ease, border-color 80ms ease, box-shadow 80ms ease;
   }
   .item-card:hover {
-    background: #1c1c24;
-    border-color: #4a4a58;
+    background: #1f1811;
+    border-color: #53402e;
   }
   .item-card.selected {
-    border-color: #ffcc44;
-    box-shadow: inset 0 0 0 1px #ffcc44;
+    border-color: #ecb44a;
+    box-shadow: inset 0 0 0 1px #ecb44a;
   }
   .item-card:focus-visible {
-    outline: 2px solid #ffcc44;
+    outline: 2px solid #ecb44a;
     outline-offset: 2px;
   }
   .emoji {
@@ -90,8 +90,8 @@
     line-height: 1;
     padding: 1px 5px;
     border-radius: 4px;
-    border: 1px solid var(--tier-color, #666);
-    color: var(--tier-color, #999);
+    border: 1px solid var(--tier-color, #6f6456);
+    color: var(--tier-color, #9b8d76);
     background: rgba(0, 0, 0, 0.4);
     font-variant-numeric: lining-nums;
     pointer-events: none;
@@ -104,7 +104,7 @@
     text-align: center;
     font-size: 0.92rem;
     font-weight: 600;
-    color: #ffd866;
+    color: #f0cf6e;
     font-variant-numeric: lining-nums tabular-nums;
     pointer-events: none;
   }
