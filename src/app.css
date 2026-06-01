@@ -126,10 +126,10 @@
   --raised: #28383d; /* raised surface / hairline */
   --line: #28383d; /* default border */
   --line-strong: #374d52; /* stronger border / hover edge */
-  /* Frosted-pane fill: --surface-2 (#121d20) at 0.82 alpha. Paired with a
-     backdrop-filter blur on the rail pane roots so the scene shows through as
-     a soft wash - kept this opaque so panel text stays legible. */
-  --pane-glass: rgba(18, 29, 32, 0.78);
+  /* Panel fill: --surface-2 (#121d20) at 0.99 - effectively opaque (a 1% breath
+     of the scene), no blur. The rail panes paint this under a vertical gradient
+     (see the .rail surface rule below); the top bar matches the gradient's top. */
+  --pane-glass: rgba(18, 29, 32, 0.99);
   /* Top bar height. The bar floats as a frosted overlay over the stage, so the
      scene shows through it; scene CONTENT is offset down by this much (rail top,
      map padding, battlefield inset) to clear the bar. */
@@ -147,6 +147,24 @@
   --ember: #ef7d2a; /* warm firelight (rest camp) / warning */
   --blood: #d4453a; /* danger / destructive */
   --arcane: #c084fc; /* magic / gem violet */
+}
+
+/* Rail pane surface: the near-opaque fill under a vertical gradient - dark at the
+   top, fading to a faint lit wash at the bottom. Static paint, no backdrop-filter,
+   so it costs nothing per frame and pane animations stay smooth at any pane count.
+   `.stage` in the selector lifts the specificity above each pane component's own
+   fill rule, so this single rule is the source of truth; the drag-ghost is
+   excluded so it keeps its own look. */
+.stage .rail > *:not(.drag-ghost) {
+  background-color: var(--pane-glass);
+  background-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.22) 0%,
+    rgba(20, 32, 36, 0) 48%,
+    rgba(76, 120, 124, 0.1) 100%
+  );
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Browsers default form elements (button, input, select, textarea) to the

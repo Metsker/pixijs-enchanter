@@ -131,9 +131,10 @@
     align-items: center;
     gap: 1rem;
     padding: 0 0.75rem;
-    background: var(--pane-glass);
-    backdrop-filter: blur(12px) saturate(1.15);
-    -webkit-backdrop-filter: blur(12px) saturate(1.15);
+    /* Match the TOP of the rail panes' gradient (the fill darkened by the
+       gradient's top stop: rgb(18,29,32) under rgba(0,0,0,0.22)) so the bar and
+       the panels read as one continuous surface. No blur, near-opaque (99%). */
+    background: rgba(14, 23, 25, 0.99);
     border-bottom: 1px solid #28383d;
     user-select: none;
   }
