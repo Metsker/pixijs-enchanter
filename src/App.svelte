@@ -489,6 +489,10 @@
           onclick={() => scrollRail(1)}
         >›</button>
       {/if}
+      <!-- Atmosphere: a static vignette + faint film grain framing the whole
+           game area (Darkest-Dungeon style). Purely visual; sits above the room
+           + panes but below the scene-veil so transitions still cover it. -->
+      <div class="stage-atmosphere" aria-hidden="true"></div>
       <!-- Scene transition: keyed on the screen, so every scene change remounts
            this veil. It starts fully opaque - covering the instant cut AND the
            new procedural backdrop's brief mount pop-in - then fades out to
@@ -540,6 +544,9 @@
     display: flex;
     flex-direction: column;
     height: 100dvh;
+    /* Positioning context for the floating frosted top bar (which is taken out
+       of flow and overlaid; the play-area fills the full height beneath it). */
+    position: relative;
   }
 
   /* Tactile press: every enabled button dips slightly while held. Instant (no
@@ -593,6 +600,29 @@
     }
   }
 
+  /* Atmosphere overlay: vignette (inset shadow darkening the edges to frame the
+     scene) + a faint static film grain. Deliberately sits BELOW the rail (z 1,
+     above only the scene backdrop at z 0) so the grain + vignette texture the
+     scene but never land on the opaque UI panes - their text stays crisp.
+     pointer-events:none so it never blocks input. */
+  .stage-atmosphere {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    box-shadow: inset 0 0 200px 36px rgba(0, 0, 0, 0.5);
+  }
+  .stage-atmosphere::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* Inline fractal-noise SVG (no asset fetch). Tiled, blended over the scene
+       at low opacity for a gritty film texture. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    mix-blend-mode: overlay;
+  }
+
   /* The room always fills the stage - it never shrinks when panels open, so the
      map / battlefield stay put under the overlay. */
   .room {
@@ -609,7 +639,8 @@
      panel's own job. */
   .rail {
     position: absolute;
-    top: 0;
+    /* Start below the floating top bar so pane headers are never hidden by it. */
+    top: var(--topbar-h);
     left: 0;
     right: 0;
     bottom: 0;
@@ -679,7 +710,9 @@
      just scales in place. */
   .rail-arrow {
     position: absolute;
-    top: 0;
+    /* Centre within the rail's region (below the floating top bar), not the
+       whole stage, so the arrows line up with the panes. */
+    top: var(--topbar-h);
     bottom: 0;
     margin-block: auto;
     z-index: 11;

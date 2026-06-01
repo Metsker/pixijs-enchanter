@@ -127,7 +127,9 @@
     width: 25%;
     min-width: min(300px, 100%);
     min-height: 0;
-    background: #121d20;
+    background: var(--pane-glass);
+    backdrop-filter: blur(12px) saturate(1.15);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
     border-left: 1px solid #28383d;
     display: flex;
     flex-direction: column;

@@ -178,6 +178,10 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* The map content scrolls BEHIND the floating frosted top bar (it shows
+       through, blurred). Reserve the bar's height when scrolling a node into
+       view so a reachable node is never tucked under the bar / unclickable. */
+    scroll-padding-top: var(--topbar-h);
     /* Above the shader canvas (z-index 0). */
     position: relative;
     z-index: 1;

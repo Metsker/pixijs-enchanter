@@ -49,7 +49,9 @@
      draw opaquely on top, so the moving backdrop only shows in empty space. */
   .fighters {
     position: absolute;
-    inset: 0;
+    /* Offset below the floating top bar (the ShaderBackground behind it stays
+       inset 0 / full-bleed, so the battle backdrop blurs through the glass). */
+    inset: var(--topbar-h) 0 0 0;
     z-index: 1;
   }
 </style>

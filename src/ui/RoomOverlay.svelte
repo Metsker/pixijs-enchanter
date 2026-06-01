@@ -37,7 +37,9 @@
 <style>
   .overlay {
     position: fixed;
-    inset: 56px 0 0 0;
+    /* Full-screen veil - covers the floating top bar too (z-index 80 > the bar's
+       30), so defeat blocks the whole app. */
+    inset: 0;
     background: rgba(10, 10, 14, 0.6);
     z-index: 80;
     display: flex;

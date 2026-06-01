@@ -126,6 +126,14 @@
   --raised: #28383d; /* raised surface / hairline */
   --line: #28383d; /* default border */
   --line-strong: #374d52; /* stronger border / hover edge */
+  /* Frosted-pane fill: --surface-2 (#121d20) at 0.82 alpha. Paired with a
+     backdrop-filter blur on the rail pane roots so the scene shows through as
+     a soft wash - kept this opaque so panel text stays legible. */
+  --pane-glass: rgba(18, 29, 32, 0.78);
+  /* Top bar height. The bar floats as a frosted overlay over the stage, so the
+     scene shows through it; scene CONTENT is offset down by this much (rail top,
+     map padding, battlefield inset) to clear the bar. */
+  --topbar-h: 84px;
 
   /* Text: cool bone down to muted slate. */
   --text: #dde7e7; /* primary */
@@ -159,6 +167,36 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
+  /* Firefox themed scrollbars (thin, accent thumb on a deep-inset track). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) var(--inset);
+}
+
+/* WebKit themed scrollbars to match: a slim teal-tinted thumb that lights up to
+   the accent on hover, floating on the deep-inset track. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--inset);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 6px;
+  /* Inset border carves the thumb off the track so it reads as a slim pill. */
+  border: 2px solid var(--inset);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Accent focus ring for keyboard navigation (only on :focus-visible, so mouse
+   clicks never show it). A teal outline + soft glow ties focus to the palette. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(60, 199, 184, 0.25);
 }
 
 .emoji {

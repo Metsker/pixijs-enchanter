@@ -675,7 +675,9 @@
        it usable where a quarter would be too narrow. */
     width: 25%;
     min-width: min(300px, 100%);
-    background: #121d20;
+    background: var(--pane-glass);
+    backdrop-filter: blur(12px) saturate(1.15);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
     border-left: 1px solid #18262a;
     display: flex;
     flex-direction: column;

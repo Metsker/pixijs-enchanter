@@ -112,9 +112,17 @@
 
 <style>
   .topbar {
-    flex: 0 0 auto;
-    /* Taller to give the inline equipment slots room to breathe. */
-    min-height: 84px;
+    /* Floats as a frosted-glass overlay across the top of the stage (the scene
+       backdrop full-bleeds behind it, blurred through the glass). The stage
+       content is offset down by --topbar-h to clear it. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    /* Taller to give the inline equipment slots room to breathe. Matches
+       --topbar-h, which the content uses to clear the bar. */
+    min-height: var(--topbar-h);
     /* Three tracks with equal side columns, so the centre (auto) track - the
        equipment row - sits at the EXACT middle of the screen regardless of how
        wide the left / right groups are. */
@@ -123,8 +131,10 @@
     align-items: center;
     gap: 1rem;
     padding: 0 0.75rem;
-    background: #121d20;
-    border-bottom: 1px solid #18262a;
+    background: var(--pane-glass);
+    backdrop-filter: blur(12px) saturate(1.15);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
+    border-bottom: 1px solid #28383d;
     user-select: none;
   }
 

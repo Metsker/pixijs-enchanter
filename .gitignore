@@ -42,3 +42,5 @@ coverage/
 # Local palette / UI verification screenshots
 palette-*.jpeg
 palette-*.png
+diag-*.jpeg
+diag-*.png
