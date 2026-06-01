@@ -529,15 +529,11 @@ export class Battlefield {
     this.playAttackSwing(view);
     sfx.swing();
 
-    // Enemy dodge: the catalogue defines a per-enemy dodge chance;
-    // when it procs the swing animations still play (swing + slash)
-    // but no damage lands and we float "Miss" instead.
-    const enemyDef = ENEMY_CATALOGUE[target.name];
-    const enemyDodge = enemyDef?.dodge ?? 0;
-    if (enemyDodge > 0 && Math.random() < enemyDodge) {
-      this.spawnFloatNumber(view, 'Miss', '#aaaaaa', 28);
+    // Enemy dodge: the catalogue defines a per-enemy dodge chance; when it
+    // procs the swing animations still play but no damage lands. The slash is
+    // the whiffed-swing visual, kept for the basic attack only.
+    if (this.tryDodge(target, view)) {
       this.spawnSlash(view);
-      sfx.dodge();
       return;
     }
 
@@ -555,6 +551,21 @@ export class Battlefield {
         }
       }
     }
+  }
+
+  // Roll `target`'s dodge (enemies carry a per-catalogue dodge chance). On a
+  // dodge: float "Miss", play the dodge sfx, and return true so the caller
+  // skips its damage. Used by the basic attack AND every effect-damage path
+  // (procs / chain / splash / counter / thorns), so a dodgy enemy like the
+  // Harpy evades ALL incoming damage, not just auto-attacks.
+  private tryDodge(target: Fighter, view: FighterView | undefined): boolean {
+    const dodge = ENEMY_CATALOGUE[target.name]?.dodge ?? 0;
+    if (dodge <= 0 || Math.random() >= dodge) return false;
+    if (view && !view.container.destroyed) {
+      this.spawnFloatNumber(view, 'Miss', '#aaaaaa', 28);
+    }
+    sfx.dodge();
+    return true;
   }
 
   // Applies a single landed hit: rolls crit, runs the equipped
@@ -729,6 +740,7 @@ export class Battlefield {
         }
         const otherView = this.views.get(other.id);
         if (!otherView || otherView.container.destroyed) continue;
+        if (this.tryDodge(other, otherView)) continue;
         this.spawnFloatNumber(otherView, `-${splash}`, '#cbd5ff', 26);
         this.playHitFlash(otherView);
         applyDamage(other.id, splash);
@@ -749,6 +761,7 @@ export class Battlefield {
       for (const { e } of candidates) {
         const ev = this.views.get(e.id);
         if (!ev || ev.container.destroyed) continue;
+        if (this.tryDodge(e, ev)) continue;
         this.spawnFloatNumber(ev, `⚡-${eff.damage}`, '#ffd84a', 26);
         this.playHitFlash(ev);
         applyDamage(e.id, eff.damage);
@@ -916,6 +929,9 @@ export class Battlefield {
     for (const target of targets) {
       const view = this.views.get(target.id);
       if (!view || view.container.destroyed) continue;
+
+      // A dodgy target (Harpy) evades the proc outright - no damage, no riders.
+      if (this.tryDodge(target, view)) continue;
 
       // Crit roll: procs only crit when a crit support (Lethal) granted
       // canCrit. The auto-attack's crit multiplier is reused.
@@ -1097,7 +1113,12 @@ export class Battlefield {
       this.spawnFloatNumber(playerView, 'Dodge', '#aaaaaa', 28);
       sfx.dodge();
       for (const eff of effects) {
-        if (eff.kind === 'counter-attack' && enemyView && !enemyView.container.destroyed) {
+        if (
+          eff.kind === 'counter-attack' &&
+          enemyView &&
+          !enemyView.container.destroyed &&
+          !this.tryDodge(enemy, enemyView)
+        ) {
           const reflect = Math.max(1, Math.round(this.attack.damage * eff.fraction));
           this.spawnDamageNumber(enemyView, reflect);
           this.playHitFlash(enemyView);
@@ -1228,8 +1249,14 @@ export class Battlefield {
     }
 
     // Thorns: flat reflect to the attacker. The attacker's hit flash
-    // + damage number play so the player sees the reflect land.
-    if (this.defence.thornsFlat > 0 && enemyView && !enemyView.container.destroyed) {
+    // + damage number play so the player sees the reflect land - unless the
+    // attacker (a dodgy enemy) evades it.
+    if (
+      this.defence.thornsFlat > 0 &&
+      enemyView &&
+      !enemyView.container.destroyed &&
+      !this.tryDodge(enemy, enemyView)
+    ) {
       const reflect = this.defence.thornsFlat;
       this.spawnDamageNumber(enemyView, reflect);
       this.playHitFlash(enemyView);
