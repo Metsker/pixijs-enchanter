@@ -106,36 +106,37 @@
      it can't appear next to glyphs or focused emoji elements. */
   caret-color: transparent;
 
-  /* ── Dark-fantasy palette (warm, Darkest-Dungeon-inspired) ──────────────
-     Single source of truth for the UI's colour identity: warm umber
-     surfaces, aged amber-gold accent, ember firelight + oxblood danger,
-     parchment text. New UI should pull from these tokens. The legacy
-     hard-coded literals scattered across components were swept to match
-     these exact values, so a token and its old literal render identically -
-     the remaining literals can be migrated to var(--token) incrementally.
-     (Gameplay-semantic colours - the red/green/blue gem sockets - live in
-     gem-display.ts and are intentionally NOT part of this neutral ramp.) */
+  /* ── Dark-fantasy palette (cold, teal accent) ──────────────────────────
+     Single source of truth for the UI's colour identity: cold teal-slate
+     surfaces, a luminous teal accent, cool bone text. New UI should pull
+     from these tokens. The legacy hard-coded literals scattered across
+     components were swept to match these exact values, so a token and its
+     old literal render identically - the remaining literals can be migrated
+     to var(--token) incrementally.
+     Warm counter-accents survive deliberately: --ember (firelight) keeps
+     the REST camp scene warm, and --blood (danger) / --arcane (gem magic)
+     stay as-is. Gameplay-semantic colours - the red/green/blue gem sockets
+     - live in gem-display.ts and are NOT part of this neutral ramp. */
 
-  /* Surfaces: warm near-black -> warm charcoal-brown, low saturation. */
-  --bg: #100b08; /* app / body backdrop */
-  --inset: #16100b; /* wells, deepest insets */
-  --surface-2: #1f1811; /* nested / alternate panel */
-  --surface: #2b2018; /* primary panel + card */
-  --raised: #3e2e22; /* raised surface / hairline */
-  --line: #3e2e22; /* default border */
-  --line-strong: #53402e; /* stronger border / hover edge */
+  /* Surfaces: cold near-black -> cold teal-slate, low saturation. */
+  --bg: #070d0f; /* app / body backdrop */
+  --inset: #0c1517; /* wells, deepest insets */
+  --surface-2: #121d20; /* nested / alternate panel */
+  --surface: #18262a; /* primary panel + card */
+  --raised: #28383d; /* raised surface / hairline */
+  --line: #28383d; /* default border */
+  --line-strong: #374d52; /* stronger border / hover edge */
 
-  /* Text: warm parchment down to muted aged stone. */
-  --text: #ece3d3; /* primary */
-  --text-dim: #b6a890; /* secondary */
-  --text-muted: #8a7d67; /* captions / disabled */
+  /* Text: cool bone down to muted slate. */
+  --text: #dde7e7; /* primary */
+  --text-dim: #aebcbc; /* secondary */
+  --text-muted: #768585; /* captions / disabled */
 
-  /* Accents. Gold is the brand accent (aged from the old bright #ecb44a);
-     ember = firelight glow, blood = destructive, arcane = magic/gem violet
-     (the one cool counter-accent, kept for the gem identity). */
-  --gold: #ecb44a; /* primary accent */
-  --gold-bright: #f5cd6a; /* hover / highlight */
-  --ember: #ef7d2a; /* warning / firelight */
+  /* Accents. Teal is the brand accent; ember = warm firelight glow (keeps
+     the rest camp warm), blood = destructive, arcane = magic/gem violet. */
+  --accent: #3cc7b8; /* primary accent (teal) */
+  --accent-bright: #5fe0d2; /* hover / highlight */
+  --ember: #ef7d2a; /* warm firelight (rest camp) / warning */
   --blood: #d4453a; /* danger / destructive */
   --arcane: #c084fc; /* magic / gem violet */
 }

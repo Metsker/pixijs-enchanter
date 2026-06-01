@@ -28,7 +28,7 @@
     4: '#a855f7',
     5: '#f97316',
     6: '#ef4444',
-    7: '#e0a93c',
+    7: '#33b6a6',
   };
 
   // The inspected gem (a snapshot) + its catalogue def / colour / level.
@@ -230,7 +230,7 @@
     in:paneEnter|global
     out:paneLeave|global
   >
-    <header class="gi-head" data-pane-header style="--gem-color: {color ? SOCKET_COLOR_HEX[color] : '#6f6456'}">
+    <header class="gi-head" data-pane-header style="--gem-color: {color ? SOCKET_COLOR_HEX[color] : '#5c6a6a'}">
       <span class="gi-emoji">{d?.emoji ?? '💎'}</span>
       <div class="gi-title">
         <div class="gi-name">
@@ -304,7 +304,7 @@
                   onclick={() => onInsert(ci.item)}
                 >
                   <span class="gi-item-emoji">{itemEmoji(ci.item)}</span>
-                  <span class="gi-item-tier" style="--tier-color: {TIER_COLORS[tierOf(ci.item)] ?? '#6f6456'}">T{tierOf(ci.item)}</span>
+                  <span class="gi-item-tier" style="--tier-color: {TIER_COLORS[tierOf(ci.item)] ?? '#5c6a6a'}">T{tierOf(ci.item)}</span>
                   <span class="gi-item-main">{itemLabel(ci.item)}</span>
                   <span class="gi-item-open">{t('gemInspector.open', { open: ci.open, total: ci.total })}</span>
                   <span class="gi-item-src">{ci.source}</span>
@@ -383,8 +383,8 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: #1f1811;
-    border-left: 1px solid #3e2e22;    overflow: hidden;
+    background: #121d20;
+    border-left: 1px solid #28383d;    overflow: hidden;
   }
 
   /* Header mirrors the item inspector: emoji + name + a colour-coded badge
@@ -396,7 +396,7 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2b2018;
+    border-bottom: 1px solid #18262a;
   }
   .gi-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -413,7 +413,7 @@
   .gi-name {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #d8cab2;
+    color: #c0cdcd;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -438,14 +438,14 @@
     letter-spacing: 0.06em;
     padding: 2px 7px;
     border-radius: 4px;
-    border: 1px solid var(--gem-color, #6f6456);
-    color: var(--gem-color, #9b8d76);
+    border: 1px solid var(--gem-color, #5c6a6a);
+    color: var(--gem-color, #849393);
     background: rgba(0, 0, 0, 0.3);
   }
   .gi-close {
     appearance: none;
     background: transparent;
-    border: 1px solid #3e2e22;
+    border: 1px solid #28383d;
     color: #ccc;
     border-radius: 6px;
     width: 32px;
@@ -456,10 +456,10 @@
     justify-content: center;
   }
   .gi-close:hover {
-    background: #2b2018;
+    background: #18262a;
   }
   .gi-close:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 
@@ -474,7 +474,7 @@
   }
   .gi-desc {
     margin: 0;
-    color: #cdc6b2;
+    color: #bac6c6;
     font-size: 0.92rem;
     line-height: 1.4;
   }
@@ -489,17 +489,17 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #8a7d67;
+    color: #768585;
   }
   .gi-value {
     font-variant-numeric: lining-nums tabular-nums;
-    color: #cdc6b2;
+    color: #bac6c6;
     font-weight: 600;
   }
   /* Action footer at the bottom of the panel (matches the item inspector). */
   .gi-foot {
     padding: 12px 14px;
-    border-top: 1px solid #2b2018;
+    border-top: 1px solid #18262a;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -509,8 +509,8 @@
   .cta {
     width: 100%;
     appearance: none;
-    background: #3e2e22;
-    border: 1px solid #53402e;
+    background: #28383d;
+    border: 1px solid #374d52;
     color: #fff;
     border-radius: 8px;
     padding: 12px;
@@ -522,12 +522,12 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .cta.secondary {
-    background: #1f1811;
-    color: #d8cab2;
+    background: #121d20;
+    color: #c0cdcd;
   }
   .cta.secondary:hover:not(:disabled) {
-    background: #2b2018;
-    border-color: #ecb44a;
+    background: #18262a;
+    border-color: #3cc7b8;
   }
   .cta.danger {
     background: transparent;
@@ -539,15 +539,15 @@
     border-color: #c44;
   }
   .cta:hover:not(:disabled) {
-    background: #53402e;
-    border-color: #ecb44a;
+    background: #374d52;
+    border-color: #3cc7b8;
   }
   .cta:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .cta:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 
@@ -560,19 +560,19 @@
     font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #837460;
-    border-top: 1px solid #2b2018;
+    color: #6f7d7d;
+    border-top: 1px solid #18262a;
     padding-top: 12px;
   }
   .gi-none {
     margin: 0;
-    color: #766b58;
+    color: #647171;
     font-size: 0.84rem;
     line-height: 1.4;
   }
   .gi-subhint {
     margin: 0;
-    color: #8a7d67;
+    color: #768585;
     font-size: 0.78rem;
   }
 
@@ -580,13 +580,13 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    background: #16100b;
-    border: 1px solid #2b2018;
+    background: #0c1517;
+    border: 1px solid #18262a;
     border-radius: 8px;
     padding: 10px 12px;
   }
   .lvl-now {
-    color: #978a73;
+    color: #7f8e8e;
     font-size: 0.86rem;
     line-height: 1.35;
   }
@@ -615,11 +615,11 @@
     align-items: center;
     gap: 8px;
     padding: 6px 8px;
-    border: 1px solid #2b2018;
+    border: 1px solid #18262a;
     border-radius: 6px;
-    background: #16100b;
+    background: #0c1517;
     font-size: 0.85rem;
-    color: #cdc6b2;
+    color: #bac6c6;
   }
   .gi-fit-li {
     list-style: none;
@@ -643,7 +643,7 @@
     border-color: #4caf6a;
   }
   .gi-item-btn.insertable:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
   .gi-insert {
@@ -664,8 +664,8 @@
   .gi-item-tier {
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--tier-color, #9b8d76);
-    border: 1px solid var(--tier-color, #6f6456);
+    color: var(--tier-color, #849393);
+    border: 1px solid var(--tier-color, #5c6a6a);
     border-radius: 4px;
     padding: 0 4px;
     font-variant-numeric: lining-nums;
@@ -690,13 +690,13 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #766b58;
-    background: #231a12;
+    color: #647171;
+    background: #152124;
     border-radius: 4px;
     padding: 2px 6px;
   }
   .gi-more {
-    color: #766b58;
+    color: #647171;
     font-size: 0.78rem;
     padding-left: 2px;
   }

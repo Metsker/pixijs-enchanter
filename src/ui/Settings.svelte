@@ -166,8 +166,8 @@
     /* Taller now that it carries sound / speed / restart - cap to the viewport
        and let the body scroll so it never overflows a short screen. */
     max-height: calc(100dvh - 32px);
-    background: #1f1811;
-    border: 1px solid #3e2e22;
+    background: #121d20;
+    border: 1px solid #28383d;
     border-radius: 12px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
     display: flex;
@@ -179,27 +179,27 @@
     align-items: center;
     gap: 8px;
     padding: 14px 16px;
-    border-bottom: 1px solid #2b2018;
+    border-bottom: 1px solid #18262a;
   }
   .head h3 {
     margin: 0;
     flex: 1;
     font-size: 1.05rem;
     font-weight: 600;
-    color: #ece3d3;
+    color: #dde7e7;
   }
   .close {
     appearance: none;
     background: transparent;
-    border: 1px solid #2b2018;
-    color: #d8cab2;
+    border: 1px solid #18262a;
+    color: #c0cdcd;
     border-radius: 6px;
     width: 30px;
     height: 30px;
     cursor: pointer;
   }
   .close:hover {
-    background: #2b2018;
+    background: #18262a;
   }
   .body {
     padding: 16px;
@@ -229,8 +229,8 @@
     align-items: center;
     gap: 12px;
     text-align: left;
-    background: #16100b;
-    border: 1px solid #2b2018;
+    background: #0c1517;
+    border: 1px solid #18262a;
     border-radius: 10px;
     padding: 12px 14px;
     cursor: pointer;
@@ -239,14 +239,14 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .option:hover {
-    background: #221a12;
+    background: #142023;
   }
   .option.selected {
-    background: #2b2018;
-    border-color: #ecb44a;
+    background: #18262a;
+    border-color: #3cc7b8;
   }
   .option:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
   .opt-emoji {
@@ -263,14 +263,14 @@
   .opt-name {
     font-size: 0.98rem;
     font-weight: 600;
-    color: #ece3d3;
+    color: #dde7e7;
   }
   .option.selected .opt-name {
-    color: #ecb44a;
+    color: #3cc7b8;
   }
   .opt-desc {
     font-size: 0.82rem;
-    color: #a89a83;
+    color: #91a1a1;
     line-height: 1.35;
   }
   .note {
@@ -278,7 +278,7 @@
     font-size: 0.8rem;
     color: #8a8a9a;
     line-height: 1.4;
-    border-top: 1px solid #2b2018;
+    border-top: 1px solid #18262a;
     padding-top: 12px;
   }
 
@@ -290,11 +290,11 @@
   .speed-btn {
     flex: 1;
     appearance: none;
-    background: #16100b;
-    border: 1px solid #2b2018;
+    background: #0c1517;
+    border: 1px solid #18262a;
     border-radius: 10px;
     padding: 12px;
-    color: #cdc6b2;
+    color: #bac6c6;
     font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
@@ -303,15 +303,15 @@
     transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
   }
   .speed-btn:hover {
-    background: #221a12;
+    background: #142023;
   }
   .speed-btn.selected {
-    background: #2b2018;
-    border-color: #ecb44a;
-    color: #ecb44a;
+    background: #18262a;
+    border-color: #3cc7b8;
+    color: #3cc7b8;
   }
   .speed-btn:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 

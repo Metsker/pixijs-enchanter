@@ -13,7 +13,7 @@
     <span
       class="pip"
       class:empty={item.sockets[i] == null}
-      style="--c: {SOCKET_COLOR_HEX[color] ?? '#6f6456'}"
+      style="--c: {SOCKET_COLOR_HEX[color] ?? '#5c6a6a'}"
     ></span>
   {/each}
 </span>
@@ -33,8 +33,8 @@
     width: 7px;
     height: 12px;
     border-radius: 2px;
-    background: var(--c, #6f6456);
-    box-shadow: 0 0 3px var(--c, #6f6456);
+    background: var(--c, #5c6a6a);
+    box-shadow: 0 0 3px var(--c, #5c6a6a);
   }
   .pip.empty {
     opacity: 0.28;

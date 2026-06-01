@@ -82,13 +82,13 @@
 
   function nodeFill(node: MapNode): string {
     if (node.id === $run.lastCompletedRoomId) return '#444';
-    if (reachable.has(node.id)) return '#1f1811';
-    return '#100b08';
+    if (reachable.has(node.id)) return '#121d20';
+    return '#070d0f';
   }
   function nodeStroke(node: MapNode): string {
-    if (reachable.has(node.id)) return '#ecb44a';
+    if (reachable.has(node.id)) return '#3cc7b8';
     if (node.id === $run.lastCompletedRoomId) return '#888';
-    return '#3e2e22';
+    return '#28383d';
   }
   function nodeOpacity(node: MapNode): number {
     if (reachable.has(node.id)) return 1;
@@ -113,7 +113,7 @@
               y1={p.y}
               x2={c.x}
               y2={c.y}
-              stroke="#2b2018"
+              stroke="#18262a"
               stroke-width="2"
             />
           {/if}
@@ -166,7 +166,7 @@
        section behind the content; this gradient shows if WebGL is unavailable
        or before the canvas mounts. */
     position: relative;
-    background: linear-gradient(180deg, #0a0806 0%, #16100b 100%);
+    background: linear-gradient(180deg, #060b0c 0%, #0c1517 100%);
     padding: 12px;
     gap: 12px;
   }
@@ -197,7 +197,7 @@
     cursor: pointer;
   }
   .node.reachable:hover circle {
-    fill: #2b2018;
+    fill: #18262a;
   }
 
   .emoji-host {
@@ -217,7 +217,7 @@
     flex-wrap: wrap;
     gap: 14px;
     padding: 8px 10px;
-    border-top: 1px solid #2b2018;
+    border-top: 1px solid #18262a;
     color: #aab;
     font-size: 0.85rem;
     /* Above the shader canvas (z-index 0). */

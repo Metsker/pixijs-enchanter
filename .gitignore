@@ -38,3 +38,7 @@ coverage/
 
 # Claude Code local state (worktrees, etc.)
 .claude/
+
+# Local palette / UI verification screenshots
+palette-*.jpeg
+palette-*.png

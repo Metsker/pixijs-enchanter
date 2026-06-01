@@ -26,7 +26,7 @@
   type="button"
   class="gem-card"
   class:selected
-  style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#6f6456'}"
+  style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#5c6a6a'}"
   title={gd ? `${gd.name} - ${gd.summary}` : ''}
   onclick={onClick}
 >
@@ -44,7 +44,7 @@
     appearance: none;
     border: 1px solid var(--gem-color, #6ad);
     border-radius: 8px;
-    background: #16100b;
+    background: #0c1517;
     box-shadow: inset 0 0 0 1px var(--gem-color, #6ad);
     color: inherit;
     cursor: pointer;
@@ -54,14 +54,14 @@
     transition: background-color 80ms ease, box-shadow 80ms ease;
   }
   .gem-card:hover {
-    background: #1f1811;
+    background: #121d20;
   }
   /* Selected: gold inset ring; the gem-colour border stays visible. */
   .gem-card.selected {
-    box-shadow: inset 0 0 0 2px #ecb44a;
+    box-shadow: inset 0 0 0 2px #3cc7b8;
   }
   .gem-card:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
   .emoji {
@@ -93,7 +93,7 @@
     text-align: center;
     font-size: 0.92rem;
     font-weight: 600;
-    color: #f0cf6e;
+    color: #70ddd0;
     font-variant-numeric: lining-nums tabular-nums;
     pointer-events: none;
   }

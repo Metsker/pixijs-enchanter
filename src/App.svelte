@@ -575,7 +575,7 @@
     z-index: 50;
     pointer-events: none;
     opacity: 0;
-    background: radial-gradient(120% 120% at 50% 50%, #0a0806 0%, #050507 100%);
+    background: radial-gradient(120% 120% at 50% 50%, #060b0c 0%, #050507 100%);
     animation: scene-veil 340ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
   @keyframes scene-veil {
@@ -640,7 +640,7 @@
   .rail :global(.reorder-lift) {
     position: relative;
     z-index: 5;
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: -2px;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
   }
@@ -689,9 +689,9 @@
     align-items: center;
     justify-content: center;
     appearance: none;
-    border: 1px solid #3e2e22;
+    border: 1px solid #28383d;
     background: rgba(20, 20, 26, 0.92);
-    color: #d8cab2;
+    color: #c0cdcd;
     font-size: 1.7rem;
     line-height: 1;
     cursor: pointer;
@@ -710,11 +710,11 @@
   }
   .rail-arrow:hover {
     background: rgba(42, 42, 52, 0.96);
-    border-color: #ecb44a;
-    color: #ecb44a;
+    border-color: #3cc7b8;
+    color: #3cc7b8;
   }
   .rail-arrow:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 
@@ -725,7 +725,7 @@
     z-index: 200;
     font-size: 0.7rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    color: #5d5346;
+    color: #4c5858;
     text-decoration: none;
     background: rgba(10, 10, 14, 0.6);
     padding: 1px 6px;
@@ -734,7 +734,7 @@
     user-select: none;
   }
   .version:hover {
-    color: #ecb44a;
+    color: #3cc7b8;
   }
 
   .gem-drag-ghost {
@@ -744,8 +744,8 @@
     transform: translate(-50%, -50%);
     pointer-events: none;
     z-index: 300;
-    background: #16100b;
-    border: 2px solid #ecb44a;
+    background: #0c1517;
+    border: 2px solid #3cc7b8;
     border-radius: 10px;
     display: flex;
     align-items: center;

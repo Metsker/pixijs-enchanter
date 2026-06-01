@@ -63,7 +63,7 @@
             <button
               type="button"
               class="gem"
-              style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#6f6456'}"
+              style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#5c6a6a'}"
               title={t('destroy.preview')}
               onclick={() => inspectGem(gem)}
             >
@@ -101,8 +101,8 @@
   .modal {
     width: min(440px, 100%);
     max-height: calc(100dvh - 80px);
-    background: #1f1811;
-    border: 1px solid #3e2e22;
+    background: #121d20;
+    border: 1px solid #28383d;
     border-radius: 12px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
     display: flex;
@@ -116,7 +116,7 @@
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
-    border-bottom: 1px solid #2b2018;
+    border-bottom: 1px solid #18262a;
   }
   .item-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -130,29 +130,29 @@
     margin: 0;
     font-size: 1.05rem;
     font-weight: 600;
-    color: #ece3d3;
+    color: #dde7e7;
   }
   .sub {
     font-size: 0.78rem;
-    color: #978a73;
+    color: #7f8e8e;
   }
   .close {
     appearance: none;
     background: transparent;
-    border: 1px solid #2b2018;
-    color: #d8cab2;
+    border: 1px solid #18262a;
+    color: #c0cdcd;
     border-radius: 6px;
     width: 30px;
     height: 30px;
     cursor: pointer;
   }
   .close:hover {
-    background: #2b2018;
+    background: #18262a;
   }
   .body {
     margin: 0;
     padding: 14px 16px 8px;
-    color: #d0c6b0;
+    color: #bbc8c8;
     font-size: 0.92rem;
     line-height: 1.5;
   }
@@ -161,7 +161,7 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #837460;
+    color: #6f7d7d;
   }
   .gems {
     list-style: none;
@@ -181,21 +181,21 @@
     column-gap: 10px;
     align-items: center;
     text-align: left;
-    background: #16100b;
-    border: 1px solid #2b2018;
-    border-left: 3px solid var(--gem-color, #6f6456);
+    background: #0c1517;
+    border: 1px solid #18262a;
+    border-left: 3px solid var(--gem-color, #5c6a6a);
     border-radius: 8px;
     padding: 8px 10px;
     cursor: pointer;
-    color: #d8cab2;
+    color: #c0cdcd;
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .gem:hover {
-    background: #221a12;
-    border-color: #53402e;
+    background: #142023;
+    border-color: #374d52;
   }
   .gem:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
   .gem-emoji {
@@ -207,7 +207,7 @@
   .gem-name {
     grid-area: name;
     font-weight: 600;
-    color: #ece2d2;
+    color: #dde7e7;
   }
   .gem-lv {
     color: #c084fc;
@@ -216,7 +216,7 @@
   .gem-summary {
     grid-area: summary;
     font-size: 0.78rem;
-    color: #a89a83;
+    color: #91a1a1;
     line-height: 1.25;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -239,12 +239,12 @@
     min-height: 44px;
   }
   .btn.cancel {
-    background: #2b2018;
-    border: 1px solid #3e2e22;
-    color: #d8cab2;
+    background: #18262a;
+    border: 1px solid #28383d;
+    color: #c0cdcd;
   }
   .btn.cancel:hover {
-    background: #3e2e22;
+    background: #28383d;
   }
   .btn.keep {
     background: #18261b;
@@ -265,7 +265,7 @@
     border-color: #cc4444;
   }
   .btn:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 </style>

@@ -109,7 +109,7 @@
 
 <style>
   /* Left-aligned shop pane: a header over stacked card sections. Matches the
-     other rail panes' chrome (flat #1f1811, #3e2e22 divider). */
+     other rail panes' chrome (flat #121d20, #28383d divider). */
   .shop {
     flex: 0 0 auto;
     align-self: stretch;
@@ -119,8 +119,8 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: #1f1811;
-    border-right: 1px solid #3e2e22;
+    background: #121d20;
+    border-right: 1px solid #28383d;
     user-select: none;  }
   .shop-head {
     display: flex;
@@ -130,13 +130,13 @@
     height: 76px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid #2b2018;
+    border-bottom: 1px solid #18262a;
   }
   h2 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
-    color: #d8cab2;
+    color: #c0cdcd;
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -149,8 +149,8 @@
   }
   .leave {
     appearance: none;
-    background: #3e2e22;
-    border: 1px solid #53402e;
+    background: #28383d;
+    border: 1px solid #374d52;
     color: #fff;
     border-radius: 8px;
     padding: 8px 14px;
@@ -160,8 +160,8 @@
     min-height: 36px;
   }
   .leave:hover {
-    background: #53402e;
-    border-color: #ecb44a;
+    background: #374d52;
+    border-color: #3cc7b8;
   }
 
   /* Stacked sections (items / gems / consumables), each a horizontal card grid
@@ -184,7 +184,7 @@
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #837460;
+    color: #6f7d7d;
   }
   .cards {
     display: grid;
@@ -194,14 +194,14 @@
 
   .sold {
     aspect-ratio: 1 / 1;
-    border: 1px solid #2b2018;
+    border: 1px solid #18262a;
     border-radius: 8px;
-    background: #110c08;
+    background: #080f11;
     display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0.4;
-    color: #5d5346;
+    color: #4c5858;
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -211,10 +211,10 @@
   .consumable {
     appearance: none;
     aspect-ratio: 1 / 1;
-    border: 1px solid #2b2018;
+    border: 1px solid #18262a;
     border-radius: 8px;
-    background: #16100b;
-    color: #d8cab2;
+    background: #0c1517;
+    color: #c0cdcd;
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -225,8 +225,8 @@
     transition: background-color 80ms ease, border-color 80ms ease;
   }
   .consumable:hover:not(:disabled) {
-    background: #1f1811;
-    border-color: #ecb44a;
+    background: #121d20;
+    border-color: #3cc7b8;
   }
   .consumable:disabled {
     opacity: 0.4;
@@ -239,18 +239,18 @@
   }
   .consumable .name {
     font-size: 0.74rem;
-    color: #c1b6a0;
+    color: #aab6b6;
     text-align: center;
     line-height: 1.1;
   }
   .consumable .stock {
     font-size: 0.68rem;
-    color: #837460;
+    color: #6f7d7d;
   }
   .consumable .price {
     font-size: 1rem;
     font-weight: 600;
-    color: #f0cf6e;
+    color: #70ddd0;
     font-variant-numeric: lining-nums tabular-nums;
   }
 </style>

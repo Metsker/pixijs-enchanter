@@ -118,7 +118,7 @@ void main() {
   float twinkle = 0.55 + 0.45 * sin(uTime * 0.7 + r * 6.2831);
   float star = smoothstep(0.09, 0.0, length(g)) * step(0.975, r) * twinkle;
   star *= smoothstep(0.15, 0.85, uv.y);
-  col += vec3(1.0, 0.9, 0.72) * star * 0.6;
+  col += vec3(0.8, 0.92, 1.0) * star * 0.6;
 
   // Gentle vignette - corners ~half brightness - to frame the map content.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -160,7 +160,7 @@ void main() {
 
   // Pale cyan dust motes drifting slowly upward.
   float motes = particles(p, 28.0, 0.05, 0.10, 0.965, 1.0);
-  col += vec3(1.0, 0.84, 0.55) * motes * 0.5;
+  col += vec3(0.6, 0.9, 1.0) * motes * 0.5;
 
   // Gentle vignette to frame the pane.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -259,7 +259,7 @@ void main() {
 
   // Dust motes drifting up through the light.
   float motes = particles(p, 32.0, 0.04, 0.09, 0.972, 7.0);
-  col += vec3(1.0, 0.8, 0.5) * motes * 0.55;
+  col += vec3(0.5, 0.85, 1.0) * motes * 0.55;
 
   // Gentle vignette to frame the pane.
   float d = distance(uv, vec2(0.5, 0.5));
@@ -340,34 +340,34 @@ export interface BackgroundDef {
 }
 
 export const BACKGROUNDS = {
-  // All five scenes share the warm dark-fantasy palette (Darkest-Dungeon-style
-  // sepia/ember) so the procedural backdrops no longer fight the warm UI chrome.
-  // They stay distinguishable by the HUE of their warmth: map = twilight maroon,
-  // shop = golden candlelight, rest = ember campfire, armory = forge orange,
-  // battle = oxblood energy.
+  // Cold teal-themed backdrops to match the cold UI chrome - EXCEPT the rest
+  // camp, which stays warm on purpose (a warm refuge of firelight among the
+  // cold scenes). They stay distinguishable by their cold hue: map = teal
+  // night, shop = teal merchant haze, armory = cyan vault, battle = teal energy.
   map: {
     fragment: MAP_FRAGMENT,
     uniforms: {
-      // Dusky twilight sky: warm near-black at the foot rising to an ember-maroon
-      // horizon, with burnt-orange clouds (the hamlet-at-sunset read).
-      uColorBottom: rgb(0.043, 0.027, 0.022),
-      uColorTop: rgb(0.176, 0.075, 0.055),
-      uNebula: rgb(0.55, 0.27, 0.13),
+      // Cold teal night sky: near-black at the foot rising to a deep teal
+      // horizon, with a luminous teal nebula.
+      uColorBottom: rgb(0.027, 0.043, 0.051),
+      uColorTop: rgb(0.043, 0.094, 0.118),
+      uNebula: rgb(0.14, 0.4, 0.46),
     },
   },
   shop: {
     fragment: SHOP_FRAGMENT,
     uniforms: {
-      // Warm candlelit merchant tones (deep umber -> warm amber) with a golden haze.
-      uColorTop: rgb(0.094, 0.058, 0.035),
-      uColorBottom: rgb(0.157, 0.098, 0.047),
-      uGlow: rgb(0.55, 0.33, 0.13),
+      // Cold teal merchant tones (deep teal -> brighter teal) with a teal haze.
+      uColorTop: rgb(0.035, 0.075, 0.094),
+      uColorBottom: rgb(0.047, 0.118, 0.149),
+      uGlow: rgb(0.14, 0.45, 0.5),
     },
   },
   rest: {
     fragment: REST_FRAGMENT,
     uniforms: {
-      // Warm dusk sky at the top, glowing ember floor; firelight orange for glow.
+      // WARM (intentional exception): dusk sky, glowing ember floor, firelight
+      // orange - the rest camp is the one warm refuge in the cold palette.
       uColorTop: rgb(0.078, 0.051, 0.051),
       uColorBottom: rgb(0.118, 0.063, 0.035),
       uFire: rgb(1.0, 0.42, 0.13),
@@ -376,21 +376,21 @@ export const BACKGROUNDS = {
   armory: {
     fragment: ARMORY_FRAGMENT,
     uniforms: {
-      // Warm forge vault, lighter toward the top; glowing forge-orange light shafts.
-      uColorTop: rgb(0.137, 0.075, 0.039),
-      uColorBottom: rgb(0.063, 0.035, 0.022),
-      uBeam: rgb(1.0, 0.58, 0.2),
+      // Cold cyan vault, lighter toward the top; vivid teal-cyan light shafts.
+      uColorTop: rgb(0.039, 0.09, 0.125),
+      uColorBottom: rgb(0.02, 0.047, 0.071),
+      uBeam: rgb(0.24, 0.72, 0.82),
     },
   },
   battle: {
     fragment: BATTLE_FRAGMENT,
     fps: 60,
     uniforms: {
-      // Warm dusk gradient, a churning oxblood-ember energy glow, and warm sparks.
-      uColorTop: rgb(0.176, 0.082, 0.063),
-      uColorBottom: rgb(0.051, 0.031, 0.027),
-      uEnergy: rgb(0.55, 0.2, 0.12),
-      uSpark: rgb(1.0, 0.6, 0.3),
+      // Cold teal gradient, a churning teal energy glow, and cool cyan sparks.
+      uColorTop: rgb(0.055, 0.11, 0.137),
+      uColorBottom: rgb(0.02, 0.039, 0.047),
+      uEnergy: rgb(0.12, 0.42, 0.47),
+      uSpark: rgb(0.5, 0.9, 1.0),
     },
   },
 } satisfies Record<string, BackgroundDef>;

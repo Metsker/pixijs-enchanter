@@ -46,8 +46,8 @@
     backdrop-filter: blur(2px);
   }
   .card {
-    background: #1f1811;
-    border: 1px solid #3e2e22;
+    background: #121d20;
+    border: 1px solid #28383d;
     border-radius: 12px;
     padding: 22px 28px;
     text-align: center;
@@ -65,8 +65,8 @@
   }
   .cta {
     appearance: none;
-    background: #3e2e22;
-    border: 1px solid #53402e;
+    background: #28383d;
+    border: 1px solid #374d52;
     color: #fff;
     border-radius: 8px;
     padding: 12px 20px;
@@ -77,11 +77,11 @@
     transition: background-color 100ms ease, border-color 100ms ease;
   }
   .cta:hover {
-    background: #53402e;
-    border-color: #ecb44a;
+    background: #374d52;
+    border-color: #3cc7b8;
   }
   .cta:focus-visible {
-    outline: 2px solid #ecb44a;
+    outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 </style>
