@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { get } from 'svelte/store';
+  import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
-  import { gemInspector, closeGemInspector } from '../state/gem-inspector';
+  import { gemInspector, closeGemInspector, type GemInspectSubject } from '../state/gem-inspector';
   import { gemDisplay, gemDisplayForDef, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { GEM_CATALOGUE } from '../domain/gem-catalogue';
   import { gemColor } from '../domain/gem-fit';
@@ -31,7 +32,16 @@
   };
 
   // The inspected gem (a snapshot) + its catalogue def / colour / level.
-  const subject = $derived($gemInspector);
+  // App's rail {#each} owns this pane's mount/unmount; the store clears a frame
+  // before that, so cache the last subject and render from it through the leave -
+  // otherwise the pane blanks the instant the store clears and the out transition
+  // is cut (the content collapses mid-fade). Mirrors Inspector.svelte.
+  let lastSubject = $state<GemInspectSubject | null>(get(gemInspector));
+  $effect(() => {
+    const s = $gemInspector;
+    if (s) lastSubject = s;
+  });
+  const subject = $derived($gemInspector ?? lastSubject);
   const gem = $derived(subject?.gem ?? null);
   // Shop preview mode: the gem isn't owned, so no Insert / Destroy - just Buy.
   const shop = $derived(subject?.shop ?? null);
@@ -217,7 +227,8 @@
     role="dialog"
     aria-label={d?.name ?? gem.defId}
     use:revealInRail
-    transition:fade={{ duration: 140 }}
+    in:paneEnter|global
+    out:paneLeave|global
   >
     <header class="gi-head" data-pane-header style="--gem-color: {color ? SOCKET_COLOR_HEX[color] : '#666'}">
       <span class="gi-emoji">{d?.emoji ?? '💎'}</span>
@@ -373,9 +384,7 @@
     flex-direction: column;
     min-height: 0;
     background: #1c1c24;
-    border-left: 1px solid #3a3a48;
-    scroll-snap-align: start;
-    overflow: hidden;
+    border-left: 1px solid #3a3a48;    overflow: hidden;
   }
 
   /* Header mirrors the item inspector: emoji + name + a colour-coded badge

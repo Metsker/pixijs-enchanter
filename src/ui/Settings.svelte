@@ -1,9 +1,8 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
-  import { get } from 'svelte/store';
   import { settingsOpen, closeSettings } from '../state/ui';
   import { settings, setDifficulty, type Difficulty } from '../state/settings';
-  import { run, startNewRun } from '../state/run';
+  import { startNewRun } from '../state/run';
   import { requestConfirm } from '../state/confirm';
   import { audioPrefs, toggleMute } from '../audio/sfx';
   import { simSpeed, SIM_SPEEDS, setSimSpeed } from '../state/sim-speed';
@@ -21,21 +20,11 @@
   ];
 
   function onPick(id: Difficulty): void {
+    // Difficulty is LOCKED at run start, so a change only bites on a new run -
+    // just record the choice (the panel's note explains it applies next run). No
+    // restart prompt on change; the explicit "Restart run" button below is the
+    // deliberate way to start over now.
     setDifficulty(id);
-    // Difficulty is LOCKED at run start, so a change only bites on a new run.
-    // If it differs from the run in progress, offer to restart now (close
-    // Settings first so the confirm modal isn't hidden behind it). Declining
-    // keeps the choice for the next run, per the panel's note.
-    if (id !== get(run).difficulty) {
-      closeSettings();
-      requestConfirm({
-        title: t('settings.restart.title'),
-        body: t('settings.restart.body', { difficulty: t(`settings.difficulty.${id}`) }),
-        confirmLabel: t('settings.restart.confirm'),
-        tone: 'danger',
-        onConfirm: startNewRun,
-      });
-    }
   }
 
   // Restart from Settings: confirm first (close the panel so the modal isn't

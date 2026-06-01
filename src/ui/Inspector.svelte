@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { get } from 'svelte/store';
-  import { closeInspector, inspector } from '../state/inspector';
+  import { closeInspector, inspector, type InspectorSubject } from '../state/inspector';
   import { completeRoom, run } from '../state/run';
   import { addSocketCost, addSocketToItem, canAddSocket } from '../state/rest';
   import { topbar } from '../state/topbar';
@@ -67,13 +67,26 @@
     return gem ? gemDisplay(gem) : null;
   }
 
+  // The pane is mounted / unmounted by App's rail {#each} (keyed on panelOrder).
+  // closeInspector() clears the store a frame before that unmount lands, so if
+  // the view read $inspector directly it would blank out (content collapsing,
+  // transition cut) the instant the store cleared. Instead we cache the last
+  // non-null subject and render from `subject` throughout: the pane keeps its
+  // full content as it fades + scales out, and the leave animation plays in full.
+  let lastSubject = $state<InspectorSubject | null>(get(inspector));
+  $effect(() => {
+    const s = $inspector;
+    if (s) lastSubject = s;
+  });
+  const subject = $derived($inspector ?? lastSubject);
+
   // Comparison item: when inspecting a CANDIDATE item (shop / rewards / backpack
   // / item-offer - anything that isn't already equipped), the item currently
   // sitting in its slot. Shown read-only beneath the inspected item so the
   // player can compare the two loadouts before equipping. Every type maps to a
   // single slot now, so there's exactly one item to compare against.
   const comparison = $derived.by((): Item | null => {
-    const s = $inspector;
+    const s = subject;
     if (!s || s.source === 'inventory') return null;
     const [slotId] = legalEquipmentSlots(s.item);
     if (!slotId) return null;
@@ -86,10 +99,10 @@
   // it is equipped or sits in the backpack. Shop / rewards / item-offer
   // items are previews; their sockets stay read-only.
   const socketsEditable = $derived(
-    $inspector !== null &&
-      ($inspector.source === 'inventory' ||
-        $inspector.source === 'backpack' ||
-        $inspector.source === 'rewards'),
+    subject !== null &&
+      (subject.source === 'inventory' ||
+        subject.source === 'backpack' ||
+        subject.source === 'rewards'),
   );
 
   // === Add socket (FEATURE 3) ======================================
@@ -97,17 +110,17 @@
   // is under the tier cap. The button's cost + affordability read the live
   // topbar so they re-derive as crystals change.
   const canShowAddSocket = $derived(
-    $inspector !== null &&
+    subject !== null &&
       $run.screen === 'rest' &&
       socketsEditable &&
-      canAddSocket($inspector.item),
+      canAddSocket(subject.item),
   );
   const addSocketPrice = $derived(
-    $inspector ? addSocketCost($inspector.item) : 0,
+    subject ? addSocketCost(subject.item) : 0,
   );
   // Read $topbar.crystals directly so affordability re-derives on every spend.
   const addSocketAffordable = $derived(
-    $inspector !== null && $topbar.crystals >= addSocketPrice,
+    subject !== null && $topbar.crystals >= addSocketPrice,
   );
 
   // Colour of the NEXT socket the Add-socket button would add. Seeded by the
@@ -115,7 +128,7 @@
   // same item always grows the same colour sequence, the previewed swatch never
   // flickers, and it exactly matches what onAddSocket commits.
   const pendingSocketColor = $derived.by((): SocketColor => {
-    const s = $inspector;
+    const s = subject;
     if (!s) return 'blue';
     return seededSocketColorForType(
       s.item.itemType,
@@ -184,14 +197,14 @@
   // A reward equip "swaps" when the item's legal slots are all occupied, so
   // equipping it must displace existing gear. Drives the Equip/Swap label.
   const rewardWouldSwap = $derived.by((): boolean => {
-    const s = $inspector;
+    const s = subject;
     if (!s || s.source !== 'rewards') return false;
     const legal = legalEquipmentSlots(s.item);
     return legal.length > 0 && legal.every((slot) => $equipped[slot] !== null);
   });
 
   const ctaLabel = $derived.by(() => {
-    const s = $inspector;
+    const s = subject;
     if (!s) return '';
     if (s.source === 'rewards') {
       return rewardWouldSwap ? t('inspector.swap') : t('inspector.equip');
@@ -216,7 +229,7 @@
   });
 
   const ctaDisabledReason = $derived.by((): string | null => {
-    const s = $inspector;
+    const s = subject;
     if (!s) return null;
     if (s.source === 'inventory') {
       if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
@@ -291,7 +304,7 @@
   // Rewards-only secondary CTA: "Take" the reward item straight into the
   // Backpack (instead of equipping it). Disabled when the bag is full.
   const takeDisabledReason = $derived.by((): string | null => {
-    const s = $inspector;
+    const s = subject;
     if (!s || s.source !== 'rewards') return null;
     if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
     return null;
@@ -331,7 +344,7 @@
   // Shop-only secondary CTA: take the item straight to the Inventory,
   // skipping the Backpack entirely.
   const buyAndEquipDisabledReason = $derived.by((): string | null => {
-    const s = $inspector;
+    const s = subject;
     if (!s || s.source !== 'shop') return null;
     const r = canBuyAndEquipItem(s.index);
     if (!r.ok && r.reasonKey) return t(r.reasonKey);
@@ -359,7 +372,7 @@
   // Disenchant / Sell are now per-item buttons on owned items (equipped /
   // backpack), replacing the bag's old trash + sell drop-zones.
   const owned = $derived(
-    $inspector?.source === 'inventory' || $inspector?.source === 'backpack',
+    subject?.source === 'inventory' || subject?.source === 'backpack',
   );
 
   // Disenchant the inspected owned item for crystals. A backpack item that still
@@ -399,14 +412,14 @@
   }
 </script>
 
-{#if $inspector}
-  {@const subject = $inspector}
+{#if subject}
   {@const item = subject.item}
   <aside
     class="inspector"
     aria-label={t('inspector.title')}
     use:revealInRail
-    transition:fade={{ duration: 140 }}
+    in:paneEnter|global
+    out:paneLeave|global
   >
     <header class="header" data-pane-header>
       <span class="emoji">{itemEmoji(item)}</span>
@@ -666,9 +679,7 @@
     border-left: 1px solid #2a2a34;
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    scroll-snap-align: start;
-    user-select: none;
+    min-height: 0;    user-select: none;
   }
   /* Compare view: each selected socket is paired with the equipped socket
      directly below it, grouped and separated by a dashed rule. The compare pane

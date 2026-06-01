@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
   import { playerProfile } from '../state/player-profile';
   import { closeStatsSplit } from '../state/ui';
@@ -27,7 +27,8 @@
   class="stats"
   aria-label={t('stats.title')}
   use:revealInRail
-  transition:fade={{ duration: 140 }}
+  in:paneEnter|global
+  out:paneLeave|global
 >
   <header class="toolbar" data-pane-header>
     <h2><span class="head-emoji">📊</span> {t('stats.title')}</h2>
@@ -82,9 +83,7 @@
     border-left: 1px solid #3a3a48;
     display: flex;
     flex-direction: column;
-    user-select: none;
-    scroll-snap-align: start;
-  }
+    user-select: none;  }
   .toolbar {
     display: flex;
     align-items: center;

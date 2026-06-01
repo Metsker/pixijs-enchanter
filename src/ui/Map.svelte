@@ -2,6 +2,7 @@
   import { enterRoom, run } from '../state/run';
   import { reachableFrom, type MapNode, type RoomKind } from '../domain/map';
   import { t } from '../i18n';
+  import ShaderBackground from './ShaderBackground.svelte';
 
   const VIEW_W = 1000;
   // Per-floor spacing in viewBox units, held CONSTANT so the gap between
@@ -97,6 +98,7 @@
 </script>
 
 <section class="map" aria-label={t('map.title')}>
+  <ShaderBackground variant="map" />
   <div class="map-scroll" bind:this={scrollEl}>
     <svg viewBox="0 0 {VIEW_W} {viewH}" preserveAspectRatio="xMidYMid meet">
     <!-- Edges -->
@@ -160,6 +162,10 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    /* Positioning context + fallback: the procedural ShaderBackground fills the
+       section behind the content; this gradient shows if WebGL is unavailable
+       or before the canvas mounts. */
+    position: relative;
     background: linear-gradient(180deg, #0a0a0e 0%, #14141a 100%);
     padding: 12px;
     gap: 12px;
@@ -172,6 +178,9 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Above the shader canvas (z-index 0). */
+    position: relative;
+    z-index: 1;
   }
   /* width:100% + height:auto lets the viewBox aspect ratio set the height, so
      each floor keeps a constant on-screen gap and tall maps overflow + scroll. */
@@ -211,6 +220,9 @@
     border-top: 1px solid #2a2a34;
     color: #aab;
     font-size: 0.85rem;
+    /* Above the shader canvas (z-index 0). */
+    position: relative;
+    z-index: 1;
   }
   .legend-item {
     display: inline-flex;

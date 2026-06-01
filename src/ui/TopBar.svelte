@@ -43,7 +43,62 @@
 </script>
 
 <header class="topbar">
-  <div class="counters">
+  <!-- LEFT: panel toggles + settings. -->
+  <div class="zone left">
+    <button
+      type="button"
+      class="backpack-toggle"
+      class:active={$itemsSplitOpen}
+      aria-label={t('topbar.toggleItems')}
+      aria-pressed={$itemsSplitOpen}
+      onclick={toggleItemsSplit}
+      title={t('topbar.toggleItems')}
+    >
+      <span class="emoji">🎒</span>
+    </button>
+    <button
+      type="button"
+      class="backpack-toggle"
+      class:active={$gemsSplitOpen}
+      aria-label={t('topbar.toggleGems')}
+      aria-pressed={$gemsSplitOpen}
+      onclick={toggleGemsSplit}
+      title={t('topbar.toggleGems')}
+    >
+      <span class="emoji">💠</span>
+    </button>
+    <button
+      type="button"
+      class="backpack-toggle"
+      class:active={$statsSplitOpen}
+      aria-label={t('topbar.toggleStats')}
+      aria-pressed={$statsSplitOpen}
+      onclick={toggleStatsSplit}
+      title={t('topbar.toggleStats')}
+    >
+      <span class="emoji">📊</span>
+    </button>
+    <button
+      type="button"
+      class="backpack-toggle"
+      class:active={$settingsOpen}
+      aria-label={t('topbar.settings')}
+      aria-pressed={$settingsOpen}
+      onclick={openSettings}
+      title={t('topbar.settings')}
+    >
+      <span class="emoji">⚙️</span>
+    </button>
+  </div>
+
+  <!-- CENTER: the equipment row, pinned to the exact centre of the screen. -->
+  <InventoryColumn />
+
+  <!-- RIGHT: run progress + the gold / crystal counters. -->
+  <div class="zone right">
+    <div class="progress">
+      {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
+    </div>
     <div class="counter gold" class:pop={goldPop} title={t('topbar.gold')}>
       <span class="emoji">🪙</span>
       <span class="value">{Math.round($goldDisplay)}</span>
@@ -53,61 +108,6 @@
       <span class="value">{$topbar.crystals}</span>
     </div>
   </div>
-
-  <!-- Equipment slots live inline in the header, filling the middle. -->
-  <InventoryColumn />
-
-  <div class="progress">
-    {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
-  </div>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    class:active={$settingsOpen}
-    aria-label={t('topbar.settings')}
-    aria-pressed={$settingsOpen}
-    onclick={openSettings}
-    title={t('topbar.settings')}
-  >
-    <span class="emoji">⚙️</span>
-  </button>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    class:active={$itemsSplitOpen}
-    aria-label={t('topbar.toggleItems')}
-    aria-pressed={$itemsSplitOpen}
-    onclick={toggleItemsSplit}
-    title={t('topbar.toggleItems')}
-  >
-    <span class="emoji">🎒</span>
-  </button>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    class:active={$gemsSplitOpen}
-    aria-label={t('topbar.toggleGems')}
-    aria-pressed={$gemsSplitOpen}
-    onclick={toggleGemsSplit}
-    title={t('topbar.toggleGems')}
-  >
-    <span class="emoji">💠</span>
-  </button>
-
-  <button
-    type="button"
-    class="backpack-toggle"
-    class:active={$statsSplitOpen}
-    aria-label={t('topbar.toggleStats')}
-    aria-pressed={$statsSplitOpen}
-    onclick={toggleStatsSplit}
-    title={t('topbar.toggleStats')}
-  >
-    <span class="emoji">📊</span>
-  </button>
 </header>
 
 <style>
@@ -115,31 +115,44 @@
     flex: 0 0 auto;
     /* Taller to give the inline equipment slots room to breathe. */
     min-height: 84px;
-    display: flex;
+    /* Three tracks with equal side columns, so the centre (auto) track - the
+       equipment row - sits at the EXACT middle of the screen regardless of how
+       wide the left / right groups are. */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 1.5rem;
+    gap: 1rem;
     padding: 0 0.75rem;
     background: #1c1c24;
     border-bottom: 1px solid #2a2a34;
     user-select: none;
   }
 
-  /* Tighter spacing on landscape-mobile so all counters + progress + the
-     backpack toggle stay on one row without horizontal scrolling. */
-  @media (max-width: 900px) {
-    .topbar {
-      gap: 0.75rem;
-      padding: 0 0.5rem;
-    }
-    .counters {
-      gap: 0.75rem;
-    }
-  }
-
-  .counters {
+  /* The two flanking groups. min-width:0 lets them shrink rather than shoving
+     the centred inventory off-axis. */
+  .zone {
     display: flex;
     align-items: center;
+    min-width: 0;
+  }
+  .zone.left {
+    justify-self: start;
+    gap: 0.5rem;
+  }
+  .zone.right {
+    justify-self: end;
     gap: 1.25rem;
+  }
+
+  /* Tighter spacing on landscape-mobile so the groups stay on one row. */
+  @media (max-width: 900px) {
+    .topbar {
+      gap: 0.5rem;
+      padding: 0 0.5rem;
+    }
+    .zone.right {
+      gap: 0.75rem;
+    }
   }
 
   .counter {

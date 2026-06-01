@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { paneEnter } from '../utils/paneTransition';
   import { completeRoom } from '../state/run';
   import { buyCrystalPack, shopStock } from '../state/shop';
   import { topbar } from '../state/topbar';
@@ -30,7 +31,7 @@
   }
 </script>
 
-<section class="shop">
+<section class="shop" in:paneEnter|global>
   <header class="shop-head">
     <h2><span class="head-emoji">🛒</span> {t('map.kind.shop')}</h2>
     <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
@@ -120,9 +121,7 @@
     min-height: 0;
     background: #1c1c24;
     border-right: 1px solid #3a3a48;
-    user-select: none;
-    scroll-snap-align: start;
-  }
+    user-select: none;  }
   .shop-head {
     display: flex;
     align-items: center;

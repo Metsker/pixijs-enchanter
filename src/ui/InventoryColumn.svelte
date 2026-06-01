@@ -190,11 +190,11 @@
 
 <style>
   .inventory {
-    /* Inline in the top bar: a centred row of the nine slots that fills the
-       middle of the bar. No chrome of its own - the bar supplies the background
-       and border. Each slot is square and capped, shrinking to fit on narrow
-       screens (no scroll). */
-    flex: 1 1 auto;
+    /* The top bar's centre track: a fixed-but-responsive block of the nine slots,
+       so it sits at the exact middle of the screen (the bar's grid centres it).
+       Width scales with the viewport and is capped, and the slots shrink to fit
+       within it on narrow screens (no scroll). */
+    width: clamp(260px, 42vw, 600px);
     min-width: 0;
     display: flex;
     justify-content: center;

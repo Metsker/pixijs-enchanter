@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
   import { completeRoom, run, startNewRun } from '../state/run';
   import { claimPendingRewards, pendingRewards } from '../state/rewards';
@@ -70,15 +70,21 @@
   class="victory"
   aria-label={t(isRunComplete ? 'room.runComplete' : 'room.victory')}
   use:revealInRail
-  transition:fade={{ duration: 140 }}
+  in:paneEnter|global
+  out:paneLeave|global
 >
-  <!-- Header mirrors the inspectors: emoji + title + a badge (the gold reward). -->
-  <header class="head" data-pane-header>
+  <!-- Header mirrors the room panes (shop / armory / rest): emoji + title, with
+       the primary action on the right where those panes put "Leave" - so the
+       reward screen reads the same as every other room. -->
+  <header class="head">
     <span class="emoji">🎁</span>
     <div class="title">
       <div class="name">{t(isRunComplete ? 'room.runComplete' : 'room.victory')}</div>
       <div class="gold">🪙 {$pendingRewards.gold}</div>
     </div>
+    <button type="button" class="leave" onclick={onContinue}>
+      {t(isRunComplete ? 'room.newRun' : 'room.continue')}
+    </button>
   </header>
 
   <div class="body">
@@ -108,12 +114,6 @@
       </div>
     {/if}
   </div>
-
-  <footer class="foot">
-    <button type="button" class="cta" onclick={onContinue}>
-      {t(isRunComplete ? 'room.newRun' : 'room.continue')}
-    </button>
-  </footer>
 </aside>
 
 <style>
@@ -131,9 +131,7 @@
     border-left: 1px solid #3a3a48;
     display: flex;
     flex-direction: column;
-    user-select: none;
-    scroll-snap-align: start;
-  }
+    user-select: none;  }
 
   /* Inspector-style header: emoji + title column (name + gold badge). */
   .head {
@@ -202,29 +200,27 @@
     gap: 8px;
   }
 
-  .foot {
-    padding: 12px 14px;
-    border-top: 1px solid #2a2a34;
-  }
-  .cta {
-    width: 100%;
+  /* Continue / New Run sits in the header, styled exactly like the room panes'
+     "Leave" button (same place, same chrome). */
+  .leave {
     appearance: none;
     background: #3a3a48;
     border: 1px solid #4a4a58;
     color: #fff;
     border-radius: 8px;
-    padding: 12px;
-    font-size: 1.05rem;
+    padding: 8px 14px;
+    font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
-    min-height: 44px;
+    min-height: 36px;
+    white-space: nowrap;
     transition: background-color 100ms ease, border-color 100ms ease;
   }
-  .cta:hover {
+  .leave:hover {
     background: #4a4a58;
     border-color: #ffcc44;
   }
-  .cta:focus-visible {
+  .leave:focus-visible {
     outline: 2px solid #ffcc44;
     outline-offset: 2px;
   }

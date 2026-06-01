@@ -161,9 +161,12 @@ function hitTest(x: number, y: number, gem: Gem): DropTarget {
     }
   }
 
-  // Backpack cell: a same-defId loose gem -> combine; otherwise -> stash.
+  // Backpack cell: a same-defId loose gem -> combine; otherwise -> stash. Only
+  // cells inside the Gems split ([data-gem-stash]) count - the Items split shows
+  // the SAME shared empty slots, so without this gate a gem would target (and
+  // highlight) the identical cell index in both bags at once.
   const cellEl = (el as Element).closest<HTMLElement>('[data-cell-index]');
-  if (cellEl) {
+  if (cellEl && cellEl.closest('[data-gem-stash]')) {
     const cellIndex = Number(cellEl.dataset.cellIndex);
     const slot = Number.isInteger(cellIndex) ? get(backpack)[cellIndex] : null;
     if (isGem(slot) && canCombine(gem, slot)) {
@@ -201,7 +204,9 @@ function zoneIdOf(target: DropTarget): string | null {
     case 'sell':
       return 'sell';
     case 'backpack-cell':
-      return 'stash';
+      // Carry the cell index so ONLY the hovered cell highlights (like the item
+      // drag's per-cell `dragOver`), not every cell sharing a generic 'stash' id.
+      return `backpack-cell:${target.index}`;
     case 'stash':
       return 'stash';
     case 'none':

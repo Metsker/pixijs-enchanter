@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { paneEnter } from '../utils/paneTransition';
   import { completeRoom } from '../state/run';
   import { itemOffer } from '../state/item-offer';
   import { inspectItem, inspector } from '../state/inspector';
@@ -19,7 +20,7 @@
   }
 </script>
 
-<section class="armory">
+<section class="armory" in:paneEnter|global>
   <header class="armory-head">
     <h2><span class="head-emoji">📦</span> {t('itemSelect.title')}</h2>
     <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
@@ -62,9 +63,7 @@
     min-height: 0;
     background: #1c1c24;
     border-right: 1px solid #3a3a48;
-    user-select: none;
-    scroll-snap-align: start;
-  }
+    user-select: none;  }
   .armory-head {
     display: flex;
     align-items: center;

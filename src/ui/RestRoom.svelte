@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { paneEnter } from '../utils/paneTransition';
   import { completeRoom } from '../state/run';
   import { canCraftGem, craftGem, CRAFT_COST } from '../state/rest';
   import { topbar } from '../state/topbar';
@@ -15,7 +16,7 @@
   }
 </script>
 
-<section class="rest">
+<section class="rest" in:paneEnter|global>
   <header class="rest-head">
     <h2><span class="head-emoji">🔥</span> {t('rest.title')}</h2>
     <button type="button" class="leave" onclick={completeRoom}>{t('room.leave')}</button>
@@ -52,9 +53,7 @@
     min-height: 0;
     background: #1c1c24;
     border-right: 1px solid #3a3a48;
-    user-select: none;
-    scroll-snap-align: start;
-  }
+    user-select: none;  }
   .rest-head {
     display: flex;
     align-items: center;

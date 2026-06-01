@@ -12,6 +12,7 @@
   import RestRoom from './ui/RestRoom.svelte';
   import RoomOverlay from './ui/RoomOverlay.svelte';
   import ItemSelect from './ui/ItemSelect.svelte';
+  import ShaderBackground from './ui/ShaderBackground.svelte';
   import ConfirmModal from './ui/ConfirmModal.svelte';
   import DestroyPrompt from './ui/DestroyPrompt.svelte';
   import Settings from './ui/Settings.svelte';
@@ -23,6 +24,7 @@
   import { loadSave, startAutoSave } from './state/save';
   import { activeGemDrag } from './state/gem-drag';
   import { gemDisplay } from './domain/gem-display';
+  import { animateScrollLeft } from './utils/railScroll';
   import { t } from './i18n';
 
   // Load any prior run before the subscribers attach so the first
@@ -78,11 +80,13 @@
   // right: `panelOrder` keeps each open panel's key, dropping closed ones and
   // appending newly opened ones (so a closed-then-reopened panel moves to the
   // end / right).
-  type PanelKey = 'victory' | 'inspector' | 'gem' | 'items' | 'gems' | 'stats';
-  const PANEL_KEYS: PanelKey[] = ['victory', 'inspector', 'gem', 'items', 'gems', 'stats'];
+  // Victory is NOT a movable panel: like the room panes (shop / armory / rest) it
+  // is pinned at the rail's start and rendered outside panelOrder (see isVictory
+  // + the rail markup), so it can't be dragged or reordered.
+  type PanelKey = 'inspector' | 'gem' | 'items' | 'gems' | 'stats';
+  const PANEL_KEYS: PanelKey[] = ['inspector', 'gem', 'items', 'gems', 'stats'];
 
   const panelOpen = $derived<Record<PanelKey, boolean>>({
-    victory: ($run.screen === 'fight' && $run.fightWon) || $run.screen === 'run-complete',
     inspector: $inspector !== null,
     gem: $gemInspector !== null,
     items: $itemsSplitOpen,
@@ -98,6 +102,18 @@
   const isArmory = $derived($run.screen === 'item-select');
   const isRest = $derived($run.screen === 'rest');
   const isFlow = $derived(isShop || isArmory || isRest);
+
+  // Procedural backdrop for the flow "room" screens: it fills the stage BEHIND
+  // the left-aligned panes (the panes are opaque, so it shows in the empty stage
+  // beside them). The map / battle screens carry their own background inside the
+  // room instead.
+  const flowBgVariant = $derived(
+    isShop ? 'shop' : isRest ? 'rest' : isArmory ? 'armory' : null,
+  );
+  // The reward screen: pinned at the rail's start like a room pane (not movable).
+  const isVictory = $derived(
+    ($run.screen === 'fight' && $run.fightWon) || $run.screen === 'run-complete',
+  );
 
   let panelOrder = $state<PanelKey[]>([]);
   $effect(() => {
@@ -118,7 +134,12 @@
     const count = panelOrder.length;
     untrack(() => {
       if (count > prevPanelCount) sfx.uiOpen();
-      else if (count < prevPanelCount) sfx.uiClose();
+      else if (count < prevPanelCount) {
+        sfx.uiClose();
+        // Keep the rail's scroll valid as it stops overflowing, before the leaving
+        // pane unmounts and the browser would snap it (see clampRailScroll).
+        void tick().then(clampRailScroll);
+      }
       prevPanelCount = count;
     });
   });
@@ -147,7 +168,7 @@
       Math.round(c.getBoundingClientRect().left - railLeft + el.scrollLeft),
     );
   }
-  function scrollRail(dir: 1 | -1, behavior: ScrollBehavior = 'smooth'): void {
+  function scrollRail(dir: 1 | -1): void {
     const el = railEl;
     if (!el) return;
     const offsets = paneOffsets();
@@ -157,7 +178,26 @@
       dir > 0
         ? offsets.find((o) => o > cur + eps) ?? el.scrollWidth
         : [...offsets].reverse().find((o) => o < cur - eps) ?? 0;
-    el.scrollTo({ left: target, behavior });
+    animateScrollLeft(el, target);
+  }
+
+  // When a pane closes while the rail is scrolled, the rail can stop overflowing
+  // (e.g. 5 -> 4 panes). A LEAVING pane keeps its box (only its margin collapses),
+  // so scrollWidth doesn't shrink until it actually unmounts - at which point the
+  // browser snaps scrollLeft back in a single frame (a visible teleport). Pre-empt
+  // that: as soon as the count drops, smooth-scroll to the post-close max so by the
+  // time the pane unmounts scrollLeft is already valid and nothing jumps. (A closing
+  // MIDDLE pane already shrinks scrollWidth smoothly via its neighbours sliding, so
+  // this only bites for the rightmost pane - but the clamp is harmless either way.)
+  function clampRailScroll(): void {
+    const el = railEl;
+    if (!el) return;
+    // A full pane's width (the leaving one is mid-scale, so take the widest child).
+    const widths = [...el.children].map((c) => c.getBoundingClientRect().width);
+    const paneW = widths.length ? Math.max(...widths) : el.clientWidth / 4;
+    const remaining = panelOrder.length + (isFlow || isVictory ? 1 : 0);
+    const maxScroll = Math.max(0, Math.round(remaining * paneW - el.clientWidth));
+    if (el.scrollLeft > maxScroll + 1) animateScrollLeft(el, maxScroll);
   }
   $effect(() => {
     const el = railEl;
@@ -395,6 +435,14 @@
          scroll/swipe horizontally. True popups (Settings / Confirm / Destroy /
          defeat) stay overlaid below. -->
     <div class="stage" class:flow={isFlow}>
+      <!-- Procedural backdrop behind the flow panes (shop / rest). Keyed so
+           switching variant remounts with the right shader; the panes overlay
+           it, so it only shows in the empty stage beside them. -->
+      {#if flowBgVariant}
+        {#key flowBgVariant}
+          <ShaderBackground variant={flowBgVariant} />
+        {/key}
+      {/if}
       {#if !isFlow}
         <div class="room">
           {#if $run.screen === 'map' || $run.screen === 'run-complete'}
@@ -408,10 +456,9 @@
         {#if isShop}<ShopRoom />{/if}
         {#if isArmory}<ItemSelect />{/if}
         {#if isRest}<RestRoom />{/if}
+        {#if isVictory}<VictoryPanel />{/if}
         {#each panelOrder as key (key)}
-          {#if key === 'victory'}
-            <VictoryPanel />
-          {:else if key === 'inspector'}
+          {#if key === 'inspector'}
             <Inspector />
           {:else if key === 'gem'}
             <GemInspector />
@@ -442,6 +489,13 @@
           onclick={() => scrollRail(1)}
         >›</button>
       {/if}
+      <!-- Scene transition: keyed on the screen, so every scene change remounts
+           this veil. It starts fully opaque - covering the instant cut AND the
+           new procedural backdrop's brief mount pop-in - then fades out to
+           reveal the new scene. Purely visual (pointer-events: none). -->
+      {#key $run.screen}
+        <div class="scene-veil" aria-hidden="true"></div>
+      {/key}
     </div>
   </main>
   <RoomOverlay />
@@ -488,6 +542,13 @@
     height: 100dvh;
   }
 
+  /* Tactile press: every enabled button dips slightly while held. Instant (no
+     transition) so it reads as a direct response and never fights the FLIP /
+     lift transforms (which live on panes, not buttons). */
+  :global(button:active:not(:disabled)) {
+    transform: scale(0.96);
+  }
+
   .play-area {
     flex: 1;
     display: flex;
@@ -500,6 +561,36 @@
     flex: 1 1 auto;
     min-width: 0;
     display: flex;
+    /* Own stacking context so the scene-veil's z-index stays scoped to the
+       stage (above the room + rail, below the app-level popups). */
+    isolation: isolate;
+  }
+
+  /* Scene transition veil (see markup): snaps opaque on a scene change, then
+     fades out to reveal the new scene. Sits above the room + rail (z-index 10)
+     but inside the stage, so popups overlaid on the whole app stay clear of it. */
+  .scene-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(120% 120% at 50% 50%, #0a0a0e 0%, #050507 100%);
+    animation: scene-veil 340ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes scene-veil {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  /* Respect reduced-motion: no fade, no flash - the veil just stays invisible. */
+  @media (prefers-reduced-motion: reduce) {
+    .scene-veil {
+      animation: none;
+    }
   }
 
   /* The room always fills the stage - it never shrinks when panels open, so the
@@ -512,10 +603,10 @@
   }
 
   /* The panel rail OVERLAYS the room from the LEFT (just right of the equipment
-     column). Open panes tile the stage Niri-style: they flex-grow to fill the
-     full width, and only once too many are open to fit at their floor width does
-     the rail scroll horizontally (scroll-snapping on X). Vertical scrolling is
-     each panel's own job. */
+     column). Open panes tile the stage Niri-style: each is a quarter of the
+     stage, four fill it, and once a fifth opens the rail scrolls horizontally,
+     stepped one pane at a time (no free scroll). Vertical scrolling is each
+     panel's own job. */
   .rail {
     position: absolute;
     top: 0;
@@ -525,11 +616,12 @@
     z-index: 10;
     display: flex;
     /* No free scroll: the rail overflows only when too many panes are open, and
-       it is then stepped one pane at a time by the edge arrows (still scrollable
-       programmatically via scrollTo). */
+       it is then stepped one pane at a time by the edge arrows. Every scroll is
+       driven programmatically (animateScrollLeft) to an exact pane boundary, so
+       there's no CSS scroll-snapping - mandatory snap only fought our eased
+       glides and landed them harshly. */
     overflow-x: hidden;
     overflow-y: hidden;
-    scroll-snap-type: x mandatory;
     /* The rail spans the whole stage so panes can flex-grow to fill it, but it
        is click-through: only the panes capture pointer events, so the room shows
        and stays interactive wherever the panes don't reach - the empty half
@@ -542,11 +634,6 @@
   }
   .rail.reordering :global([data-pane-header]) {
     cursor: grabbing;
-  }
-  /* While reordering, drive scroll ourselves (section steps) - mandatory snap
-     would re-snap on every pane swap and fight the drag. */
-  .rail.reordering {
-    scroll-snap-type: none;
   }
   /* The pane being dragged reads as "lifted" above its neighbours (no transform,
      so it never fights the FLIP slide). */
@@ -563,21 +650,38 @@
        sum to exactly the stage (otherwise the 2px of borders overflow + scroll). */
     box-sizing: border-box;
   }
+  /* The bag's item-drag ghost is a transient DIRECT child of the rail (it lives
+     at a BagSplit pane's root), so the rule above would flip it to
+     pointer-events:auto. At equal specificity that won by stylesheet order,
+     which intermittently made the floating ghost swallow the drop's
+     elementFromPoint hit-test - so the dragged item landed on the ghost, not the
+     slot beneath it, and the equip silently failed. Keep it click-through. */
+  .rail > :global(.drag-ghost) {
+    pointer-events: none;
+  }
 
   /* Shop screen: the shop is a left-aligned pane group, so the rail flows in
-     from the left (no full-stage room to overlay) and panes scroll together. */
+     from the left (no full-stage room to overlay) and panes scroll together.
+     `relative` (not `static`) keeps it in the flex flow while restoring the
+     base z-index:10, so it layers above the procedural ShaderBackground
+     (z-index 0) that fills the stage behind it. */
   .stage.flow .rail {
-    position: static;
+    position: relative;
     flex: 1 1 auto;
     max-width: none;
   }
 
   /* Edge step-arrows over the rail (only mounted when it overflows). Vertically
-     centred so they clear each pane's header / close button. */
+     centred via auto margins (NOT transform) so the global button-press
+     `transform: scale(.96)` doesn't clobber the centring on :active - which used
+     to drop the button ~36px out from under the cursor, so the first click's
+     mouseup missed and nothing scrolled. With the transform slot free the press
+     just scales in place. */
   .rail-arrow {
     position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
+    top: 0;
+    bottom: 0;
+    margin-block: auto;
     z-index: 11;
     width: 34px;
     height: 72px;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { closeItemsSplit, closeGemsSplit } from '../state/ui';
@@ -184,16 +184,26 @@
     dragOver = cell ? Number(cell.dataset.cellIndex) : null;
   }
 
-  function onPointerUp(): void {
-    if (dragging !== null) {
+  function onPointerUp(e: PointerEvent): void {
+    if (dragging !== null && e.type !== 'pointercancel') {
       if (didDrag) {
-        const equipTarget = get(itemDrag)?.targetSlot ?? null;
-        if (equipTarget) {
+        const idx = dragging;
+        const dragged = $backpack[idx];
+        // Decide the drop from the ACTUAL release point - re-hit-testing here
+        // rather than trusting the targetSlot / dragOver captured during the last
+        // pointermove. The browser coalesces / throttles move events, so on a real
+        // drag the final move ONTO the slot can fail to fire, leaving targetSlot
+        // stale and the drop a silent no-op ("won't accept it"). The gem-drag
+        // controller already re-tests on up; this brings the item drag in line.
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const slotEl = isItem(dragged) ? el?.closest<HTMLElement>('[data-slot-id]') : null;
+        const slotId = slotEl?.dataset.slotId as EquipmentSlotId | undefined;
+
+        if (slotId && isItem(dragged) && itemFitsSlot(dragged, slotId)) {
           // Dropped on a compatible equipment slot: equip it there.
-          const idx = dragging;
-          if (equipFromBackpackToSlot(idx, equipTarget) !== null) {
-            // The source tile now holds the displaced item (or is empty);
-            // keep the Inspector pointed at whatever sits there now.
+          if (equipFromBackpackToSlot(idx, slotId) !== null) {
+            // The source tile now holds the displaced item (or is empty); keep the
+            // Inspector pointed at whatever sits there now.
             const ins = get(inspector);
             if (ins?.source === 'backpack' && ins.index === idx) {
               const now = get(backpack)[idx];
@@ -201,24 +211,26 @@
               else closeInspector();
             }
           }
-        } else if (dragOver !== null && dragging !== dragOver) {
-          const from = dragging;
-          const to = dragOver;
-          moveItem(from, to);
-          // Inspector follows the swap: if it pointed at one of the
-          // swapped tiles, flip its index to where its item now lives.
-          // Otherwise the inspecting border stays on the wrong tile.
-          const ins = get(inspector);
-          if (ins?.source === 'backpack') {
-            const slots = get(backpack);
-            if (ins.index === from) {
-              const moved = slots[to];
-              if (isItem(moved)) inspector.set({ source: 'backpack', index: to, item: moved });
-              else closeInspector();
-            } else if (ins.index === to) {
-              const moved = slots[from];
-              if (isItem(moved)) inspector.set({ source: 'backpack', index: from, item: moved });
-              else closeInspector();
+        } else {
+          // Not over a compatible slot: a bag reorder if released over another cell.
+          const cellEl = el?.closest<HTMLElement>('[data-cell-index]');
+          const to = cellEl ? Number(cellEl.dataset.cellIndex) : NaN;
+          if (Number.isInteger(to) && to !== idx) {
+            moveItem(idx, to);
+            // Inspector follows the swap: if it pointed at one of the swapped
+            // tiles, flip its index to where its item now lives.
+            const ins = get(inspector);
+            if (ins?.source === 'backpack') {
+              const slots = get(backpack);
+              if (ins.index === idx) {
+                const moved = slots[to];
+                if (isItem(moved)) inspector.set({ source: 'backpack', index: to, item: moved });
+                else closeInspector();
+              } else if (ins.index === to) {
+                const moved = slots[idx];
+                if (isItem(moved)) inspector.set({ source: 'backpack', index: idx, item: moved });
+                else closeInspector();
+              }
             }
           }
         }
@@ -304,7 +316,8 @@
   aria-label={t(isItems ? 'backpack.tab.items' : 'backpack.tab.gems')}
   data-gem-stash={isItems ? null : ''}
   use:revealInRail
-  transition:fade={{ duration: 140 }}
+  in:paneEnter|global
+  out:paneLeave|global
 >
     <header class="toolbar" data-pane-header>
       <h2>
@@ -374,7 +387,7 @@
           tabindex={slot ? 0 : -1}
           class:dragging={didDrag && dragging === i}
           class:over={dragOver === i && didDrag && dragging !== i}
-          class:stash-armed={$gemDropZone === 'stash'}
+          class:stash-armed={!isItems && $gemDropZone === `backpack-cell:${i}`}
           class:combine-armed={isGem(slot) && $gemDropZone === `combine:${slot.id}`}
           class:gem-tile={gem !== null}
           class:inspecting={isInspecting(i)}
@@ -457,9 +470,7 @@
     display: flex;
     flex-direction: column;
     user-select: none;
-    touch-action: none;
-    scroll-snap-align: start;
-  }
+    touch-action: none;  }
 
   /* On short landscape viewports the grid cells can squeeze; trim chrome and
      let the grid scroll vertically if all rows don't fit. */
