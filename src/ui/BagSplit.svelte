@@ -1,18 +1,37 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
   import { backpack, moveItem, sortBackpack } from '../state/backpack';
   import { closeItemsSplit, closeGemsSplit } from '../state/ui';
-  import { isItem, itemEmoji, legalEquipmentSlots, tierOf, type Item } from '../domain/item';
+  import {
+    isItem,
+    itemEmoji,
+    legalEquipmentSlots,
+    tierOf,
+    type Item,
+  } from '../domain/item';
   import { isGem, type Gem, type SocketColor } from '../domain/gem';
   import { gemColor } from '../domain/gem-fit';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
-  import SocketPips from './SocketPips.svelte';
-  import { startGemDrag, gemDropZone } from '../state/gem-drag';
-  import { inspectGem, closeGemInspector } from '../state/gem-inspector';
-  import { socketGemIntoItem } from '../state/gem-move';
-  import { equipFromBackpack, equipFromBackpackToSlot, equipped, itemDrag, itemFitsSlot } from '../state/inventory';
+  import { ownedContext, itemHint, gemHint } from '../state/loot-hints';
+  import { closeInspector, inspector, inspectItem } from '../state/inspector';
+  import { inspectGem, gemInspector } from '../state/gem-inspector';
+  import { equipFromBackpack, equipped } from '../state/inventory';
+  import { sellItemFromBackpack, sellGemFromBackpack, shopStock } from '../state/shop';
+  import { itemSellValue, gemSellValue } from '../domain/shop';
+  import {
+    disenchantItemFromBackpack,
+    destroyBackpackItemKeepGems,
+    disenchantGemFromBackpack,
+    itemRefund,
+    gemRefund,
+  } from '../state/disenchant';
+  import { requestDestroy } from '../state/destroy-prompt';
+  import { flashEquipSlot } from '../state/equip-feedback';
   import { EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, type EquipmentSlotId } from '../domain/equipment';
+  import { sfx } from '../audio/sfx';
+  import SocketPips from './SocketPips.svelte';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -25,289 +44,182 @@
     7: '#33b6a6',
   };
 
-  import { get } from 'svelte/store';
-  import { closeInspector, inspector, inspectItem } from '../state/inspector';
-
   // Which kind this split shows. The bag is one `backpack` store; each split is
-  // a filtered view of it (items, or loose gems = the stash). Mounted once per
-  // kind in App.svelte and gated by its own open store.
+  // a filtered view of it (items, or loose gems). The bag is now a SCROLLABLE,
+  // REORDERABLE vertical list of rows with inline actions (equip / sell /
+  // destroy) rather than a grid of tiles - drag a row to reorder, tap it to
+  // inspect, or hit a row button to act without opening the inspector.
   let { kind }: { kind: 'items' | 'gems' } = $props();
   const isItems = $derived(kind === 'items');
   const closeSplit = (): void => (kind === 'items' ? closeItemsSplit() : closeGemsSplit());
-  // Filled cells of this kind (for the header count).
-  const count = $derived($backpack.filter((s) => (isItems ? isItem(s) : isGem(s))).length);
 
-  // Gems split only: narrow the grid to one socket colour (null = all colours).
+  // Gems split only: narrow to one socket colour. Items split only: narrow to one
+  // equipment slot. null = all.
   let colorFilter = $state<SocketColor | null>(null);
-  const GEM_COLORS: SocketColor[] = ['red', 'green', 'blue'];
-
-  // Items split only: narrow the grid to one equipment slot (null = all). One
-  // chip per slot, matching the equipment bar - an item matches when that slot
-  // is one of its legal slots (so an armour piece filters by its own slot).
   let typeFilter = $state<EquipmentSlotId | null>(null);
-
-  // Whether the "All" chip is active, and a clear, for this split's filter.
+  const GEM_COLORS: SocketColor[] = ['red', 'green', 'blue'];
   const noFilter = $derived(isItems ? typeFilter === null : colorFilter === null);
   function clearFilter(): void {
     if (isItems) typeFilter = null;
     else colorFilter = null;
   }
 
-  // Cells of this kind plus empty cells (shared free slots), in slot order. Each
-  // keeps its real backpack index, so drag / reorder / combine / equip / trash
-  // all still address the right slot under the filter. In the gems split a
-  // colour filter hides non-matching gems (empties stay as drop targets).
-  const tabCells = $derived(
+  // The FILLED rows of this kind, each keeping its real backpack index so every
+  // action / reorder addresses the right slot under the active filter. (Empties
+  // aren't shown - a list has no use for blank rows.)
+  const rows = $derived(
     $backpack
       .map((slot, i) => ({ slot, i }))
-      .filter(({ slot }) => {
-        if (slot === null) return true;
+      .filter((c): c is { slot: Item | Gem; i: number } => {
+        const { slot } = c;
         if (isItems)
-          return isItem(slot) && (typeFilter === null || legalEquipmentSlots(slot).includes(typeFilter));
-        if (!isGem(slot)) return false;
-        return colorFilter === null || gemColor(slot) === colorFilter;
+          return (
+            isItem(slot) && (typeFilter === null || legalEquipmentSlots(slot).includes(typeFilter))
+          );
+        return isGem(slot) && (colorFilter === null || gemColor(slot) === colorFilter);
       }),
   );
+  const count = $derived($backpack.filter((s) => (isItems ? isItem(s) : isGem(s))).length);
 
-  // Render a CLEAN rectangular grid that tracks the pane size on BOTH axes:
-  // columns AUTO-FILL the width (more columns as the pane widens, constant tile
-  // size) and rows are sized to the available HEIGHT, so the visible cell count
-  // fills the panel and only scrolls once the contents exceed it. We measure the
-  // realised column count + how many tiles fit the height, and complete the last
-  // row to the column count (padding with non-interactive fillers if the active
-  // filter leaves too few real cells), so the grid is never ragged.
-  const MIN_ROWS = 2;
-  let gridEl = $state<HTMLDivElement>();
-  let cols = $state(2);
-  let rows = $state(MIN_ROWS);
-  $effect(() => {
-    const el = gridEl;
-    if (!el) return;
-    // Re-measure on resize (the pane flex-grows / shrinks as panes open + close
-    // and the viewport changes).
-    const measure = (): void => {
-      const cs = getComputedStyle(el);
-      const c = cs.gridTemplateColumns.split(' ').filter(Boolean).length;
-      if (c > 0) cols = c;
-      // Square tiles, so a cell's height is its width; count how many rows of
-      // them (plus the row gap) fit the grid's content height.
-      const cell = el.querySelector('.cell');
-      const tile = cell ? cell.getBoundingClientRect().height : 0;
-      const gap = parseFloat(cs.rowGap) || 0;
-      const avail =
-        el.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
-      if (tile > 0 && avail > 0) {
-        rows = Math.max(MIN_ROWS, Math.floor((avail + gap) / (tile + gap)));
-      }
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-  const grid = $derived.by(() => {
-    let lastFilled = -1;
-    tabCells.forEach((c, idx) => {
-      if (c.slot !== null) lastFilled = idx;
-    });
-    const c = Math.max(1, cols);
-    // Fill the visible area (cols x rows), and grow to hold every filled cell -
-    // always a whole number of rows, so the last row is never ragged.
-    const need = Math.max(c * rows, Math.ceil((lastFilled + 1) / c) * c);
-    const cells = tabCells.slice(0, need);
-    return { cells, fillers: need - cells.length };
-  });
+  // Sell is only offered while a shop is open.
+  const canSell = $derived($shopStock !== null);
 
-  let dragging = $state<number | null>(null);
-  let dragOver = $state<number | null>(null);
+  // === Reorder drag ================================================
+  // Pointer-drag a row to reorder it within the bag (swap with the row dropped
+  // on). A short move threshold distinguishes a drag from a tap; buttons inside
+  // a row are never drag handles. Tapping (no drag) inspects the row's content.
+  let dragging = $state<number | null>(null); // backpack index being dragged
+  let dragOver = $state<number | null>(null); // backpack index under the pointer
   let didDrag = $state(false);
-  let ghostPos = $state<{ x: number; y: number } | null>(null);
-  let pointerStart = { x: 0, y: 0 };
-  // 10px threshold: clicks with minor jitter won't trigger drag visuals.
-  const DRAG_THRESHOLD_SQ = 100;
+  let startX = 0;
+  let startY = 0;
+  const THRESHOLD_SQ = 64; // 8px
 
-  function onPointerDown(e: PointerEvent, index: number): void {
-    const slot = $backpack[index];
-    if (slot === null) return;
-    // A loose gem in the grid drags via the global gem-drag controller (it
-    // can drop onto sockets / equipped items / back into the backpack). Items
-    // keep the local reorder drag below.
-    if (isGem(slot)) {
-      // Drag to move/socket/combine; a tap opens the gem inspector, a
-      // double-tap sockets it into the selected (inspected) item.
-      startGemDrag({ kind: 'backpack', gemId: slot.id }, e, () => onGemTap(slot));
-      return;
-    }
+  function onRowPointerDown(e: PointerEvent, index: number): void {
+    // Buttons (equip / sell / destroy) act on their own; never start a drag.
+    if ((e.target as Element).closest('button')) return;
     dragging = index;
-    pointerStart = { x: e.clientX, y: e.clientY };
+    startX = e.clientX;
+    startY = e.clientY;
     didDrag = false;
-    ghostPos = null; // gated: appears only once the threshold is crossed
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
-      // setPointerCapture can throw if the pointer isn't an active hardware
-      // pointer (e.g. synthesised by automated tests). Drag still works via
-      // bubbling pointermove/up; this just loses the capture optimisation.
+      // setPointerCapture can throw for synthetic pointers; drag still works.
     }
   }
 
-  function onPointerMove(e: PointerEvent): void {
+  function onRowPointerMove(e: PointerEvent): void {
     if (dragging === null) return;
     if (!didDrag) {
-      const dx = e.clientX - pointerStart.x;
-      const dy = e.clientY - pointerStart.y;
-      if (dx * dx + dy * dy <= DRAG_THRESHOLD_SQ) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (dx * dx + dy * dy <= THRESHOLD_SQ) return;
       didDrag = true;
-      // Real drag now: if this tile holds an equippable item, arm the
-      // drag-to-equip highlight on the equipment column.
-      const dragged = $backpack[dragging];
-      if (isItem(dragged)) itemDrag.set({ item: dragged, targetSlot: null });
     }
-    ghostPos = { x: e.clientX, y: e.clientY };
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const dragged = $backpack[dragging];
-
-    // An equipment slot the dragged item is legal for takes priority over a
-    // backpack reorder target.
-    const slotEl = el?.closest<HTMLElement>('[data-slot-id]');
-    if (slotEl && isItem(dragged)) {
-      const slotId = slotEl.dataset.slotId as EquipmentSlotId;
-      if (itemFitsSlot(dragged, slotId)) {
-        itemDrag.update((d) => (d ? { ...d, targetSlot: slotId } : d));
-        dragOver = null;
-        return;
-      }
-    }
-    itemDrag.update((d) => (d ? { ...d, targetSlot: null } : d));
-
-    const cell = el?.closest<HTMLElement>('[data-cell-index]');
-    dragOver = cell ? Number(cell.dataset.cellIndex) : null;
+    const row = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest<HTMLElement>('[data-row-index]');
+    dragOver = row ? Number(row.dataset.rowIndex) : null;
   }
 
-  function onPointerUp(e: PointerEvent): void {
-    if (dragging !== null && e.type !== 'pointercancel') {
+  function onRowPointerUp(e: PointerEvent, index: number): void {
+    if (e.type !== 'pointercancel' && dragging !== null) {
       if (didDrag) {
-        const idx = dragging;
-        const dragged = $backpack[idx];
-        // Decide the drop from the ACTUAL release point - re-hit-testing here
-        // rather than trusting the targetSlot / dragOver captured during the last
-        // pointermove. The browser coalesces / throttles move events, so on a real
-        // drag the final move ONTO the slot can fail to fire, leaving targetSlot
-        // stale and the drop a silent no-op ("won't accept it"). The gem-drag
-        // controller already re-tests on up; this brings the item drag in line.
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const slotEl = isItem(dragged) ? el?.closest<HTMLElement>('[data-slot-id]') : null;
-        const slotId = slotEl?.dataset.slotId as EquipmentSlotId | undefined;
-
-        if (slotId && isItem(dragged) && itemFitsSlot(dragged, slotId)) {
-          // Dropped on a compatible equipment slot: equip it there.
-          if (equipFromBackpackToSlot(idx, slotId) !== null) {
-            // The source tile now holds the displaced item (or is empty); keep the
-            // Inspector pointed at whatever sits there now.
-            const ins = get(inspector);
-            if (ins?.source === 'backpack' && ins.index === idx) {
-              const now = get(backpack)[idx];
-              if (isItem(now)) inspector.set({ source: 'backpack', index: idx, item: now });
-              else closeInspector();
-            }
-          }
-        } else {
-          // Not over a compatible slot: a bag reorder if released over another cell.
-          const cellEl = el?.closest<HTMLElement>('[data-cell-index]');
-          const to = cellEl ? Number(cellEl.dataset.cellIndex) : NaN;
-          if (Number.isInteger(to) && to !== idx) {
-            moveItem(idx, to);
-            // Inspector follows the swap: if it pointed at one of the swapped
-            // tiles, flip its index to where its item now lives.
-            const ins = get(inspector);
-            if (ins?.source === 'backpack') {
-              const slots = get(backpack);
-              if (ins.index === idx) {
-                const moved = slots[to];
-                if (isItem(moved)) inspector.set({ source: 'backpack', index: to, item: moved });
-                else closeInspector();
-              } else if (ins.index === to) {
-                const moved = slots[idx];
-                if (isItem(moved)) inspector.set({ source: 'backpack', index: idx, item: moved });
-                else closeInspector();
-              }
-            }
+        const row = document
+          .elementFromPoint(e.clientX, e.clientY)
+          ?.closest<HTMLElement>('[data-row-index]');
+        const to = row ? Number(row.dataset.rowIndex) : NaN;
+        if (Number.isInteger(to) && to !== dragging) {
+          const from = dragging;
+          moveItem(from, to);
+          // Keep the inspector pointed at the item it was showing through the swap.
+          const ins = get(inspector);
+          if (ins?.source === 'backpack') {
+            if (ins.index === from) syncInspectorIndex(to);
+            else if (ins.index === to) syncInspectorIndex(from);
           }
         }
       } else {
-        // No drag - treat as a tile click: open the Inspector. Only items are
-        // inspectable; gems never reach here (they start a gem-drag instead).
-        const item = $backpack[dragging];
-        if (isItem(item)) {
-          inspectItem({ source: 'backpack', index: dragging, item });
-        }
+        // A tap: inspect the row's content.
+        const slot = $backpack[index];
+        if (isItem(slot)) inspectItem({ source: 'backpack', index, item: slot });
+        else if (isGem(slot)) inspectGem(slot);
       }
     }
     dragging = null;
     dragOver = null;
-    ghostPos = null;
     didDrag = false;
-    itemDrag.set(null);
   }
 
-  // A loose gem: a tap opens (toggles) the gem inspector IMMEDIATELY; a quick
-  // second tap on the same gem sockets it into the SELECTED (inspected) item's
-  // first open matching socket. The inspector is a side pane now (not a modal
-  // covering the bag), so the second tap still lands on the gem - no need to
-  // delay the first tap to disambiguate, which is what made open/close laggy.
-  let lastGemTap: { id: string; t: number } | null = null;
-  const GEM_DBL_MS = 250;
-  function onGemTap(gem: Gem): void {
-    const now = Date.now();
-    if (lastGemTap && lastGemTap.id === gem.id && now - lastGemTap.t < GEM_DBL_MS) {
-      lastGemTap = null;
-      if (equipGemIntoSelected(gem)) closeGemInspector();
-      return;
-    }
-    lastGemTap = { id: gem.id, t: now };
-    inspectGem(gem);
+  function syncInspectorIndex(index: number): void {
+    const now = get(backpack)[index];
+    if (isItem(now)) inspector.set({ source: 'backpack', index, item: now });
+    else closeInspector();
   }
 
-  // Socket `gem` into the currently inspected item (its first open colour-matched
-  // socket), if one is open. Returns whether it socketed; false when nothing
-  // editable is selected or no matching socket is free.
-  function equipGemIntoSelected(gem: Gem): boolean {
-    const ins = get(inspector);
-    if (!ins || (ins.source !== 'inventory' && ins.source !== 'backpack' && ins.source !== 'rewards')) {
-      return false;
-    }
-    const color = gemColor(gem);
-    if (!color) return false;
-    const item = ins.item;
-    const hasSlot = item.sockets.some((s, i) => s === null && item.socketColors[i] === color);
-    return hasSlot ? socketGemIntoItem(gem, item) : false;
+  function isInspecting(index: number): boolean {
+    const s = $inspector;
+    return s?.source === 'backpack' && s.index === index;
+  }
+  function isGemInspecting(gem: Gem): boolean {
+    return $gemInspector?.gem.id === gem.id && !$gemInspector?.shop;
   }
 
-  // Double-click a backpack ITEM: equip it into its first EMPTY legal slot (only
-  // when one is free - no swap on double-click). Loose gems use onGemTap above.
-  function onItemDblClick(index: number): void {
-    const slot = $backpack[index];
-    if (!isItem(slot)) return;
-    const eq = get(equipped);
-    const hasEmpty = legalEquipmentSlots(slot).some((s) => eq[s] === null);
-    if (!hasEmpty) return;
+  // === Inline actions ==============================================
+  // Equipping an item whose (single) legal slot is already occupied swaps with
+  // the occupant, so the button reads "Swap" instead of "Equip".
+  function wouldSwap(item: Item): boolean {
+    const slots = legalEquipmentSlots(item);
+    return slots.length > 0 && slots.every((s) => $equipped[s] !== null);
+  }
+  function onEquip(index: number): void {
+    const item = $backpack[index];
+    const swap = isItem(item) ? wouldSwap(item) : false;
     const landed = equipFromBackpack(index);
     if (landed !== null) {
-      const now = get(equipped)[landed];
-      if (now) inspector.set({ source: 'inventory', slotId: landed, item: now });
+      if (swap) sfx.swapItem();
+      else sfx.equip();
+      flashEquipSlot(landed);
+      const ins = get(inspector);
+      if (ins?.source === 'backpack' && ins.index === index) closeInspector();
     }
   }
+  function onSellItem(index: number): void {
+    sellItemFromBackpack(index);
+  }
+  function onDestroyItem(index: number): void {
+    const slot = $backpack[index];
+    if (!isItem(slot)) return;
+    // An item still holding gems prompts to keep them (detach to the bag) or
+    // scrap everything; otherwise it's destroyed straight away.
+    if (slot.sockets.some((g) => g !== null)) {
+      requestDestroy({
+        item: slot,
+        onKeepGems: () => destroyBackpackItemKeepGems(index),
+        onDestroyAll: () => disenchantItemFromBackpack(index),
+      });
+      return;
+    }
+    disenchantItemFromBackpack(index);
+  }
+  function onSellGem(gem: Gem): void {
+    sellGemFromBackpack(gem.id);
+  }
+  function onDestroyGem(gem: Gem): void {
+    disenchantGemFromBackpack(gem.id);
+  }
 
-  function isInspecting(i: number): boolean {
-    const s = $inspector;
-    return s?.source === 'backpack' && s.index === i;
+  // Readable label for an item row: its armour sub-slot or its item type.
+  function itemLabel(item: Item): string {
+    if (item.itemType === 'armor' && item.armorSlot) return t(`inventory.slot.${item.armorSlot}`);
+    return t(`item.type.${item.itemType}`);
   }
 </script>
 
-<!-- A bag split: items or gems. The gems panel root carries data-gem-stash so a
-     gem dragged onto its empty space un-sockets / stashes (cell drops still
-     combine / reorder - the gem-drag hit-test checks cells first). Mounted per
-     kind and gated by the parent (App.svelte). -->
+<!-- A bag split: items or gems, as a scrollable + reorderable vertical list. The
+     gems list root carries data-gem-stash so a gem dragged out of a socket (in
+     the inspector) can be dropped here to stash it. -->
 <div
   class="backpack"
   class:bag-items={isItems}
@@ -319,149 +231,144 @@
   in:paneEnter|global
   out:paneLeave|global
 >
-    <header class="toolbar" data-pane-header>
-      <h2>
-        <span class="head-emoji">{isItems ? '🎒' : '💠'}</span>
-        {t(isItems ? 'backpack.tab.items' : 'backpack.tab.gems')} ({count})
-      </h2>
-      <div class="actions">
-        <button type="button" class="btn" onclick={sortBackpack}>{t('backpack.sort')}</button>
+  <header class="toolbar" data-pane-header>
+    <h2>
+      <span class="head-emoji">{isItems ? '🎒' : '💠'}</span>
+      {t(isItems ? 'backpack.tab.items' : 'backpack.tab.gems')} ({count})
+    </h2>
+    <div class="actions">
+      <button type="button" class="btn" onclick={sortBackpack}>{t('backpack.sort')}</button>
+      <button type="button" class="btn icon" aria-label={t('backpack.close')} onclick={closeSplit}>
+        ✕
+      </button>
+    </div>
+  </header>
+
+  <!-- Filter row: item-type chips (items) or socket-colour dots (gems). -->
+  <div class="filters" role="group" aria-label={t('backpack.filter.all')}>
+    <button type="button" class="filter all" class:active={noFilter} onclick={clearFilter}>
+      {t('backpack.filter.all')}
+    </button>
+    {#if isItems}
+      {#each EQUIPMENT_SLOT_ORDER as slot (slot)}
         <button
           type="button"
-          class="btn icon"
-          aria-label={t('backpack.close')}
-          onclick={closeSplit}
+          class="filter type-chip"
+          class:active={typeFilter === slot}
+          title={t(EQUIPMENT_SLOTS[slot].nameKey)}
+          aria-label={t(EQUIPMENT_SLOTS[slot].nameKey)}
+          aria-pressed={typeFilter === slot}
+          onclick={() => (typeFilter = typeFilter === slot ? null : slot)}
         >
-          ✕
+          {EQUIPMENT_SLOTS[slot].emoji}
         </button>
-      </div>
-    </header>
-
-    <!-- Filter row: item-type chips on the Items split, socket-colour dots on
-         the Gems split. "All" clears the filter. -->
-    <div class="gem-filters" role="group" aria-label={t('backpack.filter.all')}>
-      <button
-        type="button"
-        class="gem-filter all"
-        class:active={noFilter}
-        onclick={clearFilter}
-      >
-        {t('backpack.filter.all')}
-      </button>
-      {#if isItems}
-        {#each EQUIPMENT_SLOT_ORDER as slot (slot)}
-          <button
-            type="button"
-            class="gem-filter type-chip"
-            class:active={typeFilter === slot}
-            title={t(EQUIPMENT_SLOTS[slot].nameKey)}
-            aria-label={t(EQUIPMENT_SLOTS[slot].nameKey)}
-            aria-pressed={typeFilter === slot}
-            onclick={() => (typeFilter = typeFilter === slot ? null : slot)}
-          >
-            {EQUIPMENT_SLOTS[slot].emoji}
-          </button>
-        {/each}
-      {:else}
-        {#each GEM_COLORS as c (c)}
-          <button
-            type="button"
-            class="gem-filter dot"
-            class:active={colorFilter === c}
-            style="--c: {SOCKET_COLOR_HEX[c]}"
-            aria-label={c}
-            aria-pressed={colorFilter === c}
-            onclick={() => (colorFilter = colorFilter === c ? null : c)}
-          ></button>
-        {/each}
-      {/if}
-    </div>
-
-    <div class="grid" role="grid" bind:this={gridEl}>
-      {#each grid.cells as { slot, i } (i)}
-        {@const gem = isGem(slot) ? gemDisplay(slot) : null}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="cell"
-          role="gridcell"
-          tabindex={slot ? 0 : -1}
-          class:dragging={didDrag && dragging === i}
-          class:over={dragOver === i && didDrag && dragging !== i}
-          class:stash-armed={!isItems && $gemDropZone === `backpack-cell:${i}`}
-          class:combine-armed={isGem(slot) && $gemDropZone === `combine:${slot.id}`}
-          class:gem-tile={gem !== null}
-          class:inspecting={isInspecting(i)}
-          style={gem ? `--gem-color: ${SOCKET_COLOR_HEX[gem.color]}` : ''}
-          title={isItem(slot)
-            ? t(`item.type.${slot.itemType}`)
-            : gem
-              ? `${gem.name} - ${gem.summary}`
-              : ''}
-          data-cell-index={i}
-          data-inspector-source="backpack"
-          onpointerdown={(e) => onPointerDown(e, i)}
-          onpointermove={onPointerMove}
-          onpointerup={onPointerUp}
-          onpointercancel={onPointerUp}
-          ondblclick={() => onItemDblClick(i)}
-        >
-          {#if isItem(slot)}
-            <span class="emoji">{itemEmoji(slot)}</span>
-            <span
-              class="tier"
-              style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#5c6a6a'}"
-            >
-              T{tierOf(slot)}
-            </span>
-            <SocketPips item={slot} />
-          {:else if gem}
-            <span class="emoji">{gem.emoji}</span>
-            <span
-              class="gem-badge"
-              class:effect={gem.role === 'effect'}
-              class:support={gem.role === 'support'}
-            >💠</span>
-            {#if gem.level > 1}
-              <span class="gem-level">Lv{gem.level}</span>
-            {/if}
-          {/if}
-        </div>
       {/each}
-      <!-- Fillers complete the last row when the active tab's real cells don't
-           fill it. Non-interactive (no index / handlers). -->
-      {#each Array(grid.fillers) as _, fi (fi)}
-        <div class="cell filler" aria-hidden="true"></div>
+    {:else}
+      {#each GEM_COLORS as c (c)}
+        <button
+          type="button"
+          class="filter dot"
+          class:active={colorFilter === c}
+          style="--c: {SOCKET_COLOR_HEX[c]}"
+          aria-label={c}
+          aria-pressed={colorFilter === c}
+          onclick={() => (colorFilter = colorFilter === c ? null : c)}
+        ></button>
       {/each}
-    </div>
+    {/if}
   </div>
 
-  {#if dragging !== null && ghostPos && isItem($backpack[dragging])}
-    {@const ghostItem = $backpack[dragging] as Item}
-    <div
-      class="drag-ghost"
-      style="left: {ghostPos.x}px; top: {ghostPos.y}px;"
-      aria-hidden="true"
-    >
-      <span class="emoji">{itemEmoji(ghostItem)}</span>
-      <span
-        class="tier"
-        style="--tier-color: {TIER_COLORS[tierOf(ghostItem)] ?? '#5c6a6a'}"
-      >
-        T{tierOf(ghostItem)}
-      </span>
-      <SocketPips item={ghostItem} />
-    </div>
-  {/if}
+  <div class="list" role="list">
+    {#each rows as { slot, i } (i)}
+      {#if isItem(slot)}
+        {@const ih = itemHint(slot, $ownedContext)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="row"
+          class:dragging={didDrag && dragging === i}
+          class:over={dragOver === i && didDrag && dragging !== i}
+          class:inspecting={isInspecting(i)}
+          role="listitem"
+          data-row-index={i}
+          onpointerdown={(e) => onRowPointerDown(e, i)}
+          onpointermove={onRowPointerMove}
+          onpointerup={(e) => onRowPointerUp(e, i)}
+          onpointercancel={(e) => onRowPointerUp(e, i)}
+        >
+          <span class="row-gutter"><SocketPips item={slot} inline /></span>
+          <span class="row-emoji">{itemEmoji(slot)}</span>
+          <div class="row-main">
+            <span class="row-name">{itemLabel(slot)}</span>
+            <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(slot)] ?? '#5c6a6a'}">
+              T{tierOf(slot)}
+            </span>
+            {#if ih}
+              <span
+                class="hint-badge"
+                class:hint-new={ih === 'new'}
+                class:hint-upgrade={ih === 'upgrade'}
+                title={t(`hint.item.${ih}`)}
+              >{ih === 'new' ? '✦' : '⬆'}</span>
+            {/if}
+          </div>
+          <div class="row-acts">
+            <button type="button" class="act equip" onclick={() => onEquip(i)}>
+              {wouldSwap(slot) ? t('inspector.swap') : t('inspector.equip')}
+            </button>
+            {#if canSell}
+              <button type="button" class="act icon" aria-label={t('inspector.sell', { price: itemSellValue(slot) })} title={t('inspector.sell', { price: itemSellValue(slot) })} onclick={() => onSellItem(i)}>🪙</button>
+            {/if}
+            <button type="button" class="act icon danger" aria-label={t('inspector.disenchant', { refund: itemRefund(slot) })} title={t('inspector.disenchant', { refund: itemRefund(slot) })} onclick={() => onDestroyItem(i)}>✕</button>
+          </div>
+        </div>
+      {:else if isGem(slot)}
+        {@const gd = gemDisplay(slot)}
+        {@const gh = gemHint(slot, $ownedContext)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="row gem"
+          class:dragging={didDrag && dragging === i}
+          class:over={dragOver === i && didDrag && dragging !== i}
+          class:inspecting={isGemInspecting(slot)}
+          role="listitem"
+          data-row-index={i}
+          style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#5c6a6a'}"
+          onpointerdown={(e) => onRowPointerDown(e, i)}
+          onpointermove={onRowPointerMove}
+          onpointerup={(e) => onRowPointerUp(e, i)}
+          onpointercancel={(e) => onRowPointerUp(e, i)}
+        >
+          <span class="row-emoji">{gd?.emoji ?? '💠'}</span>
+          <div class="row-main">
+            <span class="row-name">{gd?.name ?? slot.defId}</span>
+            {#if gd && gd.level > 1}<span class="gem-level">Lv{gd.level}</span>{/if}
+            <span class="row-role" class:effect={gd?.role === 'effect'} class:support={gd?.role === 'support'}>
+              {gd?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
+            </span>
+            {#if gh.combine}<span class="hint-badge combine" title={t('hint.gem.combine')}>⊕</span>{/if}
+            {#if gh.socket}<span class="hint-badge socket" title={t('hint.gem.socket')}>◈</span>{/if}
+          </div>
+          <div class="row-acts">
+            {#if canSell}
+              <button type="button" class="act icon" aria-label={t('gemInspector.sell', { price: gemSellValue(slot) })} title={t('gemInspector.sell', { price: gemSellValue(slot) })} onclick={() => onSellGem(slot)}>🪙</button>
+            {/if}
+            <button type="button" class="act icon danger" aria-label={t('gemInspector.destroy', { refund: gemRefund(slot) })} title={t('gemInspector.destroy', { refund: gemRefund(slot) })} onclick={() => onDestroyGem(slot)}>✕</button>
+          </div>
+        </div>
+      {/if}
+    {/each}
+    {#if rows.length === 0}
+      <p class="empty">{isItems ? t('bag.empty.items') : t('bag.empty.gems')}</p>
+    {/if}
+  </div>
+</div>
 
 <style>
   /* In-rail bag panel: a fixed-width flex column stretched to the rail's full
-     height, snapping as the player scrolls/swipes. (Was a centered modal.) */
+     height, snapping as the player scrolls/swipes. */
   .backpack {
     flex: 0 0 auto;
     align-self: stretch;
-    /* Every split is exactly a quarter of the screen: four tile to fill it, a
-       fifth scrolls off (reached via the rail arrows). The floor keeps it usable
-       where a quarter would be too narrow. */
     width: 25%;
     min-width: min(300px, 100%);
     min-height: 0;
@@ -472,15 +379,6 @@
     display: flex;
     flex-direction: column;
     user-select: none;
-    touch-action: none;  }
-
-  /* On short landscape viewports the grid cells can squeeze; trim chrome and
-     let the grid scroll vertically if all rows don't fit. */
-  @media (max-height: 500px) {
-    .grid {
-      gap: 4px;
-      padding: 8px;
-    }
   }
 
   .toolbar {
@@ -492,7 +390,6 @@
     padding: 0 14px;
     border-bottom: 1px solid #18262a;
   }
-
   .toolbar h2 {
     margin: 0;
     font-size: 1rem;
@@ -508,12 +405,10 @@
     font-size: 2rem;
     line-height: 1;
   }
-
   .actions {
     display: flex;
     gap: 6px;
   }
-
   .btn {
     appearance: none;
     background: #18262a;
@@ -541,15 +436,14 @@
     outline-offset: 2px;
   }
 
-  /* Filter row: item-type chips (items) or socket-colour dots (gems). */
-  .gem-filters {
+  .filters {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
     padding: 8px 12px 0;
   }
-  .gem-filter {
+  .filter {
     appearance: none;
     background: #0f181b;
     border: 1px solid #18262a;
@@ -559,149 +453,148 @@
     min-height: 28px;
     transition: border-color 100ms ease, background-color 100ms ease;
   }
-  .gem-filter.all {
+  .filter.all {
     padding: 4px 10px;
     font-size: 0.78rem;
     font-weight: 600;
   }
-  .gem-filter.dot {
+  .filter.dot {
     width: 28px;
     padding: 0;
-    background:
-      radial-gradient(circle at center, var(--c) 0 9px, transparent 10px),
-      #0f181b;
+    background: radial-gradient(circle at center, var(--c) 0 9px, transparent 10px), #0f181b;
   }
-  .gem-filter.type-chip {
+  .filter.type-chip {
     width: 30px;
     padding: 0;
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
     font-size: 1rem;
     line-height: 1;
   }
-  .gem-filter:hover {
+  .filter:hover {
     border-color: #374d52;
     color: #bbc8c8;
   }
-  .gem-filter.active {
+  .filter.active {
     border-color: #3cc7b8;
     color: #3cc7b8;
     box-shadow: inset 0 0 0 1px #3cc7b8;
   }
-  .gem-filter:focus-visible {
+  .filter:focus-visible {
     outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
 
-  .grid {
-    display: grid;
-    /* Auto-fill: columns scale with the pane width, tiles keep a constant size
-       (~120-150px). The row-completion logic above measures the realised count. */
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 6px;
-    padding: 12px;
-    /* Fill the panel and scroll internally so the trash / sell / hint stay
-       pinned at the bottom of the bag panel. */
+  /* The list fills the panel and scrolls internally. */
+  .list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+  }
+  .empty {
+    margin: 8px 4px;
+    color: #647171;
+    font-size: 0.85rem;
+    line-height: 1.4;
   }
 
-  .cell {
-    position: relative;
-    aspect-ratio: 1 / 1;
+  /* A bag row: socket gutter | emoji | main | actions. Item sockets draw as a
+     vertical pip strip in the left gutter (same as everywhere else), which can
+     make a many-socket row taller; a min-height keeps small items + every gem
+     row uniform. Touch-action none so a vertical drag reorders rather than
+     scrolling the list. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 10px;
     border: 1px solid #18262a;
     border-radius: 8px;
     background: #0c1517;
+    cursor: grab;
+    touch-action: none;
+    transition: border-color 100ms ease, background-color 100ms ease, opacity 100ms ease,
+      box-shadow 100ms ease;
+  }
+  /* Left gutter holding the vertical socket pips (item rows only - gems have no
+     sockets, so their rows omit it and the emoji sits flush left). */
+  .row-gutter {
+    flex: none;
+    width: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 80ms ease, border-color 80ms ease, opacity 80ms ease;
+    pointer-events: none;
   }
-  /* Row-completing filler: looks like a faint empty slot but isn't a real
-     backpack cell (no index / handlers), so it just keeps the grid rectangular. */
-  .cell.filler {
-    opacity: 0.3;
-    background: #080f11;
-    cursor: default;
+  .row:hover {
+    background: #0f181b;
+    border-color: #374d52;
   }
-  .cell.dragging {
-    opacity: 0.3;
+  /* A gem row reads its socket colour on the left edge. */
+  .row.gem {
+    border-left: 3px solid var(--gem-color, #6ad);
   }
-  .cell.over {
-    background: #18262a;
-    border-color: #3cc7b8;
+  .row.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
   }
-  /* Armed while a dragged gem hovers the grid: the whole backpack reads as a
-     stash drop target. */
-  .cell.stash-armed {
-    border-color: #3cc7b8;
-    box-shadow: inset 0 0 0 1px rgba(255, 204, 68, 0.4);
-  }
-  /* Combine target: a same-defId gem cell under a dragged gem. Purple to read
-     as a level-up, distinct from the gold stash highlight. */
-  .cell.combine-armed {
-    border-color: #c084fc;
-    box-shadow: inset 0 0 0 2px #c084fc;
-    background: #241a2e;
-  }
-  /* A cell holding a loose gem: a role-tinted ring distinguishes it from an
-     item tile without resorting to a T# tier badge. */
-  .cell.gem-tile {
-    border-color: var(--gem-color, #6ad);
-    box-shadow: inset 0 0 0 1px var(--gem-color, #6ad);
-  }
-  .cell.inspecting {
+  .row.over {
     border-color: #3cc7b8;
     box-shadow: inset 0 0 0 1px #3cc7b8;
   }
-
-  .emoji {
+  .row.inspecting {
+    border-color: #3cc7b8;
+    box-shadow: inset 0 0 0 1px #3cc7b8;
+  }
+  .row-emoji {
+    flex: none;
+    /* At least 30px so names line up, but it GROWS to fit a wide emoji glyph
+       (inline-flex, content-sized) so the glyph never spills onto the name. */
+    min-width: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-    font-size: 1.8rem;
+    font-size: 1.6rem;
     line-height: 1;
     pointer-events: none;
   }
-
+  /* One-line row body: name + tier/level + role + hint badges. Details (sockets,
+     descriptions) live in the inspector, not here. */
+  .row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .row-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #dde7e7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .tier {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    font-size: 0.85rem;
+    flex: none;
+    font-size: 0.72rem;
     font-weight: 600;
     line-height: 1;
-    padding: 2px 5px;
+    padding: 1px 5px;
     border-radius: 4px;
     border: 1px solid var(--tier-color, #5c6a6a);
     color: var(--tier-color, #849393);
     background: rgba(0, 0, 0, 0.4);
-    pointer-events: none;
     font-variant-numeric: lining-nums;
   }
-
-  /* Gem marker: a small badge in the corner (NOT a tier badge), tinted by the
-     gem's role so a loose gem reads distinctly from an item at a glance. */
-  .gem-badge {
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    font-size: 0.7rem;
-    line-height: 1;
-    pointer-events: none;
-    filter: drop-shadow(0 0 2px #6ad);
-  }
-  .gem-badge.effect {
-    filter: drop-shadow(0 0 3px #f6a);
-  }
-  .gem-badge.support {
-    filter: drop-shadow(0 0 3px #6ad);
-  }
-
-  /* Combine level badge on a loose gem tile (shown only when level > 1). */
   .gem-level {
-    position: absolute;
-    bottom: 3px;
-    left: 3px;
+    flex: none;
     font-size: 0.68rem;
     font-weight: 700;
     line-height: 1;
@@ -710,24 +603,113 @@
     color: #f0e0ff;
     background: rgba(124, 58, 200, 0.85);
     border: 1px solid #c084fc;
-    pointer-events: none;
     font-variant-numeric: lining-nums;
   }
-
-  .drag-ghost {
-    position: fixed;
-    width: 88px;
-    height: 88px;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    z-index: 200;
-    background: #0c1517;
-    border: 1px solid #3cc7b8;
-    border-radius: 8px;
-    display: flex;
+  .hint-badge {
+    flex: none;
+    font-size: 0.66rem;
+    line-height: 1;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
-    opacity: 0.95;
+    border-radius: 50%;
+    font-weight: 700;
+  }
+  .hint-badge.hint-new {
+    color: #07120b;
+    background: #4caf6a;
+  }
+  .hint-badge.hint-upgrade {
+    color: #1a1205;
+    background: #e0a93f;
+  }
+  .hint-badge.combine {
+    color: #f0e0ff;
+    background: #7c3ac8;
+  }
+  .hint-badge.socket {
+    color: #04201d;
+    background: #3cc7b8;
+  }
+  .row-role {
+    flex: none;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 700;
+  }
+  .row-role.effect {
+    color: #ffd0e6;
+    background: rgba(255, 102, 170, 0.18);
+    border: 1px solid #f6a;
+  }
+  .row-role.support {
+    color: #cfe6ff;
+    background: rgba(102, 170, 221, 0.18);
+    border: 1px solid #6ad;
+  }
+
+  /* Inline action buttons in a HORIZONTAL row on the right (matching the item
+     inspector's slim ⇄ / ✕ socket buttons). They capture their own pointer
+     events; the rest of the row is the drag / tap handle. */
+  .row-acts {
+    flex: none;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .act {
+    appearance: none;
+    border: 1px solid #28383d;
+    background: #121d20;
+    color: #c0cdcd;
+    border-radius: 6px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 32px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+  }
+  /* Icon-only action (sell / destroy): a slim square, like the socket ✕. */
+  .act.icon {
+    width: 32px;
+    padding: 0;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+  .act:hover {
+    background: #18262a;
+    border-color: #3cc7b8;
+  }
+  .act:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  .act.equip {
+    background: #28383d;
+    color: #fff;
+  }
+  .act.equip:hover {
+    background: #374d52;
+  }
+  .act.danger {
+    border-color: #3a2326;
+    background: #160d0f;
+    color: #d98a8a;
+  }
+  .act.danger:hover {
+    background: #2a1417;
+    border-color: #c44;
+    color: #f0a8a8;
   }
 </style>

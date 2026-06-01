@@ -7,18 +7,17 @@
   import { GEM_CATALOGUE } from '../domain/gem-catalogue';
   import { gemColor } from '../domain/gem-fit';
   import { gemLevel, isGem, type Gem } from '../domain/gem';
-  import { gemRefund, disenchantGemFromBackpack, disenchantRewardGem } from '../state/disenchant';
-  import { socketGemIntoItem, unsocketGemToBag } from '../state/gem-move';
+  import { gemRefund, disenchantGemFromBackpack } from '../state/disenchant';
+  import { socketGemIntoItem, unsocketGemToBag, combineGems, findOwnedGemById } from '../state/gem-move';
   import { buyGem, canBuyGem, sellGemFromBackpack } from '../state/shop';
   import { gemSellValue } from '../domain/shop';
   import { topbar } from '../state/topbar';
   import { equipped } from '../state/inventory';
-  import { backpack, addGemToBackpack } from '../state/backpack';
-  import { pendingRewards, removeRewardGem } from '../state/rewards';
+  import { backpack } from '../state/backpack';
   import { shopStock } from '../state/shop';
-  import { itemOffer } from '../state/item-offer';
   import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
   import { EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
+  import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
 
   const TIER_COLORS: Record<number, string> = {
@@ -57,11 +56,8 @@
   const scalesOnLevel = $derived(disp !== null && nextSummary !== '' && disp.summary !== nextSummary);
 
   // Is this exact instance a loose backpack gem? Only then can we offer a
-  // direct Destroy (socketed / shop / reward gems show the value for reference).
+  // direct Destroy (socketed / shop gems show the value for reference).
   const looseInBag = $derived(gem !== null && $backpack.some((s) => isGem(s) && s.id === gem.id));
-  // A loose gem sitting in the victory chest - offer a Take (into the bag).
-  const isRewardGem = $derived(gem !== null && !shop && $pendingRewards.gems.some((g) => g.id === gem.id));
-  const bagFull = $derived(!$backpack.includes(null));
 
   // Readable label for an item: its armour sub-slot or its item type.
   function itemLabel(item: Item): string {
@@ -69,10 +65,11 @@
     return t(`item.type.${item.itemType}`);
   }
 
-  type SourceKey = 'equipped' | 'bag' | 'chest' | 'shop' | 'offer';
-  // Only OWNED items (editable + persistable by socketGemIntoItem) can take a
-  // direct Insert. Shop / offer items are reference-only here.
-  const OWNED: ReadonlySet<SourceKey> = new Set(['equipped', 'bag', 'chest']);
+  // The combine / fits lists survey ONLY what the player owns - equipped gear
+  // and the bag. The shop / armory stock is deliberately excluded (you can't
+  // combine into or out of gear you don't own); when PREVIEWING a shop gem the
+  // lists therefore read as "what buying this would let you do with YOUR gear".
+  type SourceKey = 'equipped' | 'bag';
   const sourceLabel = (k: SourceKey): string => t(`gemInspector.source.${k}`);
 
   interface ItemRef {
@@ -82,10 +79,13 @@
   interface GemRef {
     gem: Gem;
     where: string;
+    // An icon for the SOURCE: the host item's type emoji when the gem is
+    // socketed (weapon / ring / ...), or the bag emoji for a loose gem.
+    icon: string;
   }
+  const BAG_ICON = '🎒';
 
-  // Every item across every source the player can reach (equipped, bag, victory
-  // chest, shop, item offer), each tagged with where it lives.
+  // Every item the player owns (equipped + bag), each tagged with where it lives.
   const allItems = $derived.by((): ItemRef[] => {
     const out: ItemRef[] = [];
     const eq = $equipped;
@@ -94,30 +94,26 @@
       if (it) out.push({ item: it, key: 'equipped' });
     }
     for (const s of $backpack) if (isItem(s)) out.push({ item: s, key: 'bag' });
-    for (const it of $pendingRewards.items) out.push({ item: it, key: 'chest' });
-    const shop = $shopStock;
-    if (shop) for (const slot of shop.items) if (slot) out.push({ item: slot.item, key: 'shop' });
-    const offer = $itemOffer;
-    if (offer) for (const it of offer.items) if (it) out.push({ item: it, key: 'offer' });
     return out;
   });
 
-  // Every gem everywhere - loose ones plus those socketed in any surveyed item.
+  // Every gem the player owns - loose bag gems plus those socketed in owned gear.
+  // Each carries an icon for its source: the bag, or the host item's type.
   const allGems = $derived.by((): GemRef[] => {
     const out: GemRef[] = [];
-    for (const s of $backpack) if (isGem(s)) out.push({ gem: s, where: sourceLabel('bag') });
-    for (const g of $pendingRewards.gems) out.push({ gem: g, where: sourceLabel('chest') });
-    const shop = $shopStock;
-    if (shop) for (const slot of shop.gems) if (slot) out.push({ gem: slot.gem, where: sourceLabel('shop') });
+    for (const s of $backpack) if (isGem(s)) out.push({ gem: s, where: sourceLabel('bag'), icon: BAG_ICON });
     for (const { item, key } of allItems) {
-      for (const sock of item.sockets) if (sock) out.push({ gem: sock, where: sourceLabel(key) });
+      for (const sock of item.sockets) {
+        if (sock) out.push({ gem: sock, where: sourceLabel(key), icon: itemEmoji(item) });
+      }
     }
     return out;
   });
 
-  // Items with an EMPTY socket of this gem's colour - i.e. somewhere it could go
-  // right now. Each carries the open / total matching-socket counts, its source,
-  // and whether it can take a direct Insert (owned + the gem is the player's).
+  // Owned items with an EMPTY socket of this gem's colour - somewhere it could
+  // go right now. Each carries the open / total matching-socket counts and
+  // whether it can take a direct Insert (only when the gem is the player's, not
+  // a shop preview).
   const compatibleItems = $derived.by(() => {
     if (!color) return [];
     return allItems
@@ -127,10 +123,13 @@
           item,
           key,
           source: sourceLabel(key),
+          // Source-type icon (the item's own type: weapon / ring / ...), shown
+          // alongside the where-it-lives label.
+          icon: key === 'bag' ? BAG_ICON : itemEmoji(item),
           total: item.socketColors.filter((c) => c === color).length,
           open,
           // A shop gem isn't owned, so it can only be previewed, never inserted.
-          insertable: !shop && open > 0 && OWNED.has(key),
+          insertable: !shop && open > 0,
         };
       })
       // Only items that have room for it right now.
@@ -146,13 +145,43 @@
 
   const LIST_CAP = 8;
 
-  // A gem the player can scrap right now: a loose bag gem or a loose reward-chest
-  // gem (both refund crystals). Socketed / shop gems show the value, not a button.
-  const canDestroy = $derived(looseInBag || isRewardGem);
+  // A gem the player can scrap right now: a loose bag gem (refunds crystals).
+  // Socketed / shop gems show the value for reference, not a button.
+  const canDestroy = $derived(looseInBag);
   function onDestroy(): void {
     if (!gem) return;
-    const ok = isRewardGem ? disenchantRewardGem(gem.id) : disenchantGemFromBackpack(gem.id);
-    if (ok) closeGemInspector();
+    if (disenchantGemFromBackpack(gem.id)) closeGemInspector();
+  }
+
+  // === Combine (one-click level up) ================================
+  // Merge a same-defId gem into the other so the result levels up. We PREFER to
+  // keep the EQUIPPED gem as the survivor (level it in its socket) rather than
+  // pull it out: if exactly one of the two gems is socketed in equipped gear,
+  // that one is the target and the other is consumed. Otherwise the inspected
+  // gem survives. Both must be owned (gated off in shop-preview mode). After the
+  // merge we re-point the inspector at the survivor and pulse it for feedback.
+  function isInEquipped(gemId: string): boolean {
+    return Object.values($equipped).some((it) => it && it.sockets.some((s) => s?.id === gemId));
+  }
+  let justCombined = $state(false);
+  let combinedTimer: ReturnType<typeof setTimeout> | null = null;
+  function onCombine(sourceId: string): void {
+    if (!gem || shop) return;
+    let targetId = gem.id;
+    let srcId = sourceId;
+    // Prefer the equipped gem as the survivor: if the OTHER gem is equipped and
+    // this one isn't, swap roles so we don't empty the equipped socket.
+    if (isInEquipped(sourceId) && !isInEquipped(gem.id)) {
+      targetId = sourceId;
+      srcId = gem.id;
+    }
+    const leveled = combineGems(targetId, srcId);
+    if (!leveled) return;
+    sfx.powerup();
+    gemInspector.set({ gem: leveled });
+    justCombined = true;
+    if (combinedTimer) clearTimeout(combinedTimer);
+    combinedTimer = setTimeout(() => (justCombined = false), 600);
   }
 
   // Sell a loose bag gem to the shop for gold (only while a shop is open).
@@ -163,14 +192,13 @@
     closeGemInspector();
   }
 
-  // The owned item this gem is socketed in (equipped / backpack / reward chest),
-  // if any - so we can pull it back out into the bag. Shop / offer previews
-  // aren't editable, so they don't count.
+  // The owned item this gem is socketed in (equipped / backpack), if any - so we
+  // can pull it back out into the bag. allItems is already owned-only; a shop
+  // preview gem isn't socketed in anything of the player's.
   const socketedIn = $derived.by((): { item: Item; index: number } | null => {
     if (!gem || shop) return null;
     const g = gem;
-    for (const { item, key } of allItems) {
-      if (!OWNED.has(key)) continue;
+    for (const { item } of allItems) {
       const index = item.sockets.findIndex((s) => s?.id === g.id);
       if (index >= 0) return { item, index };
     }
@@ -202,15 +230,9 @@
   });
   function onBuy(): void {
     if (!shop) return;
-    if (buyGem(shop.index)) closeGemInspector();
-  }
-
-  // Victory chest -> Take: pull the reward gem into the bag, then close.
-  function onTake(): void {
-    if (!gem || !isRewardGem || bagFull) return;
-    removeRewardGem(gem.id);
-    addGemToBackpack(gem);
-    closeGemInspector();
+    // Keep the gem window open after buying (the slot sells, so Buy disables) -
+    // the player keeps their place while shopping.
+    buyGem(shop.index);
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -235,7 +257,7 @@
       <div class="gi-title">
         <div class="gi-name">
           {d?.name ?? gem.defId}
-          {#if level > 1}<span class="gi-level">Lv{level}</span>{/if}
+          {#if level > 1}<span class="gi-level" class:flash={justCombined}>Lv{level}</span>{/if}
         </div>
         <div class="gi-role">
           {d?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
@@ -263,20 +285,32 @@
         {/if}
       </section>
 
-      <!-- Combine targets: same-defId gems anywhere that can merge to level up. -->
+      <!-- Combine targets: same-defId owned gems. Each row is a one-click merge
+           that levels up THIS gem (and consumes the listed one) - except in a
+           shop preview, where you don't own the inspected gem yet. -->
       <section class="gi-sec">
         <div class="gi-sec-head">{t('gemInspector.combine')}</div>
         {#if combinableGems.length === 0}
           <p class="gi-none">{t('gemInspector.combineNone', { name: d?.name ?? gem.defId })}</p>
         {:else}
-          <p class="gi-subhint">{t('gemInspector.combineHint')}</p>
+          <p class="gi-subhint">{shop ? t('gemInspector.combineHintShop') : t('gemInspector.combineActionHint')}</p>
           <ul class="gi-list">
             {#each combinableGems.slice(0, LIST_CAP) as cg (cg.gem.id)}
               {@const cd = gemDisplay(cg.gem)}
-              <li class="gi-item">
-                <span class="gi-item-emoji">{cd?.emoji ?? '💎'}</span>
-                <span class="gi-item-main">{cd?.name ?? cg.gem.defId}{#if (cd?.level ?? 1) > 1}<span class="gi-mini-lv"> Lv{cd?.level}</span>{/if}</span>
-                <span class="gi-item-src">{cg.where}</span>
+              <li class="gi-fit-li">
+                <button
+                  type="button"
+                  class="gi-item gi-item-btn"
+                  class:insertable={!shop}
+                  disabled={shop !== null}
+                  title={shop ? '' : t('gemInspector.combineDoHint')}
+                  onclick={() => onCombine(cg.gem.id)}
+                >
+                  <span class="gi-item-emoji">{cd?.emoji ?? '💎'}</span>
+                  <span class="gi-item-main">{cd?.name ?? cg.gem.defId}{#if (cd?.level ?? 1) > 1}<span class="gi-mini-lv"> Lv{cd?.level}</span>{/if}</span>
+                  <span class="gi-item-src"><span class="gi-src-icon">{cg.icon}</span>{cg.where}</span>
+                  {#if !shop}<span class="gi-insert combine">{t('gemInspector.combineDo')}</span>{/if}
+                </button>
               </li>
             {/each}
           </ul>
@@ -286,7 +320,7 @@
         {/if}
       </section>
 
-      <!-- Compatible items (any source): gear with a socket of this gem's colour. -->
+      <!-- Compatible owned gear: items with an open socket of this gem's colour. -->
       <section class="gi-sec">
         <div class="gi-sec-head">{t('gemInspector.fits')}</div>
         {#if compatibleItems.length === 0}
@@ -307,7 +341,7 @@
                   <span class="gi-item-tier" style="--tier-color: {TIER_COLORS[tierOf(ci.item)] ?? '#5c6a6a'}">T{tierOf(ci.item)}</span>
                   <span class="gi-item-main">{itemLabel(ci.item)}</span>
                   <span class="gi-item-open">{t('gemInspector.open', { open: ci.open, total: ci.total })}</span>
-                  <span class="gi-item-src">{ci.source}</span>
+                  <span class="gi-item-src"><span class="gi-src-icon">{ci.icon}</span>{ci.source}</span>
                   {#if ci.insertable}<span class="gi-insert">{t('gemInspector.insert')}</span>{/if}
                 </button>
               </li>
@@ -321,8 +355,8 @@
     </div>
 
     <!-- Actions live in a footer at the bottom of the panel, matching the item
-         inspector: Buy (shop) / Take + Sell + Destroy (loose / reward) /
-         Unsocket (socketed in an owned item) / a value label (otherwise). -->
+         inspector: Buy (shop) / Sell + Destroy (loose) / Unsocket (socketed in
+         an owned item) / a value label (otherwise). -->
     <footer class="gi-foot">
       {#if shop}
         <button
@@ -335,17 +369,6 @@
           {t('inspector.buy', { price: shop.price })}
         </button>
       {:else if canDestroy}
-        {#if isRewardGem}
-          <button
-            type="button"
-            class="cta"
-            disabled={bagFull}
-            title={bagFull ? t('inspector.cta.backpackFull') : ''}
-            onclick={onTake}
-          >
-            {t('inspector.take')}
-          </button>
-        {/if}
         {#if canSell}
           <button type="button" class="cta secondary" onclick={onSell}>
             {t('gemInspector.sell', { price: gemSellValue(gem) })}
@@ -429,6 +452,29 @@
     border-radius: 4px;
     padding: 1px 5px;
     font-variant-numeric: lining-nums;
+  }
+  /* Level-up feedback: the badge pops + glows for a moment after a combine. */
+  .gi-level.flash {
+    animation: gi-level-flash 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  @keyframes gi-level-flash {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(192, 132, 252, 0.9);
+    }
+    35% {
+      transform: scale(1.45);
+      box-shadow: 0 0 14px 4px rgba(192, 132, 252, 0.8);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(192, 132, 252, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gi-level.flash {
+      animation: none;
+    }
   }
   /* Role badge - styled like the item inspector's tier badge, tinted by the
      gem's socket colour (red / green / blue) so it reads role + colour at once. */
@@ -658,6 +704,17 @@
     border-radius: 4px;
     padding: 2px 8px;
   }
+  /* Combine action badge: purple to read as a level-up (matches the Lv badge),
+     distinct from the green Insert. */
+  .gi-insert.combine {
+    color: #f0e0ff;
+    background: #7c3ac8;
+  }
+  /* A combinable row hovers purple (not the green insert hover). */
+  .gi-item-btn.insertable:has(.gi-insert.combine):hover {
+    background: #1d1430;
+    border-color: #c084fc;
+  }
   .gi-item-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
     font-size: 1.2rem;
@@ -689,6 +746,9 @@
     font-variant-numeric: lining-nums;
   }
   .gi-item-src {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -696,6 +756,13 @@
     background: #152124;
     border-radius: 4px;
     padding: 2px 6px;
+  }
+  /* The source-type emoji (weapon / ring / bag) prefixing the where-it-lives
+     label, so a glance reads what kind of gear the source is. */
+  .gi-src-icon {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 0.85rem;
+    line-height: 1;
   }
   .gi-more {
     color: #647171;

@@ -7,9 +7,30 @@
   import { gemDropZone } from '../state/gem-drag';
   import { unequipToBackpack } from '../state/inventory';
   import { disenchantEquipped } from '../state/disenchant';
+  import { equipFlash } from '../state/equip-feedback';
   import { bagOpen } from '../state/ui';
   import { get } from 'svelte/store';
   import { t } from '../i18n';
+
+  // Flash (bump) the slot an item was just equipped / swapped into, driven by
+  // equipFlash. The class is dropped then re-applied a frame later so the CSS
+  // animation RESTARTS on every fire - even spamming Equip / Swap into the same
+  // slot - instead of no-op'ing because the class was already present.
+  let flashingSlot = $state<EquipmentSlotId | null>(null);
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const f = $equipFlash;
+    if (!f) return;
+    void f.id; // re-run on every fire, even into the same slot
+    flashingSlot = null; // drop the class...
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        flashingSlot = f.slot; // ...then re-apply next frame so it restarts
+      }),
+    );
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => (flashingSlot = null), 520);
+  });
 
   // === Drag-to-unequip (FEATURE 5) =================================
   // A filled equipment slot is a drag SOURCE: drag it onto a backpack cell to
@@ -144,6 +165,7 @@
         type="button"
         class="slot filled"
         class:inspecting={isInspecting(slotId)}
+        class:flash={flashingSlot === slotId}
         class:gem-target={isGemTarget(item.id)}
         class:item-drop-candidate={isItemDropCandidate(slotId)}
         class:item-drop-target={isItemDropTarget(slotId)}
@@ -245,6 +267,34 @@
   .slot.filled.inspecting {
     border-color: #3cc7b8;
     box-shadow: inset 0 0 0 1px #3cc7b8;
+  }
+  /* Equip / swap feedback: the item BUMPS into its slot - a quick overshoot that
+     bounces and settles, with a brief teal flash to draw the eye. */
+  .slot.filled.flash {
+    animation: equip-bump 480ms cubic-bezier(0.34, 1.56, 0.5, 1);
+    z-index: 1;
+  }
+  @keyframes equip-bump {
+    0% {
+      transform: scale(0.78);
+      border-color: #6fe6d8;
+      box-shadow: 0 0 16px 3px rgba(60, 199, 184, 0.8);
+    }
+    55% {
+      transform: scale(1.16);
+    }
+    78% {
+      transform: scale(0.96);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(60, 199, 184, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .slot.filled.flash {
+      animation: none;
+    }
   }
   /* Live auto-socket target while a compatible gem is dragged over this
      equipped item. */

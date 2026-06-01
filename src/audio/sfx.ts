@@ -188,6 +188,17 @@ export const sfx = {
     // Panes cross during a reorder: a faint tick (fires per swap, kept tiny).
     tone({ freq: 680, dur: 0.03, type: 'sine', gain: 0.05, attack: 0.004 });
   },
+  equip(): void {
+    // Gear locks into a slot: a low thunk + a bright confirm chime.
+    tone({ freq: 300, sweepTo: 200, dur: 0.09, type: 'triangle', gain: 0.22, attack: 0.005 });
+    tone({ freq: 860, sweepTo: 1180, dur: 0.12, type: 'sine', gain: 0.18, delay: 0.05 });
+  },
+  swapItem(): void {
+    // Two items trade places in a slot: thunk, a quick return tone, then a chime.
+    tone({ freq: 300, sweepTo: 200, dur: 0.08, type: 'triangle', gain: 0.2 });
+    tone({ freq: 560, sweepTo: 820, dur: 0.1, type: 'triangle', gain: 0.18, delay: 0.06 });
+    tone({ freq: 1100, dur: 0.08, type: 'sine', gain: 0.14, delay: 0.13 });
+  },
   victory(): void {
     tone({ freq: 660, dur: 0.18, type: 'triangle', gain: 0.3 });
     tone({ freq: 880, dur: 0.18, type: 'triangle', gain: 0.3, delay: 0.16 });

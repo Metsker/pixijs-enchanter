@@ -6,7 +6,6 @@ import { gemColor, gemFitsSocketAt } from '../domain/gem-fit';
 import { equipped } from './inventory';
 import type { EquipmentSlotId } from '../domain/equipment';
 import { backpack, findBackpackItemById } from './backpack';
-import { findRewardItemById } from './rewards';
 import {
   canCombine,
   cancelHeld,
@@ -85,15 +84,14 @@ interface DragSession {
 
 let session: DragSession | null = null;
 
-// Resolve an item by id across the equipped slots, the backpack, and the
-// victory chest (reward items are editable in the Inspector), so a drop onto a
-// socket / slot can locate the live item to edit.
+// Resolve an item by id across the equipped slots and the backpack, so a drop
+// onto a socket / slot can locate the live item to edit.
 function resolveItemById(itemId: string): Item | null {
   const eq = get(equipped);
   for (const eqItem of Object.values(eq)) {
     if (eqItem && eqItem.id === itemId) return eqItem;
   }
-  return findBackpackItemById(itemId) ?? findRewardItemById(itemId);
+  return findBackpackItemById(itemId);
 }
 
 // What the gem under the pointer would do if dropped here, used both to set the

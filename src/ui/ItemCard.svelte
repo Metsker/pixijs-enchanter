@@ -4,6 +4,8 @@
   // pips - plus an optional gold price and a "selected" ring when its inspector
   // is open.
   import { itemEmoji, tierOf, type Item } from '../domain/item';
+  import { ownedContext, itemHint } from '../state/loot-hints';
+  import { t } from '../i18n';
   import SocketPips from './SocketPips.svelte';
 
   const TIER_COLORS: Record<number, string> = {
@@ -21,20 +23,29 @@
     price,
     selected = false,
     source,
+    showHint = true,
     onClick,
   }: {
     item: Item;
     price?: number;
     selected?: boolean;
     source?: string;
+    // Whether to flag this item as new / an upgrade for the player. On by
+    // default; the equipment column passes false (your own gear isn't "loot").
+    showHint?: boolean;
     onClick: () => void;
   } = $props();
+
+  // 'new' (fills an empty slot) / 'upgrade' (beats what's equipped) / null.
+  const hint = $derived(showHint ? itemHint(item, $ownedContext) : null);
 </script>
 
 <button
   type="button"
   class="item-card"
   class:selected
+  class:hint-new={hint === 'new'}
+  class:hint-upgrade={hint === 'upgrade'}
   data-inspector-source={source}
   onclick={onClick}
 >
@@ -42,6 +53,11 @@
   <span class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#5c6a6a'}">
     T{tierOf(item)}
   </span>
+  {#if hint}
+    <span class="hint-badge" title={t(`hint.item.${hint}`)} aria-label={t(`hint.item.${hint}`)}>
+      {hint === 'new' ? '✦' : '⬆'}
+    </span>
+  {/if}
   <SocketPips {item} />
   {#if price !== undefined}
     <span class="price">🪙 {price}</span>
@@ -74,6 +90,39 @@
   .item-card:focus-visible {
     outline: 2px solid #3cc7b8;
     outline-offset: 2px;
+  }
+  /* Loot hints: a coloured glow draws the eye, the corner badge says why.
+     'new' (fills an empty slot) = green; 'upgrade' (beats your gear) = amber.
+     The selected ring overrides these (it's the same border edge). */
+  .item-card.hint-new:not(.selected) {
+    border-color: #4caf6a;
+    box-shadow: 0 0 0 1px #4caf6a, 0 0 12px -2px rgba(76, 175, 106, 0.7);
+  }
+  .item-card.hint-upgrade:not(.selected) {
+    border-color: #e0a93f;
+    box-shadow: 0 0 0 1px #e0a93f, 0 0 12px -2px rgba(224, 169, 63, 0.7);
+  }
+  .hint-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    font-size: 0.8rem;
+    line-height: 1;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: 700;
+    color: #07120b;
+    pointer-events: none;
+  }
+  .item-card.hint-new .hint-badge {
+    background: #4caf6a;
+  }
+  .item-card.hint-upgrade .hint-badge {
+    background: #e0a93f;
   }
   .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;

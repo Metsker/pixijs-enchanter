@@ -15,7 +15,6 @@ import { isItem, tierOf, type Item } from '../domain/item';
 import { addGemToBackpack, backpack, removeBackpackGemById, removeItem } from './backpack';
 import { equipped, updateEquippedAt } from './inventory';
 import { heldGem } from './gem-move';
-import { pendingRewards, removeRewardItem, removeRewardGem } from './rewards';
 import { DESTROY_REFUND } from './rest';
 import { refundCrystals } from './topbar';
 import type { EquipmentSlotId } from '../domain/equipment';
@@ -45,16 +44,6 @@ export function disenchantGemFromBackpack(gemId: string): boolean {
   return true;
 }
 
-// Disenchant a loose gem in the victory chest, by instance id. Refunds crystals
-// and removes it from the chest. Returns true if a reward gem was scrapped.
-export function disenchantRewardGem(gemId: string): boolean {
-  const gem = get(pendingRewards).gems.find((g) => g.id === gemId);
-  if (!gem) return false;
-  refundCrystals(gemRefund(gem));
-  removeRewardGem(gemId);
-  return true;
-}
-
 // Disenchant the currently HELD gem (it was already lifted out of its origin by
 // the drag pickup). Refunds crystals and consumes the gem. Returns true if a
 // gem was held.
@@ -78,17 +67,6 @@ export function disenchantItemFromBackpack(index: number): boolean {
   return true;
 }
 
-// Disenchant a reward item sitting in the victory chest, by instance id (and
-// its socketed gems). Refunds crystals and pulls it from the chest. Returns
-// true if a reward item with that id was found and scrapped.
-export function disenchantRewardItem(itemId: string): boolean {
-  const item = get(pendingRewards).items.find((it) => it.id === itemId);
-  if (!item) return false;
-  refundCrystals(itemRefund(item));
-  removeRewardItem(itemId);
-  return true;
-}
-
 // --- "keep the gems" destroy --------------------------------------------
 //
 // When the player destroys an item that still holds gems, they can choose to
@@ -109,16 +87,6 @@ export function destroyBackpackItemKeepGems(index: number): boolean {
   const item = get(backpack)[index];
   if (!isItem(item)) return false;
   removeItem(index);
-  detachGemsToBackpack(item);
-  refundCrystals(bareFrameRefund(item));
-  return true;
-}
-
-// Destroy a reward-chest item but KEEP its gems (detach to the bag first).
-export function destroyRewardItemKeepGems(itemId: string): boolean {
-  const item = get(pendingRewards).items.find((it) => it.id === itemId);
-  if (!item) return false;
-  removeRewardItem(itemId);
   detachGemsToBackpack(item);
   refundCrystals(bareFrameRefund(item));
   return true;

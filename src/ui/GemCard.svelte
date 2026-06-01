@@ -6,32 +6,52 @@
   // ring while keeping the colour border.
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import type { Gem } from '../domain/gem';
+  import { ownedContext, gemHint } from '../state/loot-hints';
+  import { t } from '../i18n';
 
   let {
     gem,
     price,
     selected = false,
+    showHint = true,
     onClick,
   }: {
     gem: Gem;
     price?: number;
     selected?: boolean;
+    // Flag whether this gem combines with / fits the player's gear. On by
+    // default for loot surfaces (shop / victory / bag).
+    showHint?: boolean;
     onClick: () => void;
   } = $props();
 
   const gd = $derived(gemDisplay(gem));
+  // { combine, socket } - either, both, or neither may be set.
+  const hint = $derived(showHint ? gemHint(gem, $ownedContext) : { combine: false, socket: false });
 </script>
 
 <button
   type="button"
   class="gem-card"
   class:selected
+  class:hint-combine={hint.combine}
+  class:hint-socket={hint.socket && !hint.combine}
   style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#5c6a6a'}"
   title={gd ? `${gd.name} - ${gd.summary}` : ''}
   onclick={onClick}
 >
   <span class="emoji">{gd?.emoji ?? '💠'}</span>
   {#if gd && gd.level > 1}<span class="level">Lv{gd.level}</span>{/if}
+  {#if hint.combine || hint.socket}
+    <span class="hints">
+      {#if hint.combine}
+        <span class="hint-badge combine" title={t('hint.gem.combine')} aria-label={t('hint.gem.combine')}>⊕</span>
+      {/if}
+      {#if hint.socket}
+        <span class="hint-badge socket" title={t('hint.gem.socket')} aria-label={t('hint.gem.socket')}>◈</span>
+      {/if}
+    </span>
+  {/if}
   {#if price !== undefined}
     <span class="price">🪙 {price}</span>
   {/if}
@@ -63,6 +83,42 @@
   .gem-card:focus-visible {
     outline: 2px solid #3cc7b8;
     outline-offset: 2px;
+  }
+  /* Loot hints: an outer glow on top of the gem-colour ring. Combine (purple,
+     a level-up is possible) outranks socket (teal, it fits your gear) for the
+     glow; both badges still show. The selected ring overrides both. */
+  .gem-card.hint-combine:not(.selected) {
+    box-shadow: inset 0 0 0 1px var(--gem-color, #6ad), 0 0 12px -2px rgba(192, 132, 252, 0.85);
+  }
+  .gem-card.hint-socket:not(.selected) {
+    box-shadow: inset 0 0 0 1px var(--gem-color, #6ad), 0 0 12px -2px rgba(60, 199, 184, 0.8);
+  }
+  .hints {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    display: flex;
+    gap: 2px;
+    pointer-events: none;
+  }
+  .hint-badge {
+    font-size: 0.66rem;
+    line-height: 1;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: 700;
+  }
+  .hint-badge.combine {
+    color: #f0e0ff;
+    background: #7c3ac8;
+  }
+  .hint-badge.socket {
+    color: #04201d;
+    background: #3cc7b8;
   }
   .emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;

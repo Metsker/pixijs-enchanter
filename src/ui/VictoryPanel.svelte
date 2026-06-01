@@ -1,12 +1,17 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
   import { completeRoom, run, startNewRun } from '../state/run';
-  import { claimPendingRewards, pendingRewards } from '../state/rewards';
-  import { inspector, inspectItem, closeInspector } from '../state/inspector';
+  import { victoryHaul } from '../state/rewards';
+  import { inspector, inspectItem } from '../state/inspector';
   import { gemInspector, inspectGem } from '../state/gem-inspector';
-  import type { Item } from '../domain/item';
-  import type { Gem } from '../domain/gem';
+  import { equipped } from '../state/inventory';
+  import { backpack } from '../state/backpack';
+  import { findOwnedGemById } from '../state/gem-move';
+  import { EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
+  import { isItem, type Item } from '../domain/item';
+  import { isGem, type Gem } from '../domain/gem';
   import ItemCard from './ItemCard.svelte';
   import GemCard from './GemCard.svelte';
   import { sfx } from '../audio/sfx';
@@ -27,42 +32,66 @@
 
   const isRunComplete = $derived($run.screen === 'run-complete');
 
+  // The haul was already claimed into the bag the instant the fight was won, so
+  // there's nothing to "take" here - this panel is a read-only summary. The gold
+  // header + item / gem cards read from the snapshot; Continue just advances.
+  const haul = $derived($victoryHaul);
+
   function onContinue(): void {
-    claimPendingRewards();
     if (isRunComplete) {
       startNewRun();
       return;
     }
-    closeInspector();
-    completeRoom();
+    completeRoom(); // clears the haul (back to the map) and advances
   }
 
-  // Once every reward item and gem has been taken / equipped / scrapped, continue
-  // automatically (gold is claimed on continue). `hadRewards` guards against an
-  // immediate fire if a chest somehow had nothing to take; `continued` prevents a
-  // double-fire before the panel unmounts.
-  let hadRewards = false;
-  let continued = false;
-  $effect(() => {
-    const left = $pendingRewards.items.length + $pendingRewards.gems.length;
-    if (left > 0) {
-      hadRewards = true;
-    } else if (hadRewards && !continued) {
-      continued = true;
-      queueMicrotask(onContinue);
-    }
-  });
-
-  // Reward item card -> inspect in the rail (source 'rewards', so the inspector
-  // offers Take / Equip / Destroy). inspectItem toggles on a repeat tap.
+  // The loot already lives in the bag (or got equipped). Resolve each summary
+  // card to its live owner by id and open the right inspector there - so the
+  // summary stays interactive (equip / disenchant / socket from the bag).
   function onItemClick(item: Item): void {
-    inspectItem({ source: 'rewards', item });
+    const eq = get(equipped);
+    for (const slot of EQUIPMENT_SLOT_ORDER) {
+      const it = eq[slot];
+      if (it && it.id === item.id) {
+        inspectItem({ source: 'inventory', slotId: slot, item: it });
+        return;
+      }
+    }
+    const bag = get(backpack);
+    const idx = bag.findIndex((s) => isItem(s) && s.id === item.id);
+    if (idx !== -1) inspectItem({ source: 'backpack', index: idx, item: bag[idx] as Item });
   }
   function isItemSelected(item: Item): boolean {
-    return $inspector?.source === 'rewards' && $inspector.item.id === item.id;
+    return $inspector != null && $inspector.item.id === item.id;
+  }
+
+  // Resolve the gem to its live instance (loose in the bag, or socketed in owned
+  // gear). A gem combined away no longer resolves, so its card is inert.
+  function onGemClick(gem: Gem): void {
+    const loose = get(backpack).find((s): s is Gem => isGem(s) && s.id === gem.id);
+    const fresh = loose ?? findOwnedGemById(gem.id);
+    if (fresh) inspectGem(fresh);
   }
   function isGemSelected(gem: Gem): boolean {
     return $gemInspector?.gem.id === gem.id;
+  }
+
+  // Live status of a haul entry, so the summary distinguishes loot still sitting
+  // in the bag from loot the player has since equipped / socketed (or scrapped).
+  function itemStatus(item: Item): 'equipped' | 'bag' | 'gone' {
+    if (Object.values($equipped).some((it) => it && it.id === item.id)) return 'equipped';
+    if ($backpack.some((s) => isItem(s) && s.id === item.id)) return 'bag';
+    return 'gone';
+  }
+  function gemStatus(gem: Gem): 'socketed' | 'bag' | 'gone' {
+    if ($backpack.some((s) => isGem(s) && s.id === gem.id)) return 'bag';
+    for (const it of Object.values($equipped)) {
+      if (it && it.sockets.some((s) => s?.id === gem.id)) return 'socketed';
+    }
+    for (const s of $backpack) {
+      if (isItem(s) && s.sockets.some((g) => g?.id === gem.id)) return 'socketed';
+    }
+    return 'gone';
   }
 </script>
 
@@ -80,7 +109,7 @@
     <span class="emoji">🎁</span>
     <div class="title">
       <div class="name">{t(isRunComplete ? 'room.runComplete' : 'room.victory')}</div>
-      <div class="gold">🪙 {$pendingRewards.gold}</div>
+      <div class="gold">🪙 {haul?.gold ?? 0}</div>
     </div>
     <button type="button" class="leave" onclick={onContinue}>
       {t(isRunComplete ? 'room.newRun' : 'room.continue')}
@@ -88,27 +117,49 @@
   </header>
 
   <div class="body">
-    {#if $pendingRewards.items.length > 0}
+    <!-- Interactive summary: everything here is already in the bag. The hint
+         glow on each card flags what's worth equipping / combining / socketing;
+         tapping a card inspects the now-owned item / gem. -->
+    {#if haul && (haul.items.length > 0 || haul.gems.length > 0)}
+      <p class="claimed-note">{t('rewards.claimed')}</p>
+    {/if}
+    {#if haul && haul.items.length > 0}
       <div class="group">
         <div class="group-label">{t('rewards.items')}</div>
         <div class="cards">
-          {#each $pendingRewards.items as item (item.id)}
-            <ItemCard
-              {item}
-              source="rewards"
-              selected={isItemSelected(item)}
-              onClick={() => onItemClick(item)}
-            />
+          {#each haul.items as item (item.id)}
+            {@const st = itemStatus(item)}
+            <div class="haul-cell" class:used={st === 'equipped'} class:gone={st === 'gone'}>
+              <ItemCard
+                {item}
+                source="victory"
+                showHint={st === 'bag'}
+                selected={isItemSelected(item)}
+                onClick={() => onItemClick(item)}
+              />
+              {#if st === 'equipped'}<span class="status-tag equipped">{t('rewards.equipped')}</span>{/if}
+              {#if st === 'gone'}<span class="status-tag gone">{t('rewards.gone')}</span>{/if}
+            </div>
           {/each}
         </div>
       </div>
     {/if}
-    {#if $pendingRewards.gems.length > 0}
+    {#if haul && haul.gems.length > 0}
       <div class="group">
         <div class="group-label">{t('rewards.gems')}</div>
         <div class="cards">
-          {#each $pendingRewards.gems as gem (gem.id)}
-            <GemCard {gem} selected={isGemSelected(gem)} onClick={() => inspectGem(gem)} />
+          {#each haul.gems as gem (gem.id)}
+            {@const st = gemStatus(gem)}
+            <div class="haul-cell" class:used={st === 'socketed'} class:gone={st === 'gone'}>
+              <GemCard
+                {gem}
+                showHint={st === 'bag'}
+                selected={isGemSelected(gem)}
+                onClick={() => onGemClick(gem)}
+              />
+              {#if st === 'socketed'}<span class="status-tag socketed">{t('rewards.socketed')}</span>{/if}
+              {#if st === 'gone'}<span class="status-tag gone">{t('rewards.gone')}</span>{/if}
+            </div>
           {/each}
         </div>
       </div>
@@ -196,10 +247,61 @@
     letter-spacing: 0.06em;
     color: #6f7d7d;
   }
+  /* "Added to your bag" note - reassures that the loot is already claimed. */
+  .claimed-note {
+    margin: 0;
+    font-size: 0.82rem;
+    color: #8aa;
+    line-height: 1.35;
+  }
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 8px;
+  }
+
+  /* A haul entry: the card plus an overlaid status ribbon. The card stretches to
+     fill the grid cell; once equipped / socketed (or scrapped) the card dims so
+     the still-in-bag loot reads as the actionable set, but the ribbon stays
+     crisp on top. */
+  .haul-cell {
+    position: relative;
+    display: block;
+  }
+  .haul-cell :global(.item-card),
+  .haul-cell :global(.gem-card) {
+    width: 100%;
+  }
+  .haul-cell.used :global(.item-card),
+  .haul-cell.used :global(.gem-card) {
+    opacity: 0.6;
+  }
+  .haul-cell.gone :global(.item-card),
+  .haul-cell.gone :global(.gem-card) {
+    opacity: 0.35;
+  }
+  .status-tag {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .status-tag.equipped,
+  .status-tag.socketed {
+    color: #04201d;
+    background: #3cc7b8;
+  }
+  .status-tag.gone {
+    color: #f0c8c8;
+    background: #6a2a2a;
   }
 
   /* Continue / New Run sits in the header, styled exactly like the room panes'

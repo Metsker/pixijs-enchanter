@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store';
 import { generateMap, nodeById, resolvedKind, type MapGraph, type RoomKind } from '../domain/map';
 import { endFight, fight, grantGuaranteedDrop, startFightWith, type RoomKindLoot } from './fight';
 import { closeShop, openShopForFloor } from './shop';
-import { resetPendingRewards } from './rewards';
+import { resetPendingRewards, claimVictoryHaul, clearVictoryHaul } from './rewards';
 import { resetBackpack } from './backpack';
 import { resetEquipped } from './inventory';
 import { resetStash } from './gem-stash';
@@ -124,8 +124,11 @@ export function completeRoom(): void {
 
   const nextScreen = wasBoss ? 'run-complete' : 'map';
   // Back to the map: close every rail pane so the map shows uncluttered (panes
-  // can be reopened over the map afterwards).
+  // can be reopened over the map afterwards), and drop the victory summary (the
+  // loot was already claimed into the bag). The boss path keeps the haul so the
+  // run-complete celebration can show the final loot.
   if (nextScreen === 'map') {
+    clearVictoryHaul();
     closeInspector();
     closeGemInspector();
     closeItemsSplit();
@@ -147,6 +150,7 @@ export function startNewRun(): void {
   // and on a boss-clear, so the loot loop starts fresh each time.
   endFight();
   resetPendingRewards();
+  clearVictoryHaul();
   resetBackpack();
   resetEquipped();
   resetStash();
@@ -183,6 +187,10 @@ fight.subscribe((state) => {
       grantGuaranteedDrop(kind as RoomKindLoot);
     }
     run.update((s) => ({ ...s, fightWon: true }));
+    // Auto-claim the whole haul straight into the bag (gold credited, items +
+    // gems stashed) and snapshot it for the victory screen's interactive
+    // summary - no more "Take" step.
+    claimVictoryHaul();
   }
   // Run-lost: player HP just crossed to 0 mid-fight. The overlay
   // waits ~400ms so the Battlefield's death animation (DEATH_DURATION

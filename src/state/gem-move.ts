@@ -14,7 +14,6 @@ import {
 } from './backpack';
 import { inspector, type InspectorSubject } from './inspector';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
-import { findRewardItemById, updateRewardItemById, pendingRewards, removeRewardGem } from './rewards';
 
 // === Held-gem move / reorder ========================================
 //
@@ -106,13 +105,6 @@ export function writeItem(next: Item): Item {
   // it there. By-id so it works for any backpack item, not just the inspected
   // one, and survives backpack reorders / sorts mid-move.
   if (updateBackpackItemById(next.id, () => next)) {
-    syncInspector(next);
-    return next;
-  }
-
-  // Victory chest: a reward item being edited in the Inspector (gem transfer)
-  // persists to pendingRewards so the chest tile + claim reflect the change.
-  if (updateRewardItemById(next.id, () => next)) {
     syncInspector(next);
     return next;
   }
@@ -344,7 +336,7 @@ function findItemById(itemId: string): Item | null {
   for (const eqItem of Object.values(eq)) {
     if (eqItem && eqItem.id === itemId) return eqItem;
   }
-  return findBackpackItemById(itemId) ?? findRewardItemById(itemId);
+  return findBackpackItemById(itemId);
 }
 
 // --- direct socketing (gem inspector "Fits these items" -> Insert) ----------
@@ -352,28 +344,22 @@ function findItemById(itemId: string): Item | null {
 // A non-drag path: socket a gem straight into a target item from the gem
 // inspector, without going through heldGem (so it can never strand a held gem).
 
-// Every item the player OWNS and can edit: equipped, backpack, and the victory
-// chest. Shop / item-offer items are excluded - they aren't owned, and writeItem
-// can't persist edits to them - so the inspector only offers Insert for these.
+// Every item the player OWNS and can edit: equipped + backpack. Shop / item-
+// offer items are excluded - they aren't owned, and writeItem can't persist
+// edits to them - so the inspector only offers Insert for these.
 function ownedItems(): Item[] {
   const out: Item[] = [];
   for (const it of Object.values(get(equipped))) if (it) out.push(it);
   for (const s of get(backpack)) if (isItem(s)) out.push(s);
-  for (const it of get(pendingRewards).items) out.push(it);
   return out;
 }
 
 // Pull a gem (by instance id) out of wherever it currently lives - a loose
-// backpack gem, a loose reward-chest gem, or a socket of any owned item -
-// returning it (or null if not found). The origin store is updated in place.
+// backpack gem, or a socket of any owned item - returning it (or null if not
+// found). The origin store is updated in place.
 function takeGemFromAnySource(gemId: string): Gem | null {
   const fromBag = removeGemFromStashById(gemId);
   if (fromBag) return fromBag;
-  const rewardGem = get(pendingRewards).gems.find((g) => g.id === gemId);
-  if (rewardGem) {
-    removeRewardGem(gemId);
-    return rewardGem;
-  }
   for (const item of ownedItems()) {
     const idx = item.sockets.findIndex((s) => s?.id === gemId);
     if (idx !== -1) {
@@ -383,6 +369,19 @@ function takeGemFromAnySource(gemId: string): Gem | null {
       writeBackSockets(item, sockets);
       return gem;
     }
+  }
+  return null;
+}
+
+// Find a gem the player owns by instance id: a loose backpack gem, or one
+// socketed in any owned item. Used to refresh the gem inspector after a combine
+// and to resolve combine targets / sources.
+export function findOwnedGemById(gemId: string): Gem | null {
+  const bagGem = findBackpackGemById(gemId);
+  if (bagGem) return bagGem;
+  for (const item of ownedItems()) {
+    const g = item.sockets.find((s) => s?.id === gemId);
+    if (g) return g;
   }
   return null;
 }
@@ -409,4 +408,68 @@ export function socketGemIntoItem(gem: Gem, targetItem: Item): boolean {
   sockets[idx] = removed;
   writeBackSockets(fresh, sockets);
   return true;
+}
+
+// Socket a loose BAG gem into a SPECIFIC socket index of an owned item - the
+// non-drag path behind the item inspector's "tap an empty socket -> pick a gem"
+// dropdown. Rejected (returns false) if the gem isn't loose in the bag, the
+// target socket is filled, or the gem's colour doesn't match that socket. On
+// success the gem leaves the bag and lands in exactly that socket.
+export function socketBagGemIntoSocket(gem: Gem, targetItem: Item, index: number): boolean {
+  const color = gemColor(gem);
+  if (!color) return false;
+  const fresh = findItemById(targetItem.id) ?? targetItem;
+  if (index < 0 || index >= fresh.sockets.length) return false;
+  if (fresh.sockets[index] !== null) return false; // socket must be empty
+  if (fresh.socketColors[index] !== color) return false; // colour must match
+  const removed = removeGemFromStashById(gem.id);
+  if (!removed) return false; // not a loose bag gem
+  const sockets = fresh.sockets.slice();
+  sockets[index] = removed;
+  writeBackSockets(fresh, sockets);
+  return true;
+}
+
+// --- combine two owned gems (gem inspector "Combine to level up") -----------
+//
+// A non-drag combine: merge the gem `sourceId` INTO `targetId` (same defId,
+// distinct instances, both owned). The target's level rises by the source's
+// level and the source is consumed from wherever it lives. Mirrors the additive
+// drag-combine (combineIntoSocket / combineIntoBackpackGem) but addresses both
+// gems by id so the inspector can drive it from its "Combine" buttons.
+
+// Raise the level of the owned gem `gemId` by `plus`, wherever it lives (a loose
+// bag gem, or socketed in an owned item). Returns true if it was found + bumped.
+function bumpOwnedGemLevel(gemId: string, plus: number): boolean {
+  if (updateBackpackGemById(gemId, (g) => ({ ...g, level: gemLevel(g) + plus }))) return true;
+  for (const item of ownedItems()) {
+    const idx = item.sockets.findIndex((s) => s?.id === gemId);
+    if (idx !== -1) {
+      const sockets = item.sockets.slice();
+      const g = sockets[idx] as Gem;
+      sockets[idx] = { ...g, level: gemLevel(g) + plus };
+      writeBackSockets(item, sockets);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Combine `sourceId` into `targetId`. Returns the leveled-up target gem on
+// success (so the caller can re-point the inspector at it), or null if the
+// combine couldn't apply (different defId, missing gem, etc.). On failure no
+// state is changed; on a partial failure the pulled source is parked in the bag
+// so it is never lost.
+export function combineGems(targetId: string, sourceId: string): Gem | null {
+  if (targetId === sourceId) return null;
+  const target = findOwnedGemById(targetId);
+  const source = findOwnedGemById(sourceId);
+  if (!target || !source || target.defId !== source.defId) return null;
+  const removed = takeGemFromAnySource(sourceId);
+  if (!removed) return null;
+  if (!bumpOwnedGemLevel(targetId, gemLevel(removed))) {
+    addGemToStash(removed); // target vanished mid-combine - don't lose the source
+    return null;
+  }
+  return findOwnedGemById(targetId);
 }

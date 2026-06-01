@@ -5,7 +5,7 @@ import { topbar, type TopbarState } from './topbar';
 import { addGemToBackpack, addItem, backpack, type BackpackSlot } from './backpack';
 import { equipped, type EquippedItems } from './inventory';
 import { EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
-import { pendingRewards, type PendingRewards } from './rewards';
+import { pendingRewards, victoryHaul, claimVictoryHaul, type PendingRewards } from './rewards';
 import { shopStock } from './shop';
 import { itemOffer, type ItemOffer } from './item-offer';
 import type { Gem, SocketColor } from '../domain/gem';
@@ -35,6 +35,9 @@ interface SaveSnapshot {
   // New saves omit it; loadSave folds any present entries into the backpack.
   gemStash?: Gem[];
   pendingRewards: PendingRewards;
+  // The claimed victory summary (loot already folded into the bag). Optional:
+  // pre-instant-claim saves omit it and are migrated on load.
+  victoryHaul?: PendingRewards | null;
   shopStock: ShopStock | null;
   itemOffer: ItemOffer | null;
 }
@@ -48,6 +51,7 @@ function snapshot(): SaveSnapshot {
     backpack: get(backpack),
     equipped: get(equipped),
     pendingRewards: get(pendingRewards),
+    victoryHaul: get(victoryHaul),
     shopStock: get(shopStock),
     itemOffer: get(itemOffer),
   };
@@ -137,6 +141,19 @@ export function loadSave(): boolean {
     // Backfill the gems arrays for pre-gem-loot saves so the chest / shop
     // never iterate an undefined list.
     pendingRewards.set({ ...data.pendingRewards, gems: data.pendingRewards?.gems ?? [] });
+    // Victory summary: new saves carry it directly. Pre-instant-claim saves
+    // (victoryHaul absent) stored UNCLAIMED loot in pendingRewards; if such a
+    // save is mid-victory, fold that loot into the bag now (claiming it as it
+    // would have been on Continue) so nothing is stranded by the model change.
+    if (data.victoryHaul === undefined) {
+      const onVictory =
+        data.run?.screen === 'run-complete' ||
+        (data.run?.screen === 'fight' && data.run?.fightWon === true);
+      if (onVictory) claimVictoryHaul();
+      else victoryHaul.set(null);
+    } else {
+      victoryHaul.set(data.victoryHaul);
+    }
     shopStock.set(data.shopStock ? { ...data.shopStock, gems: data.shopStock.gems ?? [] } : null);
     itemOffer.set(data.itemOffer);
     // Older v2 saves predate run-locked difficulty; default to normal so
@@ -182,6 +199,7 @@ export function startAutoSave(): void {
   backpack.subscribe(scheduleSave);
   equipped.subscribe(scheduleSave);
   pendingRewards.subscribe(scheduleSave);
+  victoryHaul.subscribe(scheduleSave);
   shopStock.subscribe(scheduleSave);
   itemOffer.subscribe(scheduleSave);
 

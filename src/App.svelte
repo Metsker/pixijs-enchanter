@@ -698,6 +698,15 @@
      (z-index 0) that fills the stage behind it. */
   .stage.flow .rail {
     position: relative;
+    /* In flow mode the rail is a full-height flex child, so the base rule's
+       `top: var(--topbar-h)` (an absolute offset to clear the floating top bar)
+       turns into a RELATIVE shift that pushes the rail's bottom var(--topbar-h)
+       past the viewport - clipping the bottom of every pane, e.g. the Inspector's
+       Equip / Buy footer. Clear it the in-flow way: a margin to drop below the bar
+       and a matching height reduction so the rail still ends at the stage bottom. */
+    top: 0;
+    margin-top: var(--topbar-h);
+    height: calc(100% - var(--topbar-h));
     flex: 1 1 auto;
     max-width: none;
   }

@@ -6,48 +6,43 @@
   import { addSocketCost, addSocketToItem, canAddSocket } from '../state/rest';
   import { topbar } from '../state/topbar';
   import {
-    canEquipDirect,
     equipFromBackpack,
-    equipItemDirect,
     equipped,
     unequipToBackpack,
   } from '../state/inventory';
-  import { addItem, backpack } from '../state/backpack';
+  import { backpack } from '../state/backpack';
   import {
-    buyAndEquipItem,
     buyItem,
-    canBuyAndEquipItem,
     canBuyItem,
     sellItemFromBackpack,
     shopStock,
   } from '../state/shop';
   import { itemSellValue } from '../domain/shop';
-  import { removeRewardItem, pendingRewards } from '../state/rewards';
   import { canPickItem, pickItem } from '../state/item-offer';
   import {
-    isItem,
     itemEmoji,
     legalEquipmentSlots,
     tierOf,
     type Item,
   } from '../domain/item';
-  import { type Gem, type SocketColor } from '../domain/gem';
+  import { isGem, type Gem, type SocketColor } from '../domain/gem';
   import { seededSocketColorForType } from '../domain/random';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { computeBindings } from '../domain/gem-resolution';
-  import { gemFitsSocketAt } from '../domain/gem-fit';
-  import { cancelHeld, heldGem } from '../state/gem-move';
+  import { gemFitsSocketAt, gemColor } from '../domain/gem-fit';
+  import { cancelHeld, heldGem, socketBagGemIntoSocket, unsocketGemToBag } from '../state/gem-move';
+  import { clickOutside } from '../utils/clickOutside';
   import { startGemDrag, gemDropZone, isGemDragActive } from '../state/gem-drag';
   import { inspectGem, gemInspector } from '../state/gem-inspector';
   import {
-    disenchantRewardItem,
-    destroyRewardItemKeepGems,
     disenchantItemFromBackpack,
     destroyBackpackItemKeepGems,
     disenchantEquipped,
     itemRefund,
   } from '../state/disenchant';
   import { requestDestroy } from '../state/destroy-prompt';
+  import { flashEquipSlot } from '../state/equip-feedback';
+  import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
   import { revealInRail } from '../utils/revealInRail';
 
@@ -96,14 +91,52 @@
 
   // === Interactive sockets + binding hints =========================
   // Socket editing is only meaningful when the player OWNS the item - i.e.
-  // it is equipped or sits in the backpack. Shop / rewards / item-offer
-  // items are previews; their sockets stay read-only.
+  // it is equipped or sits in the backpack. Shop / item-offer items are
+  // previews; their sockets stay read-only.
   const socketsEditable = $derived(
     subject !== null &&
-      (subject.source === 'inventory' ||
-        subject.source === 'backpack' ||
-        subject.source === 'rewards'),
+      (subject.source === 'inventory' || subject.source === 'backpack'),
   );
+
+  // === Empty-socket gem picker =====================================
+  // Tapping an EMPTY socket of an owned item opens an inline dropdown of every
+  // loose bag gem whose colour fits that socket; picking one sockets it there.
+  // `socketMenu` holds the open socket's index (for the inspected item), or null.
+  let socketMenu = $state<number | null>(null);
+  function closeSocketMenu(): void {
+    socketMenu = null;
+  }
+  // Loose bag gems that fit a socket of the given colour, in bag order.
+  function pickerGems(color: SocketColor): Gem[] {
+    return $backpack.filter((s): s is Gem => isGem(s) && gemColor(s) === color);
+  }
+  function onPickGem(picked: Gem, index: number): void {
+    const subj = $inspector;
+    if (!subj) return;
+    // "Change": if the socket is occupied, free it first (its gem returns to the
+    // bag), then drop the picked gem into the now-empty socket.
+    if (subj.item.sockets[index]) unsocketGemToBag(subj.item, index);
+    if (socketBagGemIntoSocket(picked, subj.item, index)) closeSocketMenu();
+  }
+  // The per-socket "change" (⇄): open the same bag-gem picker on a FILLED
+  // socket to swap its gem for another. Toggles like tapping an empty socket.
+  function onChangeSocket(index: number): void {
+    socketMenu = socketMenu === index ? null : index;
+  }
+  // Inline unsocket (the per-socket ✕): pull the gem out of socket `index` of
+  // the inspected item straight into the bag. The item re-derives in place.
+  function onUnsocketAt(colItem: Item, index: number): void {
+    unsocketGemToBag(colItem, index);
+  }
+  // Close the picker whenever the inspected item changes (switching subjects).
+  let lastPickerItemId: string | null = null;
+  $effect(() => {
+    const id = subject?.item.id ?? null;
+    if (id !== lastPickerItemId) {
+      lastPickerItemId = id;
+      socketMenu = null;
+    }
+  });
 
   // === Add socket (FEATURE 3) ======================================
   // Only at Rest, only for an OWNED item (equipped / backpack), only while it
@@ -161,11 +194,19 @@
   // Empty sockets are always inert.
   function onSocketPointerDown(e: PointerEvent, item: Item, index: number): void {
     const gem = item.sockets[index];
-    if (!gem) return;
+    if (!gem) {
+      // Empty socket on an OWNED item: toggle the gem picker for it. (A read-only
+      // preview's empty socket stays inert.)
+      if (socketsEditable && item.id === subject?.item.id) {
+        socketMenu = socketMenu === index ? null : index;
+      }
+      return;
+    }
     if (!socketsEditable) {
       inspectGem(gem);
       return;
     }
+    socketMenu = null; // starting a drag closes any open picker
     startGemDrag({ kind: 'socket', item, index }, e, () => inspectGem(gem));
   }
 
@@ -194,23 +235,20 @@
   }
 
   // === Equip / Unequip CTA =========================================
-  // A reward equip "swaps" when the item's legal slots are all occupied, so
-  // equipping it must displace existing gear. Drives the Equip/Swap label.
-  const rewardWouldSwap = $derived.by((): boolean => {
-    const s = subject;
-    if (!s || s.source !== 'rewards') return false;
-    const legal = legalEquipmentSlots(s.item);
-    return legal.length > 0 && legal.every((slot) => $equipped[slot] !== null);
-  });
-
+  // Equipping an item whose (single) legal slot is already occupied displaces
+  // the occupant, so the action reads as "Swap" rather than "Equip".
+  function wouldSwap(it: Item): boolean {
+    const slots = legalEquipmentSlots(it);
+    return slots.length > 0 && slots.every((slot) => $equipped[slot] !== null);
+  }
   const ctaLabel = $derived.by(() => {
     const s = subject;
     if (!s) return '';
-    if (s.source === 'rewards') {
-      return rewardWouldSwap ? t('inspector.swap') : t('inspector.equip');
+    if (s.source === 'backpack') {
+      return wouldSwap(s.item) ? t('inspector.swap') : t('inspector.equip');
     }
-    if (s.source === 'backpack' || s.source === 'item-offer') {
-      return t('inspector.equip');
+    if (s.source === 'item-offer') {
+      return wouldSwap(s.item) ? t('inspector.swap') : t('inspector.equip');
     }
     if (s.source === 'inventory') return t('inspector.unequip');
     return t('inspector.buy', { price: s.price });
@@ -239,9 +277,6 @@
       if (!r.ok && r.reasonKey) return t(r.reasonKey);
       if (!r.ok) return '';
     }
-    if (s.source === 'rewards') {
-      if (!canEquipDirect(s.item)) return t('inspector.cta.backpackFull');
-    }
     if (s.source === 'item-offer') {
       if (!canPickItem(s.index)) return t('inspector.cta.backpackFull');
     }
@@ -252,38 +287,19 @@
     const subject = $inspector;
     if (!subject) return;
     if (subject.source === 'backpack') {
-      const landedSlot = equipFromBackpack(subject.index);
-      if (landedSlot !== null) {
-        const newItem = get(equipped)[landedSlot];
-        if (newItem) {
-          inspector.set({ source: 'inventory', slotId: landedSlot, item: newItem });
-        }
-        queueMicrotask(() => {
-          document
-            .querySelector<HTMLElement>(`.inventory [data-slot-id="${landedSlot}"]`)
-            ?.focus();
-        });
+      // Equip from the bag, then close - the player is done with this item once
+      // it's on (re-open it from the equipment slot to keep tinkering).
+      const swap = wouldSwap(subject.item);
+      const landed = equipFromBackpack(subject.index);
+      if (landed !== null) {
+        if (swap) sfx.swapItem();
+        else sfx.equip();
+        flashEquipSlot(landed);
+        closeInspector();
       }
     } else if (subject.source === 'inventory') {
-      const landedIndex = unequipToBackpack(subject.slotId);
-      if (landedIndex !== -1) {
-        const newItem = get(backpack)[landedIndex];
-        if (isItem(newItem)) {
-          inspector.set({ source: 'backpack', index: landedIndex, item: newItem });
-        }
-        queueMicrotask(() => {
-          document
-            .querySelector<HTMLElement>(`.bag-items [data-cell-index="${landedIndex}"]`)
-            ?.focus();
-        });
-      }
-    } else if (subject.source === 'rewards') {
-      const landedSlot = equipItemDirect(subject.item);
-      if (landedSlot !== null) {
-        removeRewardItem(subject.item.id);
-        // Keep working the chest: move to the next reward (or close if empty).
-        inspectNextReward();
-      }
+      // Unequip to the bag, then close.
+      if (unequipToBackpack(subject.slotId) !== -1) closeInspector();
     } else if (subject.source === 'item-offer') {
       const landed = pickItem(subject.index);
       if (landed !== null) completeRoom();
@@ -292,82 +308,6 @@
     }
   }
 
-  // After acting on a chest item (equip / take / destroy), keep working the
-  // chest: jump the Inspector to the next reward, or close it if the chest is
-  // now empty. The acted item must already be removed from pendingRewards.
-  function inspectNextReward(): void {
-    const items = get(pendingRewards).items;
-    if (items.length > 0) inspector.set({ source: 'rewards', item: items[0] });
-    else closeInspector();
-  }
-
-  // Rewards-only secondary CTA: "Take" the reward item straight into the
-  // Backpack (instead of equipping it). Disabled when the bag is full.
-  const takeDisabledReason = $derived.by((): string | null => {
-    const s = subject;
-    if (!s || s.source !== 'rewards') return null;
-    if (!$backpack.includes(null)) return t('inspector.cta.backpackFull');
-    return null;
-  });
-
-  function handleTake(): void {
-    const subject = $inspector;
-    if (!subject || subject.source !== 'rewards') return;
-    const landed = addItem(subject.item);
-    if (landed === -1) return; // bag full - leave it in the chest
-    removeRewardItem(subject.item.id);
-    inspectNextReward();
-  }
-
-  // Rewards-only: scrap the chest item for crystals instead of taking it.
-  function handleDestroy(): void {
-    const subject = $inspector;
-    if (!subject || subject.source !== 'rewards') return;
-    const item = subject.item;
-    // If it still holds gems, ask whether to keep them (detach to the bag) or
-    // scrap everything; otherwise destroy straight away.
-    if (item.sockets.some((g) => g !== null)) {
-      requestDestroy({
-        item,
-        onKeepGems: () => {
-          if (destroyRewardItemKeepGems(item.id)) inspectNextReward();
-        },
-        onDestroyAll: () => {
-          if (disenchantRewardItem(item.id)) inspectNextReward();
-        },
-      });
-      return;
-    }
-    if (disenchantRewardItem(item.id)) inspectNextReward();
-  }
-
-  // Shop-only secondary CTA: take the item straight to the Inventory,
-  // skipping the Backpack entirely.
-  const buyAndEquipDisabledReason = $derived.by((): string | null => {
-    const s = subject;
-    if (!s || s.source !== 'shop') return null;
-    const r = canBuyAndEquipItem(s.index);
-    if (!r.ok && r.reasonKey) return t(r.reasonKey);
-    if (!r.ok) return '';
-    return null;
-  });
-
-  function handleBuyAndEquip(): void {
-    const subject = $inspector;
-    if (!subject || subject.source !== 'shop') return;
-    const landed = buyAndEquipItem(subject.index);
-    if (landed !== null) {
-      const newItem = get(equipped)[landed];
-      if (newItem) {
-        inspector.set({ source: 'inventory', slotId: landed, item: newItem });
-      }
-      queueMicrotask(() => {
-        document
-          .querySelector<HTMLElement>(`.inventory [data-slot-id="${landed}"]`)
-          ?.focus();
-      });
-    }
-  }
 
   // Disenchant / Sell are now per-item buttons on owned items (equipped /
   // backpack), replacing the bag's old trash + sell drop-zones.
@@ -470,6 +410,12 @@
       {@const incompatible = colEditable && $heldGem !== null && !fitsThis}
       {@const armed = isArmedSocket(colItem.id, i)}
       {@const isSelected = gem !== null && $gemInspector?.gem.id === gem.id}
+      {@const addHint =
+        gem === null &&
+        colEditable &&
+        colItem.id === item.id &&
+        socketMenu !== i &&
+        pickerGems(colItem.socketColors[i]).length > 0}
       <button
         type="button"
         class="socket"
@@ -481,6 +427,7 @@
         class:drop-target={dropTarget}
         class:armed
         class:selected={isSelected}
+        class:add-hint={addHint}
         class:incompatible
         class:held-origin={isHeldOrigin}
         class:interactive={colEditable || d !== null}
@@ -490,10 +437,10 @@
         data-item-id={colItem.id}
         data-socket-index={i}
         style="--socket-color: {socketHex}"
-        title={socketTitle(d, !!$heldGem, dropTarget, incompatible)}
+        title={addHint ? t('inspector.socket.addAvailable') : socketTitle(d, !!$heldGem, dropTarget, incompatible)}
         onpointerdown={(e) => onSocketPointerDown(e, colItem, i)}
       >
-        <span class="socket-emoji">{d ? d.emoji : '·'}</span>
+        <span class="socket-emoji">{d ? d.emoji : addHint ? '+' : '·'}</span>
         <span class="socket-info">
           {#if d}
             <span class="socket-name">
@@ -508,6 +455,8 @@
             {:else if inert}
               <span class="socket-bind inert-note">{t('inspector.socket.inert')}</span>
             {/if}
+          {:else if addHint}
+            <span class="socket-name add">{t('inspector.socket.addAvailable')}</span>
           {:else}
             <span class="socket-name empty">{t('inspector.socket.empty')}</span>
           {/if}
@@ -522,6 +471,66 @@
       </button>
     {/snippet}
 
+    <!-- Inline actions on a FILLED socket of an owned item: "change" (⇄, opens
+         the bag-gem picker to swap the gem) then "unsocket" (✕, pulls the gem
+         back into the bag). Neither opens the gem inspector. -->
+    {#snippet socketActions(colItem: Item, index: number)}
+      <button
+        type="button"
+        class="socket-act change"
+        data-socket-change
+        aria-label={t('inspector.changeGem')}
+        title={t('inspector.changeGem')}
+        onclick={() => onChangeSocket(index)}
+      >⇄</button>
+      <button
+        type="button"
+        class="socket-act unsocket-btn"
+        aria-label={t('inspector.unsocket')}
+        title={t('inspector.unsocket')}
+        onclick={() => onUnsocketAt(colItem, index)}
+      >✕</button>
+    {/snippet}
+
+    <!-- Gem picker: opened by tapping an EMPTY socket of an owned item. Lists
+         every loose bag gem whose colour fits that socket; picking one sockets
+         it there. Closes on pick / outside click / re-tapping the socket. -->
+    {#snippet socketPicker(index: number)}
+      {@const color = item.socketColors[index]}
+      {@const gems = pickerGems(color)}
+      <div
+        class="socket-picker"
+        style="--socket-color: {SOCKET_COLOR_HEX[color] ?? '#5c6a6a'}"
+        use:clickOutside={{
+          onOutside: closeSocketMenu,
+          ignoreSelectors: ['[data-gem-socket]', '[data-socket-change]'],
+        }}
+      >
+        {#if gems.length === 0}
+          <div class="picker-empty">{t('inspector.socketPicker.empty')}</div>
+        {:else}
+          <div class="picker-head">
+            {item.sockets[index]
+              ? t('inspector.socketPicker.swap')
+              : t('inspector.socketPicker.title')}
+          </div>
+          {#each gems as g (g.id)}
+            {@const gd = display(g)}
+            <button type="button" class="picker-gem" onclick={() => onPickGem(g, index)}>
+              <span class="picker-emoji">{gd?.emoji ?? '💎'}</span>
+              <span class="picker-info">
+                <span class="picker-name">
+                  {gd?.name ?? g.defId}
+                  {#if (gd?.level ?? 1) > 1}<span class="gem-level">Lv{gd?.level}</span>{/if}
+                </span>
+                <span class="picker-summary">{gd?.summary ?? ''}</span>
+              </span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+    {/snippet}
+
     <!-- Normal: a single labelled column of the item's sockets. -->
     {#snippet socketColumn(colItem: Item, colEditable: boolean, label: string)}
       {@const colBindings = computeBindings(colItem.sockets)}
@@ -530,7 +539,15 @@
         <div class="sockets">
           {#each colItem.sockets as _gem, i (i)}
             <div class="socket-row">
-              {@render socketCell(colItem, colEditable, colBindings, i)}
+              <div class="socket-line">
+                {@render socketCell(colItem, colEditable, colBindings, i)}
+                {#if colEditable && colItem.id === item.id && colItem.sockets[i]}
+                  {@render socketActions(colItem, i)}
+                {/if}
+              </div>
+              {#if colEditable && colItem.id === item.id && socketMenu === i}
+                {@render socketPicker(i)}
+              {/if}
             </div>
           {/each}
         </div>
@@ -548,7 +565,15 @@
           <div class="compare-pair">
             {#if i < item.sockets.length}
               <div class="socket-row">
-                {@render socketCell(item, socketsEditable, selBindings, i)}
+                <div class="socket-line">
+                  {@render socketCell(item, socketsEditable, selBindings, i)}
+                  {#if socketsEditable && item.sockets[i]}
+                    {@render socketActions(item, i)}
+                  {/if}
+                </div>
+                {#if socketsEditable && socketMenu === i}
+                  {@render socketPicker(i)}
+                {/if}
               </div>
             {/if}
             {#if i < equipped.sockets.length}
@@ -592,37 +617,8 @@
 
     </div>
 
-    {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'rewards' || subject.source === 'item-offer'}
+    {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'item-offer'}
       <footer class="footer">
-        {#if subject.source === 'rewards'}
-          <!-- Victory chest: "Destroy" (scrap for crystals) above "Take" (to
-               the bag) above "Equip" / "Swap". -->
-          <button
-            type="button"
-            class="cta danger"
-            onclick={handleDestroy}
-          >
-            {t('inspector.destroy')} · 💎 {itemRefund(subject.item)}
-          </button>
-          <button
-            type="button"
-            class="cta"
-            disabled={takeDisabledReason !== null}
-            title={takeDisabledReason ?? ''}
-            onclick={handleTake}
-          >
-            {t('inspector.take')}
-          </button>
-          <button
-            type="button"
-            class="cta secondary"
-            disabled={ctaDisabledReason !== null}
-            title={ctaDisabledReason ?? ''}
-            onclick={handleCta}
-          >
-            {ctaLabel}
-          </button>
-        {:else}
           <button
             type="button"
             class="cta"
@@ -632,17 +628,6 @@
           >
             {ctaLabel}
           </button>
-          {#if subject.source === 'shop'}
-            <button
-              type="button"
-              class="cta secondary"
-              disabled={buyAndEquipDisabledReason !== null}
-              title={buyAndEquipDisabledReason ?? ''}
-              onclick={handleBuyAndEquip}
-            >
-              {t('inspector.buyAndEquip', { price: subject.price })}
-            </button>
-          {/if}
           {#if owned}
             <!-- Per-item Disenchant / Sell (replacing the bag's old drop-zones).
                  Sell only while a shop is open, and only for backpack items
@@ -656,7 +641,6 @@
               {t('inspector.disenchant', { refund: itemRefund(item) })}
             </button>
           {/if}
-        {/if}
       </footer>
     {/if}
   </aside>
@@ -785,11 +769,61 @@
     flex-direction: column;
     gap: 4px;
   }
-  /* Row wrapper around a single socket button. */
+  /* Row wrapper around a single socket button (+ its inline unsocket ✕ and the
+     gem picker that drops below it). */
   .socket-row {
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  /* The socket button and its unsocket ✕ sit side by side; the picker (a
+     sibling below) spans the full width. */
+  .socket-line {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .socket-line .socket {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* Inline socket actions: slim full-height buttons to the right of a filled
+     socket - "change" (⇄, swap the gem) then "unsocket" (✕). */
+  .socket-act {
+    flex: 0 0 auto;
+    width: 30px;
+    appearance: none;
+    border: 1px solid #28383d;
+    border-radius: 6px;
+    background: #0c1517;
+    color: #9fb0b0;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+  }
+  .socket-act:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  .socket-act.change:hover {
+    background: #102a28;
+    border-color: #3cc7b8;
+    color: #8fe6dc;
+  }
+  /* Unsocket reads as a (mild) removal: red on hover. */
+  .socket-act.unsocket-btn {
+    border-color: #3a2326;
+    background: #160d0f;
+    color: #d98a8a;
+  }
+  .socket-act.unsocket-btn:hover {
+    background: #2a1417;
+    border-color: #c44;
+    color: #f0a8a8;
   }
   .socket {
     width: 100%;
@@ -833,6 +867,37 @@
   .socket.selected {
     box-shadow: inset 0 0 0 2px #3cc7b8;
     opacity: 1;
+  }
+  /* Empty socket with a fitting bag gem available: a teal pulse + "+" so it's
+     obvious you can add one here (tap opens the picker). Recolours only the
+     top/right/bottom edges, leaving the socket-colour left edge intact. */
+  .socket.add-hint {
+    opacity: 1;
+    border-top-color: #2f6f69;
+    border-right-color: #2f6f69;
+    border-bottom-color: #2f6f69;
+    animation: socket-add-pulse 1.8s ease-in-out infinite;
+  }
+  .socket.add-hint .socket-emoji {
+    color: #3cc7b8;
+    font-weight: 700;
+  }
+  .socket-name.add {
+    color: #8fe6dc;
+  }
+  @keyframes socket-add-pulse {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 1px rgba(60, 199, 184, 0.3);
+    }
+    50% {
+      box-shadow: inset 0 0 0 1px rgba(60, 199, 184, 0.75), 0 0 8px -2px rgba(60, 199, 184, 0.55);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .socket.add-hint {
+      animation: none;
+    }
   }
   /* Hover recolours only the top/right/bottom edges so the gem's colour
      left-border is never hidden. */
@@ -949,6 +1014,84 @@
     color: #cfe6ff;
     background: rgba(102, 170, 221, 0.18);
     border: 1px solid #6ad;
+  }
+
+  /* Empty-socket gem picker: an inline dropdown under the tapped socket listing
+     the loose bag gems that fit it. In-flow (not absolute) so it never clips
+     against the scrolling body; the socket-colour accent ties it to its socket. */
+  .socket-picker {
+    margin: 2px 0 2px 8px;
+    border: 1px solid #28383d;
+    border-left: 3px solid var(--socket-color, #5c6a6a);
+    border-radius: 8px;
+    background: #0a1214;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .picker-head {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6f7d7d;
+    padding: 2px 4px;
+  }
+  .picker-empty {
+    font-size: 0.82rem;
+    color: #647171;
+    padding: 6px 4px;
+    line-height: 1.35;
+  }
+  .picker-gem {
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid #18262a;
+    border-radius: 6px;
+    background: #0c1517;
+    color: inherit;
+    cursor: pointer;
+    min-height: 40px;
+    transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .picker-gem:hover {
+    background: #122019;
+    border-color: #4caf6a;
+  }
+  .picker-gem:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  .picker-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.3rem;
+    line-height: 1;
+    justify-self: center;
+  }
+  .picker-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .picker-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #dde7e7;
+  }
+  .picker-summary {
+    font-size: 0.8rem;
+    color: #91a1a1;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* Add-socket action (Rest only). Crystal-tinted to read as a tier upgrade,

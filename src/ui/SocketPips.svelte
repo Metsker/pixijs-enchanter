@@ -5,10 +5,13 @@
   import type { Item } from '../domain/item';
   import { SOCKET_COLOR_HEX } from '../domain/gem-display';
 
-  let { item }: { item: Item } = $props();
+  // `inline` lays the pips out in normal flow (a left gutter in a list row)
+  // instead of absolutely-positioned over a square tile; the bars themselves
+  // look identical either way.
+  let { item, inline = false }: { item: Item; inline?: boolean } = $props();
 </script>
 
-<span class="pips" aria-hidden="true">
+<span class="pips" class:inline aria-hidden="true">
   {#each item.socketColors as color, i (i)}
     <span
       class="pip"
@@ -28,6 +31,14 @@
     flex-direction: column;
     gap: 2px;
     pointer-events: none;
+  }
+  /* In-flow variant for the bag list's left gutter. */
+  .pips.inline {
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    align-items: center;
   }
   .pip {
     width: 7px;
