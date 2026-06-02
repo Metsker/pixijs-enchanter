@@ -155,6 +155,12 @@ export const sfx = {
     tone({ freq: 1320, dur: 0.07, type: 'triangle', gain: 0.3 });
     tone({ freq: 1760, dur: 0.09, type: 'triangle', gain: 0.25, delay: 0.07 });
   },
+  crystal(): void {
+    // Crystal chime: glassier + airier than the coin (pure sines, brighter
+    // notes) so earned crystals read distinct from gold.
+    tone({ freq: 1568, dur: 0.08, type: 'sine', gain: 0.24 });
+    tone({ freq: 2349, dur: 0.13, type: 'sine', gain: 0.17, delay: 0.06 });
+  },
   heal(): void {
     tone({ freq: 660, sweepTo: 990, dur: 0.14, type: 'sine', gain: 0.25 });
   },

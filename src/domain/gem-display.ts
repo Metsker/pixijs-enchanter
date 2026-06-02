@@ -125,7 +125,9 @@ function targetPhrase(proc: ProcDef): string {
 function triggerPhrase(trigger: ProcTrigger, cooldownSec: number): string {
   switch (trigger) {
     case 'timer':
-      return `Every ${cooldownSec}s:`;
+      // cooldownSec is leveled (cooldownAt), so it can land on a float like
+      // 4.3349999999999999 - round it the same way as the multiplier knobs.
+      return `Every ${num(cooldownSec)}s:`;
     case 'continuous':
       return 'Continuous:';
     case 'on-kill':
@@ -146,7 +148,7 @@ function payloadPhrase(payload: ProcPayload, proc: ProcDef): string {
     case 'shield':
       return `shield ${pct(payload.fraction)} max HP`;
     case 'buff':
-      return `+${pct(payload.attackSpeedAdd)} attack speed for ${payload.durationSec}s`;
+      return `+${pct(payload.attackSpeedAdd)} attack speed for ${num(payload.durationSec)}s`;
     case 'gold':
       return `${pct(payload.chance)} chance for bonus gold`;
   }

@@ -40,11 +40,51 @@
     }, 320);
     goldDisplay.set(target);
   });
+
+  // Crystals count up the same way as gold (smooth tween + a pop at the start
+  // of the change), with a crystal chime on a gain. Round on render so whole
+  // crystals show throughout the tween.
+  const crystalDisplay = tweened(get(topbar).crystals, { duration: 800, easing: cubicOut });
+  let crystalPop = $state(false);
+  let prevCrystalTarget = get(topbar).crystals;
+  let crystalPopTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const target = $topbar.crystals;
+    if (target === prevCrystalTarget) return;
+    const increased = target > prevCrystalTarget;
+    prevCrystalTarget = target;
+    if (crystalPopTimer) clearTimeout(crystalPopTimer);
+    crystalPop = true;
+    if (increased) sfx.crystal();
+    crystalPopTimer = setTimeout(() => {
+      crystalPop = false;
+      crystalPopTimer = null;
+    }, 320);
+    crystalDisplay.set(target);
+  });
 </script>
 
 <header class="topbar">
-  <!-- LEFT: panel toggles + settings. -->
+  <!-- LEFT: the gold / crystal counters, then run progress. -->
   <div class="zone left">
+    <div class="counter gold" class:pop={goldPop} title={t('topbar.gold')}>
+      <span class="emoji">🪙</span>
+      <span class="value">{Math.round($goldDisplay)}</span>
+    </div>
+    <div class="counter crystal" class:pop={crystalPop} title={t('topbar.crystals')}>
+      <span class="emoji">💎</span>
+      <span class="value">{Math.round($crystalDisplay)}</span>
+    </div>
+    <div class="progress">
+      {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
+    </div>
+  </div>
+
+  <!-- CENTER: the equipment row, pinned to the exact centre of the screen. -->
+  <InventoryColumn />
+
+  <!-- RIGHT: the bag / gems / stats toggles + settings. -->
+  <div class="zone right">
     <button
       type="button"
       class="backpack-toggle"
@@ -90,24 +130,6 @@
       <span class="emoji">⚙️</span>
     </button>
   </div>
-
-  <!-- CENTER: the equipment row, pinned to the exact centre of the screen. -->
-  <InventoryColumn />
-
-  <!-- RIGHT: run progress + the gold / crystal counters. -->
-  <div class="zone right">
-    <div class="progress">
-      {t('topbar.actFloor', { act: $topbar.act, floor: $topbar.floor })}
-    </div>
-    <div class="counter gold" class:pop={goldPop} title={t('topbar.gold')}>
-      <span class="emoji">🪙</span>
-      <span class="value">{Math.round($goldDisplay)}</span>
-    </div>
-    <div class="counter" title={t('topbar.crystals')}>
-      <span class="emoji">💎</span>
-      <span class="value">{$topbar.crystals}</span>
-    </div>
-  </div>
 </header>
 
 <style>
@@ -146,13 +168,15 @@
     align-items: center;
     min-width: 0;
   }
+  /* Left: run progress + the gold / crystal counters. */
   .zone.left {
     justify-self: start;
-    gap: 0.5rem;
+    gap: 1.25rem;
   }
+  /* Right: the bag / gems / stats / settings toggles, tight like a button group. */
   .zone.right {
     justify-self: end;
-    gap: 1.25rem;
+    gap: 0.5rem;
   }
 
   /* Tighter spacing on landscape-mobile so the groups stay on one row. */
@@ -161,7 +185,7 @@
       gap: 0.5rem;
       padding: 0 0.5rem;
     }
-    .zone.right {
+    .zone.left {
       gap: 0.75rem;
     }
   }
@@ -188,13 +212,22 @@
     transform-origin: center;
   }
 
-  .counter.gold.pop .value {
-    animation: gold-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Count-up pop, shared by the gold + crystal counters. The mid-frame accent
+     (colour + glow) is driven per-counter by --pop-color / --pop-glow so gold
+     flashes warm and crystals flash cool through one keyframe. */
+  .counter.pop .value,
+  .counter.pop .emoji {
+    animation: counter-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .counter.gold.pop .emoji {
-    animation: gold-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  .counter.gold {
+    --pop-color: #ffe066;
+    --pop-glow: rgba(255, 204, 68, 0.85);
   }
-  @keyframes gold-pop {
+  .counter.crystal {
+    --pop-color: #7fe8ff;
+    --pop-glow: rgba(96, 210, 255, 0.85);
+  }
+  @keyframes counter-pop {
     0% {
       transform: scale(1);
       color: #c0cdcd;
@@ -202,8 +235,8 @@
     }
     45% {
       transform: scale(1.35);
-      color: #ffe066;
-      text-shadow: 0 0 14px rgba(255, 204, 68, 0.85);
+      color: var(--pop-color, #ffe066);
+      text-shadow: 0 0 14px var(--pop-glow, rgba(255, 204, 68, 0.85));
     }
     100% {
       transform: scale(1);

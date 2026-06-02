@@ -303,6 +303,51 @@
     }
   }
 
+  // Briefly PULSE a pane to catch the eye - used when an already-open inspector
+  // RETARGETS to a different subject (the player clicked a new item / gem while
+  // it was open). The pane stays exactly where it is; a quick teal ring just
+  // flags that its contents changed. The class is dropped + reflowed + re-added
+  // so the pulse restarts even on rapid back-to-back retargets.
+  const attentionTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+  function flashPaneAttention(key: PanelKey): void {
+    const el = railChildForKey(key);
+    if (!el) return;
+    el.classList.remove('pane-attention');
+    void el.offsetWidth; // restart the animation if it's mid-play
+    el.classList.add('pane-attention');
+    const prev = attentionTimers.get(el);
+    if (prev) clearTimeout(prev);
+    attentionTimers.set(
+      el,
+      setTimeout(() => {
+        el.classList.remove('pane-attention');
+        attentionTimers.delete(el);
+      }, 600),
+    );
+  }
+
+  // An open inspector that RETARGETS to a different subject (the player clicked a
+  // new item / gem while it was already open) flashes for attention IN PLACE - it
+  // is not moved. Toggling the SAME subject closes the pane (the id goes null),
+  // so this never fires on a close. Tracked by subject id, so an internal
+  // re-target that keeps the same item (e.g. ownership-follow on buy) stays quiet.
+  let prevInspectorId: string | null = null;
+  let prevGemId: string | null = null;
+  $effect(() => {
+    const inspectorId = $inspector?.item.id ?? null;
+    const gemId = $gemInspector?.gem.id ?? null;
+    untrack(() => {
+      if (inspectorId !== null && prevInspectorId !== null && inspectorId !== prevInspectorId) {
+        flashPaneAttention('inspector');
+      }
+      if (gemId !== null && prevGemId !== null && gemId !== prevGemId) {
+        flashPaneAttention('gem');
+      }
+      prevInspectorId = inspectorId;
+      prevGemId = gemId;
+    });
+  });
+
   // The rail child element backing an open pane key (for the drag "lift").
   function railChildForKey(key: PanelKey): HTMLElement | null {
     const rail = railEl;
@@ -547,6 +592,18 @@
     /* Positioning context for the floating frosted top bar (which is taken out
        of flow and overlaid; the play-area fills the full height beneath it). */
     position: relative;
+    /* No text selection anywhere in the game (inherits to every pane, the map,
+       the battlefield - it's all controls + labels, never prose to select), so a
+       drag never accidentally highlights a label. Real text fields opt back in
+       below. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* ...but genuine text inputs stay selectable so typing / editing still works. */
+  :global(input),
+  :global(textarea) {
+    user-select: auto;
+    -webkit-user-select: auto;
   }
 
   /* Tactile press: every enabled button dips slightly while held. Instant (no
@@ -674,6 +731,29 @@
     outline: 2px solid #3cc7b8;
     outline-offset: -2px;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+  }
+  /* Attention pulse: a brief teal inset ring on a pane whose inspector just
+     RETARGETED to a new subject (it stays put instead of moving). Inset so the
+     rail's overflow:hidden never clips it; keyframes are -global- so the scoped
+     stylesheet doesn't rename them out from under the :global() class. */
+  .rail :global(.pane-attention) {
+    animation: pane-attention 540ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  @keyframes -global-pane-attention {
+    0% {
+      box-shadow: inset 0 0 0 0 rgba(60, 199, 184, 0);
+    }
+    28% {
+      box-shadow: inset 0 0 0 3px rgba(60, 199, 184, 0.85);
+    }
+    100% {
+      box-shadow: inset 0 0 0 0 rgba(60, 199, 184, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rail :global(.pane-attention) {
+      animation: none;
+    }
   }
   .rail > :global(*) {
     pointer-events: auto;

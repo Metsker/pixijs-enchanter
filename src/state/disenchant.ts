@@ -14,7 +14,7 @@ import { gemLevel, type Gem } from '../domain/gem';
 import { isItem, tierOf, type Item } from '../domain/item';
 import { addGemToBackpack, backpack, removeBackpackGemById, removeItem } from './backpack';
 import { equipped, updateEquippedAt } from './inventory';
-import { heldGem } from './gem-move';
+import { heldGem, writeItem } from './gem-move';
 import { DESTROY_REFUND } from './rest';
 import { refundCrystals } from './topbar';
 import type { EquipmentSlotId } from '../domain/equipment';
@@ -41,6 +41,20 @@ export function disenchantGemFromBackpack(gemId: string): boolean {
   const removed = removeBackpackGemById(gemId);
   if (!removed) return false;
   refundCrystals(gemRefund(removed));
+  return true;
+}
+
+// Disenchant a gem that is SOCKETED in an owned item: clear its socket (persisted
+// via writeItem, so the equipped / backpack store + any open inspector re-derive)
+// and refund its crystal value. The gem is DESTROYED, not returned to the bag -
+// that distinguishes it from Unsocket. Returns false on an empty socket.
+export function disenchantSocketedGem(item: Item, index: number): boolean {
+  const gem = item.sockets[index];
+  if (!gem) return false;
+  const sockets = item.sockets.slice();
+  sockets[index] = null;
+  writeItem({ ...item, sockets });
+  refundCrystals(gemRefund(gem));
   return true;
 }
 

@@ -2,12 +2,13 @@
   import { get } from 'svelte/store';
   import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { revealInRail } from '../utils/revealInRail';
-  import { gemInspector, closeGemInspector, type GemInspectSubject } from '../state/gem-inspector';
+  import { gemInspector, closeGemInspector, inspectGem, type GemInspectSubject } from '../state/gem-inspector';
+  import { inspectItem } from '../state/inspector';
   import { gemDisplay, gemDisplayForDef, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { GEM_CATALOGUE } from '../domain/gem-catalogue';
   import { gemColor } from '../domain/gem-fit';
   import { gemLevel, isGem, type Gem } from '../domain/gem';
-  import { gemRefund, disenchantGemFromBackpack } from '../state/disenchant';
+  import { gemRefund, disenchantGemFromBackpack, disenchantSocketedGem } from '../state/disenchant';
   import { socketGemIntoItem, unsocketGemToBag, combineGems, findOwnedGemById } from '../state/gem-move';
   import { buyGem, canBuyGem, sellGemFromBackpack } from '../state/shop';
   import { gemSellValue } from '../domain/shop';
@@ -79,21 +80,37 @@
   interface GemRef {
     gem: Gem;
     where: string;
-    // An icon for the SOURCE: the host item's type emoji when the gem is
-    // socketed (weapon / ring / ...), or the bag emoji for a loose gem.
+    // An icon for the SOURCE: a single unified glyph per place it can live (the
+    // bag, or worn). Deliberately NOT the host item's own emoji - that doubled
+    // the row's leading icon under the "Equipped" label.
     icon: string;
   }
   const BAG_ICON = '🎒';
+  // One unified icon for anything the player has EQUIPPED, so the source badge
+  // never echoes a row's own item / slot emoji.
+  const EQUIPPED_ICON = '🧍';
 
   // Every item the player owns (equipped + bag), each tagged with where it lives.
+  // Deduped by id (equipped wins): an item is owned in exactly one place, so a
+  // repeated id is spurious - listing it once keeps the keyed lists below from
+  // colliding and shows each piece of gear a single time.
   const allItems = $derived.by((): ItemRef[] => {
     const out: ItemRef[] = [];
+    const seen = new Set<string>();
     const eq = $equipped;
     for (const slot of EQUIPMENT_SLOT_ORDER) {
       const it = eq[slot];
-      if (it) out.push({ item: it, key: 'equipped' });
+      if (it && !seen.has(it.id)) {
+        seen.add(it.id);
+        out.push({ item: it, key: 'equipped' });
+      }
     }
-    for (const s of $backpack) if (isItem(s)) out.push({ item: s, key: 'bag' });
+    for (const s of $backpack) {
+      if (isItem(s) && !seen.has(s.id)) {
+        seen.add(s.id);
+        out.push({ item: s, key: 'bag' });
+      }
+    }
     return out;
   });
 
@@ -104,37 +121,49 @@
     for (const s of $backpack) if (isGem(s)) out.push({ gem: s, where: sourceLabel('bag'), icon: BAG_ICON });
     for (const { item, key } of allItems) {
       for (const sock of item.sockets) {
-        if (sock) out.push({ gem: sock, where: sourceLabel(key), icon: itemEmoji(item) });
+        if (sock) out.push({ gem: sock, where: sourceLabel(key), icon: key === 'bag' ? BAG_ICON : EQUIPPED_ICON });
       }
     }
     return out;
   });
 
-  // Owned items with an EMPTY socket of this gem's colour - somewhere it could
-  // go right now. Each carries the open / total matching-socket counts and
-  // whether it can take a direct Insert (only when the gem is the player's, not
-  // a shop preview).
+  // Owned items whose socket COLOURS include this gem's colour - everywhere it
+  // could go. Items with an open matching socket come first (insertable); items
+  // that match but are FULL (no empty space) trail last as dimmed, inert
+  // reference rows. Each carries the open / total matching-socket counts.
   const compatibleItems = $derived.by(() => {
-    if (!color) return [];
+    if (!color || !gem) return [];
+    const gemId = gem.id;
     return allItems
+      // Skip the item this gem already sits in - it's not somewhere it could go.
+      .filter(({ item }) => !item.sockets.some((s) => s?.id === gemId))
       .map(({ item, key }) => {
         const open = item.sockets.filter((s, i) => s === null && item.socketColors[i] === color).length;
         return {
           item,
           key,
           source: sourceLabel(key),
-          // Source-type icon (the item's own type: weapon / ring / ...), shown
-          // alongside the where-it-lives label.
-          icon: key === 'bag' ? BAG_ICON : itemEmoji(item),
+          // One unified source icon (bag / worn) - never the item's own emoji,
+          // which the row already shows.
+          icon: key === 'bag' ? BAG_ICON : EQUIPPED_ICON,
           total: item.socketColors.filter((c) => c === color).length,
           open,
+          // Matches the gem's colour but every such socket is occupied: shown
+          // last + dimmed for reference, never actionable.
+          full: open === 0,
           // A shop gem isn't owned, so it can only be previewed, never inserted.
           insertable: !shop && open > 0,
         };
       })
-      // Only items that have room for it right now.
-      .filter((c) => c.open > 0)
-      .sort((a, b) => Number(b.insertable) - Number(a.insertable) || b.open - a.open);
+      // Any item with a socket of this colour at all (open OR full).
+      .filter((c) => c.total > 0)
+      // Items with room first (insertable, then by open count); full ones last.
+      .sort(
+        (a, b) =>
+          Number(b.open > 0) - Number(a.open > 0) ||
+          Number(b.insertable) - Number(a.insertable) ||
+          b.open - a.open,
+      );
   });
 
   // Other gems of the same defId (any source) - drop one onto this to level up.
@@ -144,14 +173,6 @@
   });
 
   const LIST_CAP = 8;
-
-  // A gem the player can scrap right now: a loose bag gem (refunds crystals).
-  // Socketed / shop gems show the value for reference, not a button.
-  const canDestroy = $derived(looseInBag);
-  function onDestroy(): void {
-    if (!gem) return;
-    if (disenchantGemFromBackpack(gem.id)) closeGemInspector();
-  }
 
   // === Combine (one-click level up) ================================
   // Merge a same-defId gem into the other so the result levels up. We PREFER to
@@ -187,14 +208,16 @@
   }
 
   // The owned item this gem is socketed in (equipped / backpack), if any - so we
-  // can pull it back out into the bag. allItems is already owned-only; a shop
-  // preview gem isn't socketed in anything of the player's.
-  const socketedIn = $derived.by((): { item: Item; index: number } | null => {
+  // can pull it back out into the bag, badge the header as "Socketed", and link
+  // to the host in its own section. allItems is already owned-only; a shop
+  // preview gem isn't socketed in anything of the player's. Carries `key` (where
+  // the host lives) so the host link can open the right item-inspector subject.
+  const socketedIn = $derived.by((): { item: Item; index: number; key: SourceKey } | null => {
     if (!gem || shop) return null;
     const g = gem;
-    for (const { item } of allItems) {
+    for (const { item, key } of allItems) {
       const index = item.sockets.findIndex((s) => s?.id === g.id);
-      if (index >= 0) return { item, index };
+      if (index >= 0) return { item, index, key };
     }
     return null;
   });
@@ -205,11 +228,41 @@
     if (unsocketGemToBag(target.item, target.index)) closeGemInspector();
   }
 
-  // "Fits these items -> Insert": socket the gem straight into this item's first
-  // open matching socket, then close (the gem now lives in the item).
+  // A gem the player can scrap for crystals: any gem they OWN - loose in the bag
+  // OR socketed in their gear - so the footer always offers Disenchant, the same
+  // way the item inspector always offers it for owned gear. (A shop preview / not-
+  // yet-owned gem can't be scrapped; it shows its value for reference instead.)
+  const canDisenchant = $derived(looseInBag || socketedIn !== null);
+  function onDisenchant(): void {
+    if (!gem) return;
+    // A socketed gem is scrapped straight out of its socket; a loose one out of
+    // the bag. Either way the gem is destroyed (not returned to the bag).
+    const ok = socketedIn
+      ? disenchantSocketedGem(socketedIn.item, socketedIn.index)
+      : disenchantGemFromBackpack(gem.id);
+    if (ok) closeGemInspector();
+  }
+
+  // "Compatible -> Insert": socket the gem straight into this item's first open
+  // matching socket, then close (the gem now lives in the item).
   function onInsert(item: Item): void {
     if (!gem || shop) return;
     if (socketGemIntoItem(gem, item)) closeGemInspector();
+  }
+
+  // Row click in the Compatible list: open the ITEM inspector for that piece of
+  // gear (the Insert button is what sockets - the row is just navigation). Build
+  // the right subject from where the item lives so the item inspector's actions
+  // (equip / unequip / disenchant) stay correct.
+  function openItemInspector(item: Item, key: SourceKey): void {
+    if (key === 'equipped') {
+      const eq = $equipped;
+      const slotId = EQUIPMENT_SLOT_ORDER.find((s) => eq[s]?.id === item.id);
+      if (slotId) inspectItem({ source: 'inventory', slotId, item });
+    } else {
+      const index = $backpack.findIndex((s) => isItem(s) && s.id === item.id);
+      if (index >= 0) inspectItem({ source: 'backpack', index, item });
+    }
   }
 
   // Shop preview -> Buy: purchase the gem into the bag (canBuyGem re-checks gold
@@ -253,8 +306,13 @@
           {d?.name ?? gem.defId}
           {#if level > 1}<span class="gi-level">Lv{level}</span>{/if}
         </div>
-        <div class="gi-role">
-          {d?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
+        <div class="gi-sub">
+          <span class="gi-role">
+            {d?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
+          </span>
+          {#if socketedIn}
+            <span class="gi-state socketed">{t('gemInspector.socketed')}</span>
+          {/if}
         </div>
       </div>
       <button type="button" class="gi-close" aria-label={t('gemInspector.close')} onclick={closeGemInspector}>✕</button>
@@ -263,6 +321,31 @@
     <div class="gi-body">
       <!-- Description: the gem's current effect, generated from its def + level. -->
       <p class="gi-desc">{d?.summary ?? ''}</p>
+
+      <!-- Socketed in: the owned item this gem currently sits in, as a row that
+           opens that item's inspector. Shown only when the gem is socketed -
+           loose bag gems and shop previews aren't in anything. -->
+      {#if socketedIn}
+        {@const host = socketedIn}
+        <section class="gi-sec">
+          <div class="gi-sec-head">{t('gemInspector.socketedIn')}</div>
+          <ul class="gi-list">
+            <li class="gi-fit-li">
+              <button
+                type="button"
+                class="gi-item gi-item-btn"
+                title={t('gemInspector.viewItem')}
+                onclick={() => openItemInspector(host.item, host.key)}
+              >
+                <span class="gi-item-emoji">{itemEmoji(host.item)}</span>
+                <span class="gi-item-tier" style="--tier-color: {TIER_COLORS[tierOf(host.item)] ?? '#5c6a6a'}">T{tierOf(host.item)}</span>
+                <span class="gi-item-main">{itemLabel(host.item)}</span>
+                <span class="gi-item-src"><span class="gi-src-icon">{host.key === 'bag' ? BAG_ICON : EQUIPPED_ICON}</span>{sourceLabel(host.key)}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+      {/if}
 
       <!-- Level-up preview: current effect -> next level, so the change is read
            straight off the numbers combat will use. -->
@@ -279,9 +362,10 @@
         {/if}
       </section>
 
-      <!-- Combine targets: same-defId owned gems. Each row is a one-click merge
-           that levels up THIS gem (and consumes the listed one) - except in a
-           shop preview, where you don't own the inspected gem yet. -->
+      <!-- Combine targets: same-defId owned gems. Tapping a ROW opens that gem's
+           own inspector; the Combine button is the only thing that merges it in
+           (levelling up THIS gem and consuming the listed one) - hidden in a shop
+           preview, where you don't own the inspected gem yet. -->
       <section class="gi-sec">
         <div class="gi-sec-head">{t('gemInspector.combine')}</div>
         {#if combinableGems.length === 0}
@@ -295,16 +379,23 @@
                 <button
                   type="button"
                   class="gi-item gi-item-btn"
-                  class:insertable={!shop}
-                  disabled={shop !== null}
-                  title={shop ? '' : t('gemInspector.combineDoHint')}
-                  onclick={() => onCombine(cg.gem.id)}
+                  title={t('gemInspector.viewGem')}
+                  onclick={() => inspectGem(cg.gem)}
                 >
                   <span class="gi-item-emoji">{cd?.emoji ?? '💎'}</span>
                   <span class="gi-item-main">{cd?.name ?? cg.gem.defId}{#if (cd?.level ?? 1) > 1}<span class="gi-mini-lv"> Lv{cd?.level}</span>{/if}</span>
                   <span class="gi-item-src"><span class="gi-src-icon">{cg.icon}</span>{cg.where}</span>
-                  {#if !shop}<span class="gi-insert combine">{t('gemInspector.combineDo')}</span>{/if}
                 </button>
+                {#if !shop}
+                  <button
+                    type="button"
+                    class="gi-act-btn combine"
+                    title={t('gemInspector.combineDoHint')}
+                    onclick={() => onCombine(cg.gem.id)}
+                  >
+                    {t('gemInspector.combineDo')}
+                  </button>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -314,7 +405,10 @@
         {/if}
       </section>
 
-      <!-- Compatible owned gear: items with an open socket of this gem's colour. -->
+      <!-- Compatible owned gear: items whose socket colours include this gem's.
+           Tapping a ROW opens that item's inspector; the Insert button is the
+           only thing that sockets the gem (shown only when the item has room).
+           Full items trail last, dimmed - still openable, just not insertable. -->
       <section class="gi-sec">
         <div class="gi-sec-head">{t('gemInspector.fits')}</div>
         {#if compatibleItems.length === 0}
@@ -326,18 +420,30 @@
                 <button
                   type="button"
                   class="gi-item gi-item-btn"
-                  class:insertable={ci.insertable}
-                  disabled={!ci.insertable}
-                  title={ci.insertable ? t('gemInspector.insertHint') : ''}
-                  onclick={() => onInsert(ci.item)}
+                  class:no-room={ci.full}
+                  title={t('gemInspector.viewItem')}
+                  onclick={() => openItemInspector(ci.item, ci.key)}
                 >
                   <span class="gi-item-emoji">{itemEmoji(ci.item)}</span>
                   <span class="gi-item-tier" style="--tier-color: {TIER_COLORS[tierOf(ci.item)] ?? '#5c6a6a'}">T{tierOf(ci.item)}</span>
                   <span class="gi-item-main">{itemLabel(ci.item)}</span>
-                  <span class="gi-item-open">{t('gemInspector.open', { open: ci.open, total: ci.total })}</span>
+                  {#if ci.full}
+                    <span class="gi-item-open full">{t('gemInspector.full')}</span>
+                  {:else}
+                    <span class="gi-item-open">{t('gemInspector.open', { open: ci.open, total: ci.total })}</span>
+                  {/if}
                   <span class="gi-item-src"><span class="gi-src-icon">{ci.icon}</span>{ci.source}</span>
-                  {#if ci.insertable}<span class="gi-insert">{t('gemInspector.insert')}</span>{/if}
                 </button>
+                {#if ci.insertable}
+                  <button
+                    type="button"
+                    class="gi-act-btn insert"
+                    title={t('gemInspector.insertHint')}
+                    onclick={() => onInsert(ci.item)}
+                  >
+                    {t('gemInspector.insert')}
+                  </button>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -362,20 +468,25 @@
         >
           {t('inspector.buy', { price: shop.price })}
         </button>
-      {:else if canDestroy}
+      {:else if canDisenchant}
+        <!-- Owned gem (loose OR socketed): always offer Disenchant, the same way
+             the item inspector always offers it for owned gear. Sell sits above
+             it (loose + shop only); Unsocket - the positive "move to bag" action
+             for a socketed gem - is pinned at the very bottom, mirroring the item
+             inspector's Equip / Unequip CTA. -->
         {#if canSell}
           <button type="button" class="cta secondary" onclick={onSell}>
             {t('gemInspector.sell', { price: gemSellValue(gem) })}
           </button>
         {/if}
-        <button type="button" class="cta danger" onclick={onDestroy}>
-          {t('gemInspector.destroy', { refund })}
+        <button type="button" class="cta danger" onclick={onDisenchant}>
+          {t('gemInspector.disenchant', { refund })}
         </button>
-      {:else if canUnsocket}
-        <!-- Socketed in an owned item: pull it back out into the bag. -->
-        <button type="button" class="cta" onclick={onUnsocket}>
-          {t('gemInspector.unsocket')}
-        </button>
+        {#if canUnsocket}
+          <button type="button" class="cta" onclick={onUnsocket}>
+            {t('gemInspector.unsocket')}
+          </button>
+        {/if}
       {:else}
         <div class="gi-row destroy-row">
           <span class="gi-label">{t('gemInspector.destroyValue')}</span>
@@ -403,7 +514,8 @@
     background: var(--pane-glass);
     backdrop-filter: blur(12px) saturate(1.15);
     -webkit-backdrop-filter: blur(12px) saturate(1.15);
-    border-left: 1px solid #28383d;    overflow: hidden;
+    border-left: 1px solid #28383d;
+    overflow: hidden;
   }
 
   /* Header mirrors the item inspector: emoji + name + a colour-coded badge
@@ -447,10 +559,16 @@
     padding: 1px 5px;
     font-variant-numeric: lining-nums;
   }
+  /* Header sub-row: the role badge + an optional "Socketed" state badge. */
+  .gi-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
   /* Role badge - styled like the item inspector's tier badge, tinted by the
      gem's socket colour (red / green / blue) so it reads role + colour at once. */
   .gi-role {
-    align-self: flex-start;
     font-size: 0.78rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -460,6 +578,20 @@
     border: 1px solid var(--gem-color, #5c6a6a);
     color: var(--gem-color, #849393);
     background: rgba(0, 0, 0, 0.3);
+  }
+  /* "Socketed" status badge: neutral teal, distinct from the colour-tinted role
+     pill - it states the gem is currently in a piece of gear. */
+  .gi-state.socketed {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    line-height: 1;
+    color: #8fe6dc;
+    border: 1px solid #2f6f69;
+    background: rgba(60, 199, 184, 0.12);
   }
   .gi-close {
     appearance: none;
@@ -640,51 +772,83 @@
     font-size: 0.85rem;
     color: #bac6c6;
   }
+  /* A row = the openable button + (optionally) its action button, side by side
+     and equal height. */
   .gi-fit-li {
     list-style: none;
+    display: flex;
+    gap: 5px;
+    align-items: stretch;
   }
-  /* The fits row is a full-width button (it inherits the .gi-item row visual). */
+  /* Each row button OPENS the item/gem inspector (navigation only). The actual
+     Insert / Combine is the separate .gi-act-btn beside it, so a row tap never
+     performs the action by accident. */
   .gi-item-btn {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     appearance: none;
     font: inherit;
-    cursor: default;
-  }
-  .gi-item-btn:disabled {
-    opacity: 1; /* reference-only rows still read at full strength */
-  }
-  .gi-item-btn.insertable {
     cursor: pointer;
-    border-color: #3a4a3a;
+    transition: background-color 100ms ease, border-color 100ms ease, opacity 100ms ease;
   }
-  .gi-item-btn.insertable:hover {
-    background: #19231b;
-    border-color: #4caf6a;
+  .gi-item-btn:hover {
+    background: #0f181b;
+    border-color: #374d52;
   }
-  .gi-item-btn.insertable:focus-visible {
+  .gi-item-btn:focus-visible {
     outline: 2px solid #3cc7b8;
     outline-offset: 2px;
   }
-  .gi-insert {
+  /* Full matching gear (no empty space for this gem): dimmed, trailing the items
+     that DO have room. Still openable (it lifts a touch on hover) - it just has
+     no Insert button. */
+  .gi-item-btn.no-room {
+    opacity: 0.45;
+  }
+  .gi-item-btn.no-room:hover {
+    opacity: 0.7;
+  }
+
+  /* The row's action button - the ONLY control that performs Insert / Combine.
+     Stretches to the row height (the li is align-items:stretch). Insert is
+     green; Combine is purple (matching the Lv badge / level-up read). */
+  .gi-act-btn {
+    flex: none;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    font: inherit;
     font-size: 0.7rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    padding: 0 12px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 100ms ease, border-color 100ms ease;
+  }
+  .gi-act-btn.insert {
     color: #0c140c;
     background: #4caf6a;
-    border-radius: 4px;
-    padding: 2px 8px;
+    border-color: #3a8f54;
   }
-  /* Combine action badge: purple to read as a level-up (matches the Lv badge),
-     distinct from the green Insert. */
-  .gi-insert.combine {
+  .gi-act-btn.insert:hover {
+    background: #5cc77b;
+  }
+  .gi-act-btn.combine {
     color: #f0e0ff;
     background: #7c3ac8;
+    border-color: #6a2fb0;
   }
-  /* A combinable row hovers purple (not the green insert hover). */
-  .gi-item-btn.insertable:has(.gi-insert.combine):hover {
-    background: #1d1430;
-    border-color: #c084fc;
+  .gi-act-btn.combine:hover {
+    background: #8f4ad8;
+  }
+  .gi-act-btn:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
   }
   .gi-item-emoji {
     font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
@@ -715,6 +879,13 @@
     font-size: 0.74rem;
     color: #8a9;
     font-variant-numeric: lining-nums;
+  }
+  /* "Full" marker on a no-room row: a muted warm tag, no numerals. */
+  .gi-item-open.full {
+    color: #b08a8a;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
   }
   .gi-item-src {
     display: inline-flex;

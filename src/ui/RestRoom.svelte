@@ -3,6 +3,9 @@
   import { completeRoom } from '../state/run';
   import { canCraftGem, craftGem, CRAFT_COST } from '../state/rest';
   import { topbar } from '../state/topbar';
+  import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
+  import { inspectGem, gemInspector } from '../state/gem-inspector';
+  import type { Gem } from '../domain/gem';
   import { t } from '../i18n';
 
   // Left-aligned Rest pane (same layout as the shop / armory): a header over a
@@ -10,9 +13,19 @@
   // loose gems live in the Gems bag, not here.
   const affordable = $derived($topbar.crystals >= CRAFT_COST);
 
+  // Gems rolled during THIS rest visit, newest first. They also land in the Gems
+  // bag (craftGem stashes them); listing them here - the same row a gem shows in
+  // the bag - lets the player see what each craft produced and tap to inspect.
+  let crafted = $state<Gem[]>([]);
+
   function onCraft(): void {
     if (!canCraftGem()) return;
-    craftGem();
+    const gem = craftGem();
+    if (gem) crafted = [gem, ...crafted];
+  }
+
+  function isInspecting(gem: Gem): boolean {
+    return $gemInspector?.gem.id === gem.id && !$gemInspector?.shop;
   }
 </script>
 
@@ -37,6 +50,42 @@
       </button>
       <p class="craft-hint">{t('rest.craft.hint')}</p>
     </div>
+
+    <!-- Gems crafted this visit, newest first - the same row a gem shows in the
+         bag (colour-edge + emoji + name + level + role). Tap one to inspect it. -->
+    {#if crafted.length > 0}
+      <div class="group">
+        <div class="crafted-head">{t('rest.crafted')} ({crafted.length})</div>
+        <ul class="crafted-list" role="list">
+          {#each crafted as gem (gem.id)}
+            {@const gd = gemDisplay(gem)}
+            <li>
+              <button
+                type="button"
+                class="gem-row"
+                class:inspecting={isInspecting(gem)}
+                style="--gem-color: {gd ? SOCKET_COLOR_HEX[gd.color] : '#5c6a6a'}"
+                title={t('rest.stash.inspect')}
+                onclick={() => inspectGem(gem)}
+              >
+                <span class="gem-emoji">{gd?.emoji ?? '💠'}</span>
+                <span class="gem-main">
+                  <span class="gem-name">{gd?.name ?? gem.defId}</span>
+                  {#if gd && gd.level > 1}<span class="gem-level">Lv{gd.level}</span>{/if}
+                  <span
+                    class="gem-role"
+                    class:effect={gd?.role === 'effect'}
+                    class:support={gd?.role === 'support'}
+                  >
+                    {gd?.role === 'support' ? t('gemInspector.role.support') : t('gemInspector.role.effect')}
+                  </span>
+                </span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
   </div>
 </section>
 
@@ -152,5 +201,116 @@
     font-size: 0.78rem;
     color: #768585;
     line-height: 1.35;
+  }
+
+  /* Crafted-this-visit list: the same gem row the bag uses (colour-edge button +
+     emoji + name + level + role), so a freshly rolled gem reads identically here
+     and in the Gems bag. */
+  .crafted-head {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6f7d7d;
+  }
+  .crafted-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .crafted-list li {
+    list-style: none;
+  }
+  .gem-row {
+    width: 100%;
+    appearance: none;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 10px;
+    border: 1px solid #18262a;
+    border-left: 3px solid var(--gem-color, #6ad);
+    border-radius: 8px;
+    background: #0c1517;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 100ms ease, background-color 100ms ease, box-shadow 100ms ease;
+  }
+  /* Hover recolours the top/right/bottom edges only, leaving the gem-colour left
+     edge intact (matches the bag's gem rows). */
+  .gem-row:hover {
+    background: #0f181b;
+    border-top-color: #374d52;
+    border-right-color: #374d52;
+    border-bottom-color: #374d52;
+  }
+  .gem-row.inspecting {
+    border-color: #3cc7b8;
+    box-shadow: inset 0 0 0 1px #3cc7b8;
+  }
+  .gem-row:focus-visible {
+    outline: 2px solid #3cc7b8;
+    outline-offset: 2px;
+  }
+  .gem-emoji {
+    flex: none;
+    min-width: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+  .gem-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .gem-name {
+    min-width: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #dde7e7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gem-level {
+    flex: none;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: #f0e0ff;
+    background: rgba(124, 58, 200, 0.85);
+    border: 1px solid #c084fc;
+    font-variant-numeric: lining-nums;
+  }
+  .gem-role {
+    flex: none;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 700;
+  }
+  .gem-role.effect {
+    color: #ffd0e6;
+    background: rgba(255, 102, 170, 0.18);
+    border: 1px solid #f6a;
+  }
+  .gem-role.support {
+    color: #cfe6ff;
+    background: rgba(102, 170, 221, 0.18);
+    border: 1px solid #6ad;
   }
 </style>

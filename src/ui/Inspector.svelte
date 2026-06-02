@@ -128,7 +128,7 @@
   function onChangeSocket(it: Item, index: number): void {
     toggleSocketMenu(it, index);
   }
-  // Inline unsocket (the per-socket ✕): pull the gem out of socket `index` of
+  // Inline unsocket (the per-socket ↥): pull the gem out of socket `index` of
   // the inspected item straight into the bag. The item re-derives in place.
   function onUnsocketAt(colItem: Item, index: number): void {
     unsocketGemToBag(colItem, index);
@@ -368,8 +368,13 @@
       <span class="emoji">{itemEmoji(item)}</span>
       <div class="title">
         <div class="kind">{t(`item.type.${item.itemType}`)}</div>
-        <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#5c6a6a'}">
-          {t('inspector.tier', { tier: tierOf(item) })}
+        <div class="badges">
+          <div class="tier" style="--tier-color: {TIER_COLORS[tierOf(item)] ?? '#5c6a6a'}">
+            {t('inspector.tier', { tier: tierOf(item) })}
+          </div>
+          {#if subject.source === 'inventory'}
+            <span class="state-badge equipped">{t('inspector.equipped')}</span>
+          {/if}
         </div>
       </div>
       <button
@@ -475,7 +480,7 @@
 
     <!-- Actions OVERLAID on the top-right of a FILLED socket of an owned item:
          "change" (⇄, opens the bag-gem picker to swap the gem) and "unsocket"
-         (✕, pulls the gem back into the bag). Overlaid (not beside) so the same
+         (↥, pulls the gem back into the bag). Overlaid (not beside) so the same
          markup works in the wide single view AND the narrow compare chips. The
          socket reserves matching right padding (.has-actions) so content never
          slides under them. -->
@@ -498,7 +503,7 @@
           aria-label={t('inspector.unsocket')}
           title={t('inspector.unsocket')}
           onclick={() => onUnsocketAt(colItem, index)}
-        >✕</button>
+        >↥</button>
       </div>
     {/snippet}
 
@@ -686,19 +691,12 @@
 
     {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'item-offer'}
       <footer class="footer">
-          <button
-            type="button"
-            class="cta"
-            disabled={ctaDisabledReason !== null}
-            title={ctaDisabledReason ?? ''}
-            onclick={handleCta}
-          >
-            {ctaLabel}
-          </button>
           {#if owned}
             <!-- Per-item Disenchant / Sell (replacing the bag's old drop-zones).
                  Sell only while a shop is open, and only for backpack items
-                 (unequip first to sell equipped gear). -->
+                 (unequip first to sell equipped gear). These sit ABOVE the
+                 primary CTA so the Equip / Swap / Unequip action stays anchored
+                 at the very bottom (thumb-reach on mobile). -->
             {#if subject.source === 'backpack' && $shopStock}
               <button type="button" class="cta secondary" onclick={handleSell}>
                 {t('inspector.sell', { price: itemSellValue(item) })}
@@ -708,6 +706,15 @@
               {t('inspector.disenchant', { refund: itemRefund(item) })}
             </button>
           {/if}
+          <button
+            type="button"
+            class="cta"
+            disabled={ctaDisabledReason !== null}
+            title={ctaDisabledReason ?? ''}
+            onclick={handleCta}
+          >
+            {ctaLabel}
+          </button>
       </footer>
     {/if}
   </aside>
@@ -913,8 +920,14 @@
     font-weight: 600;
     color: #c0cdcd;
   }
+  /* Tier badge + optional "Equipped" state badge sit on one row under the kind. */
+  .badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
   .tier {
-    align-self: flex-start;
     font-size: 0.95rem;
     font-weight: 600;
     padding: 2px 7px;
@@ -923,6 +936,20 @@
     color: var(--tier-color, #849393);
     background: rgba(0, 0, 0, 0.3);
     font-variant-numeric: lining-nums;
+  }
+  /* "Equipped" status badge: teal, so a glance reads the item is currently worn
+     (vs sitting in the bag / shop). */
+  .state-badge.equipped {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    line-height: 1;
+    color: #8fe6dc;
+    border: 1px solid #2f6f69;
+    background: rgba(60, 199, 184, 0.12);
   }
   .close {
     appearance: none;
@@ -975,8 +1002,22 @@
   .csocket-wrap {
     position: relative;
   }
+  /* Press feedback: dip the WHOLE socket row (the socket button + its overlaid
+     ⇄ / ↥ actions) as ONE unit, so the action buttons move WITH the socket
+     rather than staying put while only the socket scales. The socket button's
+     own press scale is then suppressed so the two don't compound (one 0.96, not
+     0.96²). Pressing an overlay button itself still dips just that button (its
+     own :active), since the socket isn't active then. */
+  .socket-line:has(.socket:active:not(:disabled)),
+  .csocket-wrap:has(.csocket:active:not(:disabled)) {
+    transform: scale(0.96);
+  }
+  .socket-line .socket:active:not(:disabled),
+  .csocket-wrap .csocket:active:not(:disabled) {
+    transform: none;
+  }
   /* Socket actions OVERLAID on the top-right of a filled socket: "change" (⇄)
-     + "unsocket" (✕), small icon buttons with a backdrop so they read over the
+     + "unsocket" (↥), small icon buttons with a backdrop so they read over the
      socket. Sits above the cell (the cell reserves right padding via
      .has-actions so its content never slides under them). */
   /* A horizontal row on the right edge, VERTICALLY CENTRED so it sits the same
@@ -1014,15 +1055,18 @@
     border-color: #3cc7b8;
     color: #8fe6dc;
   }
-  /* Unsocket reads as a (mild) removal: red on hover. */
+  /* Unsocket (↥) just MOVES the gem back to the bag - it is not a destroy, so it
+     stays neutral/blue rather than the red the bag's disenchant + destroy use
+     (those share the ✕ glyph; the ↥ eject-arrow - a thin monochrome glyph like
+     the ⇄ change icon, NOT a colour emoji - keeps this distinct + consistent). */
   .ov-act.remove {
-    border-color: #3a2326;
-    color: #d98a8a;
+    border-color: #28383d;
+    color: #9fb0b0;
   }
   .ov-act.remove:hover {
-    background: #2a1417;
-    border-color: #c44;
-    color: #f0a8a8;
+    background: #11202a;
+    border-color: #6aa9d8;
+    color: #bfe0f5;
   }
   .ov-act:focus-visible {
     outline: 2px solid #3cc7b8;

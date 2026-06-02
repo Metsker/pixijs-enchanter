@@ -308,7 +308,7 @@
                 class:hint-new={ih === 'new'}
                 class:hint-upgrade={ih === 'upgrade'}
                 title={t(`hint.item.${ih}`)}
-              >{ih === 'new' ? '✦' : '⬆'}</span>
+              >{ih === 'new' ? '✦' : '↑'}</span>
             {/if}
           </div>
           <div class="row-acts">
@@ -318,7 +318,7 @@
             {#if canSell}
               <button type="button" class="act icon" aria-label={t('inspector.sell', { price: itemSellValue(slot) })} title={t('inspector.sell', { price: itemSellValue(slot) })} onclick={() => onSellItem(i)}>🪙</button>
             {/if}
-            <button type="button" class="act icon danger" aria-label={t('inspector.disenchant', { refund: itemRefund(slot) })} title={t('inspector.disenchant', { refund: itemRefund(slot) })} onclick={() => onDestroyItem(i)}>✕</button>
+            <button type="button" class="act danger disenchant" aria-label={t('inspector.disenchant', { refund: itemRefund(slot) })} title={t('inspector.disenchant', { refund: itemRefund(slot) })} onclick={() => onDestroyItem(i)}>✕ 💎 {itemRefund(slot)}</button>
           </div>
         </div>
       {:else if isGem(slot)}
@@ -352,7 +352,7 @@
             {#if canSell}
               <button type="button" class="act icon" aria-label={t('gemInspector.sell', { price: gemSellValue(slot) })} title={t('gemInspector.sell', { price: gemSellValue(slot) })} onclick={() => onSellGem(slot)}>🪙</button>
             {/if}
-            <button type="button" class="act icon danger" aria-label={t('gemInspector.destroy', { refund: gemRefund(slot) })} title={t('gemInspector.destroy', { refund: gemRefund(slot) })} onclick={() => onDestroyGem(slot)}>✕</button>
+            <button type="button" class="act danger disenchant" aria-label={t('gemInspector.disenchant', { refund: gemRefund(slot) })} title={t('gemInspector.disenchant', { refund: gemRefund(slot) })} onclick={() => onDestroyGem(slot)}>✕ 💎 {gemRefund(slot)}</button>
           </div>
         </div>
       {/if}
@@ -706,6 +706,11 @@
     border-color: #3a2326;
     background: #160d0f;
     color: #d98a8a;
+  }
+  /* Disenchant now shows its crystal refund inline (✕ 💎 N), so it is a
+     text-width button (not the slim icon square) - keep its digits lined. */
+  .act.disenchant {
+    font-variant-numeric: lining-nums tabular-nums;
   }
   .act.danger:hover {
     background: #2a1417;
