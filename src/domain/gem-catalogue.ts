@@ -1,4 +1,4 @@
-// The gem pool (see docs/gem-catalogue.md). 45 gems: 14 procs, 15 stats, 16
+// The gem pool (see docs/gem-catalogue.md). 44 gems: 16 procs, 13 stats, 15
 // supports. Numbers are placeholders per the catalogue's own note - the
 // BEHAVIOURS are locked here, values tune in playtesting.
 //
@@ -16,7 +16,7 @@ import type { GemDef } from './gem';
 
 export const GEM_CATALOGUE: Record<string, GemDef> = {
   // ----------------------------------------------------------------------
-  // Weapon gems (19) - offense
+  // Weapon gems (18) - offense
   // ----------------------------------------------------------------------
 
   // Effect (proc) - timer 3s: bolt a random enemy for 200 lightning.
@@ -91,6 +91,35 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '🗡️',
     },
   },
+  // Effect (proc) - timer 6s: summon a wolf that lopes to the nearest enemy and
+  // bites for 90 physical every 1s, fading after 6s. The summoner backbone -
+  // every weapon support stacks on it (Forking +1 wolf, Overload bigger bites,
+  // Igniting / Serrated a burning / bleeding wolf).
+  'spirit-wolf': {
+    id: 'spirit-wolf',
+    emoji: '🐺',
+    class: 'weapon',
+    role: 'effect',
+    proc: {
+      trigger: 'timer',
+      cooldownSec: 6,
+      payload: {
+        kind: 'summon',
+        emoji: '🐺',
+        damage: 90,
+        damageType: 'physical',
+        intervalSec: 1,
+        lifespanSec: 6,
+        orbit: false,
+      },
+      targeting: 'nearest',
+      count: 1,
+      canCrit: false,
+      riders: [],
+      visual: 'glow',
+      emoji: '🐺',
+    },
+  },
   // Effect (proc) - on-kill: burst at the corpse, 250 to nearby enemies.
   'soul-reap': {
     id: 'soul-reap',
@@ -161,17 +190,6 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       effects: [{ kind: 'lifesteal-add', fraction: 0.08 }],
     },
   },
-  // Effect (stat) - execute: +100% auto-attack damage to enemies at or below
-  // 25% HP. The finisher passive; pairs with Ruthless on the proc side.
-  cull: {
-    id: 'cull',
-    emoji: '🪓',
-    class: 'weapon',
-    role: 'effect',
-    stat: {
-      effects: [{ kind: 'damage-vs-low-hp', bonusFraction: 1.0, threshold: 0.25 }],
-    },
-  },
   // Effect (stat) - status-on-hit: 30% of auto-attacks also cause Bleed. The
   // melee entry to an ailment build (weapon / physical themed).
   gutting: {
@@ -199,15 +217,6 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     class: 'weapon',
     role: 'support',
     mod: { kind: 'rider', status: 'shock' },
-  },
-  // Support - condscale: bound proc deals x2 to targets below 30% HP. The proc
-  // -side execute, mirror of the Cull stat.
-  ruthless: {
-    id: 'ruthless',
-    emoji: '🔪',
-    class: 'weapon',
-    role: 'support',
-    mod: { kind: 'condscale', condition: 'low-hp', factor: 2, threshold: 0.3 },
   },
   // Support - condscale: bound proc deals x2 to Shocked targets. Closes the
   // loop with Conduction / Galvanize (apply Shock, then cash it in).
@@ -489,6 +498,35 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '💰',
     },
   },
+  // Effect (proc) - timer 6s: summon 3 bees that orbit you and sting the
+  // nearest enemy for 35 chaos every 0.8s, fading after 6s. The count-scaling
+  // familiar - Forking adds bees, Echo re-summons a second swarm, Envenom makes
+  // them poisonous, Amplify makes each sting bite harder.
+  swarm: {
+    id: 'swarm',
+    emoji: '🐝',
+    class: 'jewelry',
+    role: 'effect',
+    proc: {
+      trigger: 'timer',
+      cooldownSec: 6,
+      payload: {
+        kind: 'summon',
+        emoji: '🐝',
+        damage: 35,
+        damageType: 'chaos',
+        intervalSec: 0.8,
+        lifespanSec: 6,
+        orbit: true,
+      },
+      targeting: 'nearest',
+      count: 3,
+      canCrit: false,
+      riders: [],
+      visual: 'glow',
+      emoji: '🐝',
+    },
+  },
   // Effect (stat) - +20% attack speed.
   swiftness: {
     id: 'swiftness',
@@ -554,17 +592,6 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'effect',
     stat: {
       effects: [{ kind: 'crit-mul-add', amount: 0.5 }],
-    },
-  },
-  // Effect (stat) - +40% auto-attack damage to enemies above 75% HP. The
-  // opener / boss-burst passive; the mirror of Cull's execute.
-  hunter: {
-    id: 'hunter',
-    emoji: '🏹',
-    class: 'jewelry',
-    role: 'effect',
-    stat: {
-      effects: [{ kind: 'damage-vs-high-hp', bonusFraction: 0.4, threshold: 0.75 }],
     },
   },
   // Support - rider: bound damage proc also applies Poison (chaos DoT).

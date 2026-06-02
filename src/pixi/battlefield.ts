@@ -31,7 +31,7 @@ import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
 import { jitterDamage } from '../domain/damage';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
-import type { ProcTrigger } from '../domain/gem';
+import type { ProcPayload, ProcTrigger } from '../domain/gem';
 import { type ResolvedProc } from '../domain/gem-resolution';
 import { STATUS_DEFS } from '../domain/status';
 import { addRewardGold } from '../state/rewards';
@@ -96,6 +96,39 @@ interface FighterView {
   procRow: Container;
   procRadials: { ring: Graphics; emoji: Text }[];
   procSig: string;
+}
+
+// A summoned familiar (Spirit Wolf / Swarm bee): an autonomous emoji sprite
+// that lives for `lifespan` seconds, follows or orbits the player, and bites
+// the nearest enemy every `intervalSec`. Spawned by a `summon` proc payload; it
+// keeps a reference to its source proc so each bite inherits that proc's crit /
+// riders / condscale (so weapon & jewelry supports apply to it like any other
+// damage proc).
+interface Minion {
+  proc: ResolvedProc;
+  emoji: string;
+  sprite: Text;
+  // Per-bite damage (already leveled + scaled via the payload).
+  damage: number;
+  intervalSec: number;
+  // Seconds of life remaining; Infinity means it lasts the whole fight.
+  lifespan: number;
+  // Counts down to the next bite; reset to intervalSec on each bite.
+  attackCd: number;
+  // Orbit the target enemy (bees) vs roam toward the nearest enemy (wolf).
+  orbit: boolean;
+  // Orbit phase, also used to stagger a batch's spread on spawn.
+  angle: number;
+  // Smoothed orbit centre (orbiting minions only): eased toward the current
+  // target each frame so a bee circles its target enemy and glides across when
+  // the target changes, rather than snapping. Starts at the player.
+  cx: number;
+  cy: number;
+  // This minion's slot within its summon batch (`index` of `batch`). Roaming
+  // minions (wolves) fan out by slot so a forked pack renders as separate
+  // bodies instead of stacking on one point; orbiting minions use `angle`.
+  index: number;
+  batch: number;
 }
 
 export class Battlefield {
@@ -167,6 +200,10 @@ export class Battlefield {
   // `on-hit-taken`) ignore `remaining` and fire from combat events via
   // fireProcsForTrigger.
   private activeProcs: { proc: ResolvedProc; remaining: number }[] = [];
+  // Summoned familiars (Spirit Wolf / Swarm) currently on the field. Spawned
+  // by `summon` procs, updated every tick (move + bite), and reaped when their
+  // lifespan runs out or the fight ends. See updateMinions / fireSummonProc.
+  private minions: Minion[] = [];
   // Player shield (Bulwark): an absorb pool that soaks incoming damage
   // before it reaches HP. Refilled by shield procs; the damage path in
   // fireEnemyAttack drains it first, and the death pause leaves it be.
@@ -223,6 +260,13 @@ export class Battlefield {
     this.app.renderer.on('resize', this.resizeListener);
 
     this.app.ticker.add(this.onTick);
+
+    // Expose the combat app + this Battlefield on window in dev so the live
+    // scene / ticker / minions can be inspected from the page (per the
+    // workspace's Playwright testing guidance). Mirrors the shader bg's __bg.
+    if (import.meta.env.DEV) {
+      (window as unknown as { __battle?: unknown }).__battle = { app: this.app, bf: this };
+    }
   }
 
   private buildViews(state: FightState): void {
@@ -329,6 +373,11 @@ export class Battlefield {
         entry.remaining += interval;
       }
     }
+
+    // Summoned familiars: move each one (orbit the player / lope toward the
+    // nearest enemy), bite on its own cadence, and reap any whose lifespan ran
+    // out. Driven here so minions advance on the same fast-forwarded dt.
+    this.updateMinions(dt, state);
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
     // accumulates so 50hp/sec at 60fps still ticks correctly).
@@ -601,18 +650,11 @@ export class Battlefield {
     // base before mult.
     let flatBonus = 0;
     let bonusFraction = 0;
-    const targetFrac = target.maxHp > 0 ? target.hp / target.maxHp : 0;
     const playerFrac =
       state.player.maxHp > 0 ? state.player.hp / state.player.maxHp : 1;
 
     for (const eff of effects) {
       switch (eff.kind) {
-        case 'damage-vs-high-hp':
-          if (targetFrac >= eff.threshold) bonusFraction += eff.bonusFraction;
-          break;
-        case 'damage-vs-low-hp':
-          if (targetFrac <= eff.threshold) bonusFraction += eff.bonusFraction;
-          break;
         case 'damage-mul-low-hp': {
           // Berserker: +perPercentMissing per 10% HP missing, capped.
           const missing = Math.max(0, 1 - playerFrac);
@@ -865,6 +907,9 @@ export class Battlefield {
       case 'gold':
         this.fireGoldProc(proc, proc.payload.chance, state);
         break;
+      case 'summon':
+        this.fireSummonProc(proc, proc.payload, state);
+        break;
     }
 
     // Echo: fire the proc again after repeatDelaySec, once per extra
@@ -916,8 +961,7 @@ export class Battlefield {
 
   // Combined multiplier from a proc's conditional-scale supports against one
   // target: each condition that holds right now contributes its factor (Shatter
-  // x2.5 vs Frozen, Overcharge x2 vs Shocked, Ruthless x2 vs a target at/below
-  // its HP threshold). No conditions / none holding -> 1.
+  // x2.5 vs Frozen, Overcharge x2 vs Shocked). No conditions / none holding -> 1.
   private condScaleMul(proc: ResolvedProc, target: Fighter): number {
     if (proc.condScales.length === 0) return 1;
     let mul = 1;
@@ -930,11 +974,6 @@ export class Battlefield {
         case 'shocked':
           holds = !!target.statuses?.shock;
           break;
-        case 'low-hp': {
-          const frac = target.maxHp > 0 ? target.hp / target.maxHp : 0;
-          holds = frac <= (cs.threshold ?? 0);
-          break;
-        }
       }
       if (holds) mul *= cs.factor;
     }
@@ -971,7 +1010,7 @@ export class Battlefield {
       // Crit roll: procs only crit when a crit support (Lethal) granted
       // canCrit. The auto-attack's crit multiplier is reused.
       const isCrit = proc.canCrit && proc.critChance > 0 && Math.random() < proc.critChance;
-      // Conditional-scale supports (Shatter / Overcharge / Ruthless) multiply
+      // Conditional-scale supports (Shatter / Overcharge) multiply
       // the hit when this target meets their condition right now.
       const condMul = this.condScaleMul(proc, target);
       const damage = jitterDamage(baseDamage * condMul * (isCrit ? this.attack.critMultiplier : 1));
@@ -1066,6 +1105,186 @@ export class Battlefield {
       this.spawnFloatNumber(playerView, `${proc.emoji}+${bonus}`, '#ffd84a', 30);
       sfx.coin();
     }
+  }
+
+  // Summon payload (Spirit Wolf / Swarm): spawn proc.count autonomous minions
+  // near the player. Each is a leaf emoji sprite that updateMinions drives every
+  // tick; it bites the nearest enemy on its own cadence, inheriting the proc's
+  // crit / riders / condscale. Forking raises proc.count (more minions), Echo
+  // re-summons (extraCasts in fireProc), Rapid / Lasting shorten the re-summon.
+  private fireSummonProc(
+    proc: ResolvedProc,
+    payload: Extract<ProcPayload, { kind: 'summon' }>,
+    state: FightState,
+  ): void {
+    const playerView = this.views.get(state.player.id);
+    if (!playerView || playerView.container.destroyed) return;
+
+    const count = Math.max(1, proc.count);
+    const lifespan = payload.lifespanSec > 0 ? payload.lifespanSec : Infinity;
+
+    for (let i = 0; i < count; i++) {
+      const sprite = new Text({
+        text: payload.emoji,
+        style: new TextStyle({ fontFamily: EMOJI_FONT_STACK, fontSize: 44, padding: 6 }),
+      });
+      sprite.anchor.set(0.5);
+      sprite.eventMode = 'none';
+      sprite.x = playerView.homeX + (i - (count - 1) / 2) * 24;
+      sprite.y = playerView.homeY - EMOJI_SIZE * 0.4;
+      // Pop-in flourish (scale only, so it never fights the per-frame position
+      // writes in updateMinions).
+      sprite.scale.set(0.3);
+      gsap.to(sprite.scale, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2.5)' });
+      this.app.stage.addChild(sprite);
+
+      this.minions.push({
+        proc,
+        emoji: payload.emoji,
+        sprite,
+        damage: payload.damage,
+        intervalSec: Math.max(0.1, payload.intervalSec),
+        lifespan,
+        // Stagger the batch's first bites so 3 bees don't all sting in unison.
+        attackCd: (payload.intervalSec * i) / count,
+        orbit: payload.orbit,
+        angle: (Math.PI * 2 * i) / count,
+        cx: playerView.homeX,
+        cy: playerView.homeY - EMOJI_SIZE * 0.55,
+        index: i,
+        batch: count,
+      });
+    }
+
+    // Summon flourish on the player + the proc's sound.
+    this.spawnGlow(playerView, 0x9b8cff);
+    playProcSfx(proc.visual);
+  }
+
+  // Per-tick minion update: move every familiar, fire its bite when its cadence
+  // elapses, and reap any that have outlived their lifespan.
+  private updateMinions(dt: number, state: FightState): void {
+    if (this.minions.length === 0) return;
+
+    const playerView = this.views.get(state.player.id);
+    const px = playerView?.homeX ?? 0;
+    const py = playerView?.homeY ?? 0;
+    const alive = state.enemies.filter((e) => e.hp > 0);
+
+    let anyExpired = false;
+    for (const m of this.minions) {
+      m.lifespan -= dt;
+      if (m.lifespan <= 0) {
+        anyExpired = true;
+        continue;
+      }
+
+      // Orbiting bees pick (and circle) their target from their smoothed orbit
+      // centre; roaming wolves pick from their own position.
+      const target = this.nearestEnemyTo(m.orbit ? m.cx : m.sprite.x, alive);
+      const targetView = target ? this.views.get(target.id) : undefined;
+
+      // Movement. Bees orbit their target enemy (idling around the player if
+      // there is none); the wolf lopes toward (and settles just in front of) the
+      // nearest enemy, idling by the player if none.
+      const ease = Math.min(1, dt * 6);
+      if (m.orbit) {
+        // Ease the orbit centre toward the target so a target switch glides
+        // instead of teleporting, then circle the bee around it.
+        const destCx = targetView ? targetView.homeX : px;
+        const destCy = (targetView ? targetView.homeY : py) - EMOJI_SIZE * 0.55;
+        m.cx += (destCx - m.cx) * ease;
+        m.cy += (destCy - m.cy) * ease;
+        m.angle += dt * 2.4;
+        m.sprite.x = m.cx + Math.cos(m.angle) * 70;
+        m.sprite.y = m.cy + Math.sin(m.angle) * 34;
+      } else {
+        // Fan a forked pack out by slot so the wolves render as separate bodies
+        // instead of converging on one point: each sits a little further back
+        // (x) and on its own row (y) around the ground line.
+        const slot = m.index - (m.batch - 1) / 2;
+        const destX = (targetView ? targetView.homeX - 56 : px + 80) - m.index * 24;
+        const destY = py + slot * 28;
+        m.sprite.x += (destX - m.sprite.x) * ease;
+        m.sprite.y += (destY - m.sprite.y) * ease;
+      }
+
+      // Bite on cadence at the nearest living enemy.
+      m.attackCd -= dt;
+      if (m.attackCd <= 0 && target && targetView && !targetView.container.destroyed) {
+        m.attackCd += m.intervalSec;
+        this.minionBite(m, target, targetView);
+      }
+    }
+
+    if (anyExpired) {
+      const survivors: Minion[] = [];
+      for (const m of this.minions) {
+        if (m.lifespan > 0) survivors.push(m);
+        else this.despawnMinion(m);
+      }
+      this.minions = survivors;
+    }
+  }
+
+  // The alive enemy whose view sits closest (by x) to a minion's position.
+  private nearestEnemyTo(x: number, alive: Fighter[]): Fighter | undefined {
+    let best: Fighter | undefined;
+    let bestDist = Infinity;
+    for (const e of alive) {
+      const ex = this.views.get(e.id)?.homeX ?? 0;
+      const d = Math.abs(ex - x);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  // One minion bite: mirrors a single-target damage proc (dodge -> crit ->
+  // condscale -> jitter -> applyDamage -> riders), with the minion's emoji on
+  // the floated number so familiar damage reads distinctly.
+  private minionBite(m: Minion, target: Fighter, view: FighterView): void {
+    if (this.tryDodge(target, view)) return;
+    const isCrit = m.proc.canCrit && m.proc.critChance > 0 && Math.random() < m.proc.critChance;
+    const condMul = this.condScaleMul(m.proc, target);
+    const damage = jitterDamage(m.damage * condMul * (isCrit ? this.attack.critMultiplier : 1));
+    this.spawnFloatNumber(
+      view,
+      `${m.emoji}-${damage}${isCrit ? '!' : ''}`,
+      isCrit ? '#ffd84a' : '#ffe08a',
+      isCrit ? 30 : 22,
+    );
+    this.playHitFlash(view);
+    applyDamage(target.id, damage);
+    for (const status of m.proc.riders) {
+      applyStatusToEnemy(target.id, status, m.proc.riderPotency);
+    }
+  }
+
+  // Fade + destroy a single expired minion's sprite.
+  private despawnMinion(m: Minion): void {
+    gsap.killTweensOf(m.sprite.scale);
+    gsap.to(m.sprite, {
+      alpha: 0,
+      duration: 0.25,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (!m.sprite.destroyed) m.sprite.destroy();
+      },
+    });
+  }
+
+  // Wipe every minion immediately (fight start / end / teardown): kill tweens
+  // and destroy sprites so none linger into the next fight.
+  private clearMinions(): void {
+    for (const m of this.minions) {
+      gsap.killTweensOf(m.sprite);
+      gsap.killTweensOf(m.sprite.scale);
+      if (!m.sprite.destroyed) m.sprite.destroy();
+    }
+    this.minions = [];
   }
 
   // Map a proc's visual id to its primitive. Damage procs only - heal /
@@ -1701,6 +1920,9 @@ export class Battlefield {
       this.playerShield = 0;
       this.procBuffUntil = 0;
       this.procBuffBonus = 0;
+      // Clear any familiars left over from a prior fight before the new one's
+      // summon procs start spawning.
+      this.clearMinions();
       // Build the gem proc engine from the equipped gear so its timer /
       // continuous procs start ticking and reactive procs are armed.
       this.buildProcs();
@@ -1709,6 +1931,7 @@ export class Battlefield {
     // fire into a dead/absent enemy list between fights.
     if (!state.inFight && this.prevInFight) {
       this.activeProcs = [];
+      this.clearMinions();
     }
     this.prevInFight = state.inFight;
 
@@ -2018,6 +2241,7 @@ export class Battlefield {
     this.damageNumbers.clear();
     this.enemyCooldowns.clear();
     this.activeProcs = [];
+    this.clearMinions();
     this.app.destroy(true, { children: true, texture: true });
     this.views.clear();
   }

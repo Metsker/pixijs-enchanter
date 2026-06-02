@@ -12,11 +12,11 @@ terms: **effect** gems are `proc` (trigger + cooldown + visual) or `stat`
 with no effect to its right is **inert**.
 
 Visual key (primitive used): 🟰 strike-line · ⭕ expanding ring · ⬇️ falling body ·
-🔵 drifting orb · 🌀 orbiting sprite · ✨ glow-on-player.
+🔵 drifting orb · 🌀 orbiting sprite · ✨ glow-on-player · 🐾 summoned minion.
 
 ---
 
-## Weapon gems (19) - offense
+## Weapon gems (18) - offense
 
 ### Effects
 
@@ -26,12 +26,12 @@ Visual key (primitive used): 🟰 strike-line · ⭕ expanding ring · ⬇️ fa
 | Meteor | ☄️ | timer 6s | random enemy: 350 fire + small splash | ⬇️ |
 | Frost Nova | ❄️ | timer 5s | ring from you: 150 cold to all + Freeze chance | ⭕ |
 | Whirlblade | 🗡️ | continuous | orbiting blade: 120 physical on contact | 🌀 |
+| Spirit Wolf | 🐺 | timer 6s | summon a wolf: bites nearest for 90 every 1s, lasts 6s | 🐾 |
 | Soul Reap | 💀 | on-kill | burst at the corpse: 250 to nearby enemies | ⭕ |
 | Vault Strike | 🌠 | on-crit | echo 60% of your auto-attack (scales with it) | 🟰 |
 | Spellstrike | 🌩️ | on-hit | each auto-attack also bolts the target for 45 lightning | 🟰 |
 | Edge | ⚔️ | *stat* | +150 physical to your auto-attack | - |
 | Bloodthirst | 🧛 | *stat* | lifesteal 8% of damage dealt | - |
-| Cull | 🪓 | *stat* | +100% damage vs enemies below 25% HP (execute) | - |
 | Gutting | 🩸 | *stat* | 30% on auto-hit: also Bleed | - |
 
 ### Supports
@@ -44,7 +44,6 @@ Visual key (primitive used): 🟰 strike-line · ⭕ expanding ring · ⬇️ fa
 | Igniting | 🔥 | rider | bound damage proc also applies Burn |
 | Serrated | 🪒 | rider | bound damage proc also applies Bleed |
 | Conduction | 🔌 | rider | bound damage proc also applies Shock (the only Shock source on procs) |
-| Ruthless | 🔪 | conditional | ×2 vs targets below 30% HP |
 | Overcharge | ⚙️ | conditional | ×2 vs Shocked targets |
 
 ---
@@ -85,11 +84,11 @@ Visual key (primitive used): 🟰 strike-line · ⭕ expanding ring · ⬇️ fa
 | Spirit Bolt | 👻 | timer 4s | homing orb to nearest enemy: 180 chaos | 🔵 |
 | Time Warp | ⏳ | timer 5s | +50% attack speed for 2.5s | ✨ |
 | Midas Burst | 💰 | on-kill | 30% chance: bonus gold | ✨ |
+| Swarm | 🐝 | timer 6s | summon 3 bees: orbit you, sting nearest for 35 every 0.8s | 🐾 |
 | Swiftness | ⏩ | *stat* | +20% attack speed | - |
 | Keen | 🔎 | *stat* | +18% crit chance (auto-attack) | - |
 | Galvanize | 🔋 | *stat* | 25% on auto-hit: also Shock (+30% damage taken) | - |
 | Brutality | 💪 | *stat* | +0.5 crit multiplier (crits hit ×2.5) | - |
-| Hunter | 🏹 | *stat* | +40% damage vs enemies above 75% HP | - |
 
 ### Supports
 
@@ -107,15 +106,15 @@ Visual key (primitive used): 🟰 strike-line · ⭕ expanding ring · ⬇️ fa
 
 | Class | Proc effects | Stat effects | Supports | Total |
 |---|---|---|---|---|
-| Weapon | 7 | 4 | 8 | 19 |
+| Weapon | 8 | 3 | 7 | 18 |
 | Armor | 4 | 6 | 3 | 13 |
-| Jewelry | 3 | 5 | 5 | 13 |
-| **All** | **14** | **15** | **16** | **45** |
+| Jewelry | 4 | 4 | 5 | 13 |
+| **All** | **16** | **13** | **15** | **44** |
 
 Support-knob coverage: count (Forking), damage (Overload, Amplify), cooldown
 (Rapid, Lasting), crit (Lethal), repeat (Echo), rider (Igniting, Chilling,
 Serrated, Conduction, Envenom), potency (Virulent), conditional (Shatter,
-Overcharge, Ruthless).
+Overcharge).
 
 ## Balance notes / open questions
 
@@ -124,8 +123,8 @@ Overcharge, Ruthless).
 - **Both active and passive backbones now coexist** (the deferred "pure-active"
   direction, landed as additive content). The pure-number passives stay (Edge /
   Heart / Swiftness / Keen), and richer conditional passives sit beside them -
-  Berserker (low-HP scaling), Giant's Blood (max-HP -> damage), Cull / Hunter
-  (HP-threshold damage), Bloodthirst (lifesteal), Brutality (crit mult). Their
+  Berserker (low-HP scaling), Giant's Blood (max-HP -> damage), Bloodthirst
+  (lifesteal), Brutality (crit mult). Their
   active counterparts also exist: Spellstrike (an on-hit auto-attack proc) and
   the shield/heal procs (Bulwark / Sanctuary) cover the Edge / Heart "make it a
   proc" idea without dropping the passives. Pick by feel.
@@ -134,19 +133,23 @@ Overcharge, Ruthless).
   Shock (Conduction / Galvanize) - and `Virulent` (potency) scales their DoT.
   Shock doubles as a global damage amp (+30% taken), so `Overcharge` / a shock
   source is a force multiplier, not just another DoT.
-- **Conditional supports are the combo payoff.** Shatter / Overcharge / Ruthless
-  do nothing on their own; they cash in a state another gem (or your attack) set
-  up - freeze, shock, or a low-HP target. Keep them slightly rarer than flat
-  damage so the payoff feels earned.
+- **Conditional supports are the combo payoff.** Shatter / Overcharge do nothing
+  on their own; they cash in a state another gem (or your attack) set up - freeze
+  or shock. Keep them slightly rarer than flat damage so the payoff feels earned.
 - **Cooldown is the strongest knob** (it scales damage *and* proc count over
   time), so `Rapid` / `Lasting` should be rarer in the craft/drop weights than
   flat damage supports.
 - **Continuous procs** (Whirlblade, Searing Aura) have no cooldown, so cooldown
   supports (`Rapid` / `Lasting`) instead **raise their tick rate** - more damage
   instances per second.
+- **Summoned familiars** (Spirit Wolf, Swarm) are autonomous: they pick their
+  own targets and bite on their own cadence, so cooldown supports (`Rapid` /
+  `Lasting`) speed the **re-summon**, `Forking` adds bodies (proc count), and
+  every damage knob (`Overload` / riders / `Lethal` / condscale) rides each bite.
+  Lifespan ≈ cooldown so a build keeps ~`count` familiars up at steady state.
 - Crafting from crystals at Rest rolls from this pool, weighted by class and by
   effect-vs-support (supports rarer; procs rarer than stats). Weights = a knob.
-- Candidate next additions: more triggers (on-dodge, every-Nth-hit), summon /
-  minion procs, multi-class gems, a rare "unique" gem tier. (On-hit triggers and
-  conditional knobs, once on this list, are now **in**.)
+- Candidate next additions: more triggers (on-dodge, every-Nth-hit), multi-class
+  gems, a rare "unique" gem tier. (On-hit triggers, conditional knobs, and
+  summon / minion procs, once on this list, are now **in**.)
 </content>

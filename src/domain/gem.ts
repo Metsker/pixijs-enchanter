@@ -51,8 +51,7 @@ export type ProcTrigger =
 // against each target the bound proc hits:
 //   frozen  - target currently has the Freeze status
 //   shocked - target currently has the Shock status
-//   low-hp  - target is at or below `threshold` of its max HP
-export type ProcCondition = 'frozen' | 'shocked' | 'low-hp';
+export type ProcCondition = 'frozen' | 'shocked';
 
 // How a firing proc picks its target(s).
 export type ProcTargeting = 'random' | 'all' | 'nearest';
@@ -68,17 +67,33 @@ export type ProcTargeting = 'random' | 'all' | 'nearest';
 //   attack-echo - deal `fraction` of the player's CURRENT auto-attack damage
 //                 (so it scales with your attack build, not a flat number).
 //                 Used by Vault Strike's on-crit echo.
+//   summon - spawn proc.count autonomous minions that follow / orbit the player
+//            and bite the nearest enemy for `damage` every `intervalSec`,
+//            fading after `lifespanSec` (0 = whole fight). `orbit` circles the
+//            player (Swarm bees) vs roaming to enemies (Spirit Wolf). A summoned
+//            minion inherits its proc's crit / riders / condscale, so the damage
+//            supports below apply to it like any other damage proc.
 //
 // Support knobs that only make sense for damage (count / crit / rider) also
-// apply to attack-echo (it resolves to a damage hit); `scale` multiplies the
-// payload magnitude (damage / fraction) for every kind that carries one.
+// apply to attack-echo and summon (both resolve to damage hits); `scale`
+// multiplies the payload magnitude (damage / fraction) for every kind that
+// carries one.
 export type ProcPayload =
   | { kind: 'damage'; damage: number; damageType: DamageType }
   | { kind: 'attack-echo'; fraction: number; damageType: DamageType }
   | { kind: 'heal'; fraction: number }
   | { kind: 'shield'; fraction: number }
   | { kind: 'buff'; attackSpeedAdd: number; durationSec: number }
-  | { kind: 'gold'; chance: number };
+  | { kind: 'gold'; chance: number }
+  | {
+      kind: 'summon';
+      emoji: string;
+      damage: number;
+      damageType: DamageType;
+      intervalSec: number;
+      lifespanSec: number;
+      orbit: boolean;
+    };
 
 // An active ability: a trigger, a cooldown and a battlefield visual. The
 // payload (above) decides what firing actually does. Procs do not crit by
@@ -113,7 +128,7 @@ export interface StatDef {
 // a proc's Burn / Poison / Bleed hit harder and last longer); it is inert on a
 // proc with no riders. `condscale` multiplies the proc's damage against targets
 // that meet a condition at fire time (Shatter x2.5 vs frozen, Overcharge x2 vs
-// shocked, Ruthless x2 vs low-HP) - the combo payoff knobs.
+// shocked) - the combo payoff knobs.
 export type SupportMod =
   | { kind: 'scale'; factor: number }
   | { kind: 'count'; plus: number }
@@ -122,7 +137,7 @@ export type SupportMod =
   | { kind: 'rider'; status: StatusType }
   | { kind: 'repeat'; times: number; delaySec: number }
   | { kind: 'potency'; dmgMul: number; durMul: number }
-  | { kind: 'condscale'; condition: ProcCondition; factor: number; threshold?: number };
+  | { kind: 'condscale'; condition: ProcCondition; factor: number };
 
 // A gem definition. Discriminated first on role, then (for effects) on whether
 // it carries a proc or a stat.

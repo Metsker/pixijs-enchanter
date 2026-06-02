@@ -57,6 +57,7 @@ const GEM_NAMES: Record<string, string> = {
   meteor: 'Meteor',
   'frost-nova': 'Frost Nova',
   whirlblade: 'Whirlblade',
+  'spirit-wolf': 'Spirit Wolf',
   'soul-reap': 'Soul Reap',
   'vault-strike': 'Vault Strike',
   edge: 'Edge',
@@ -74,6 +75,7 @@ const GEM_NAMES: Record<string, string> = {
   'spirit-bolt': 'Spirit Bolt',
   'time-warp': 'Time Warp',
   'midas-burst': 'Midas Burst',
+  swarm: 'Swarm',
   swiftness: 'Swiftness',
   keen: 'Keen',
   lethal: 'Lethal',
@@ -82,11 +84,9 @@ const GEM_NAMES: Record<string, string> = {
   // Spellblade + ailment + combo additions (docs/gem-catalogue.md).
   spellstrike: 'Spellstrike',
   bloodthirst: 'Bloodthirst',
-  cull: 'Cull',
   gutting: 'Gutting',
   serrated: 'Serrated',
   conduction: 'Conduction',
-  ruthless: 'Ruthless',
   overcharge: 'Overcharge',
   shatter: 'Shatter',
   berserker: 'Berserker',
@@ -96,7 +96,6 @@ const GEM_NAMES: Record<string, string> = {
   plating: 'Plating',
   galvanize: 'Galvanize',
   brutality: 'Brutality',
-  hunter: 'Hunter',
   envenom: 'Envenom',
   virulent: 'Virulent',
 };
@@ -175,6 +174,10 @@ function payloadPhrase(payload: ProcPayload, proc: ProcDef): string {
       return `+${pct(payload.attackSpeedAdd)} attack speed for ${num(payload.durationSec)}s`;
     case 'gold':
       return `${pct(payload.chance)} chance for bonus gold`;
+    case 'summon': {
+      const n = proc.count > 1 ? `${proc.count} ` : '';
+      return `summon ${n}${payload.emoji} (${Math.round(payload.damage)} ${DAMAGE_LABELS[payload.damageType]} every ${num(payload.intervalSec)}s)`;
+    }
   }
 }
 
@@ -207,10 +210,6 @@ function statEffectPhrase(effect: StatDef['effects'][number]): string {
       return `lifesteal ${pct(effect.fraction)} of damage dealt`;
     case 'status-on-hit':
       return `${pct(effect.chance)} on hit: ${STATUS_LABELS[effect.status] ?? effect.status}`;
-    case 'damage-vs-low-hp':
-      return `+${pct(effect.bonusFraction)} vs enemies below ${pct(effect.threshold)} HP`;
-    case 'damage-vs-high-hp':
-      return `+${pct(effect.bonusFraction)} vs enemies above ${pct(effect.threshold)} HP`;
     case 'damage-mul-low-hp':
       return `+${pct(effect.perPercentMissing)} damage per 10% HP missing (max +${pct(effect.cap)})`;
     case 'damage-from-max-hp':
@@ -249,19 +248,17 @@ function supportSummary(mod: SupportMod): string {
     case 'potency':
       return `the bound proc's ailments deal x${mod.dmgMul} damage and last ${Math.round((mod.durMul - 1) * 100)}% longer`;
     case 'condscale':
-      return `the bound proc deals x${+mod.factor.toFixed(2)} vs ${conditionPhrase(mod.condition, mod.threshold)}`;
+      return `the bound proc deals x${+mod.factor.toFixed(2)} vs ${conditionPhrase(mod.condition)}`;
   }
 }
 
-// "frozen targets" / "Shocked targets" / "targets below 30% HP".
-function conditionPhrase(condition: string, threshold?: number): string {
+// "Frozen targets" / "Shocked targets".
+function conditionPhrase(condition: string): string {
   switch (condition) {
     case 'frozen':
       return 'Frozen targets';
     case 'shocked':
       return 'Shocked targets';
-    case 'low-hp':
-      return `targets below ${pct(threshold ?? 0)} HP`;
     default:
       return condition;
   }
@@ -274,6 +271,7 @@ function conditionPhrase(condition: string, threshold?: number): string {
 function scalePayloadMag(payload: ProcPayload, factor: number): ProcPayload {
   switch (payload.kind) {
     case 'damage':
+    case 'summon':
       return { ...payload, damage: payload.damage * factor };
     case 'attack-echo':
     case 'heal':

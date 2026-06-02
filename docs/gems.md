@@ -67,11 +67,11 @@ When a support binds to an effect it does one of:
 | **damage / scale** | ×factor to **any** proc's magnitude (damage / heal / shield / buff / gold) | ×factor to the stat value |
 | **cooldown** | -% cooldown on **any** proc; +tick rate on continuous; +duration on shields/auras | (inert) |
 | **repeat** | **any** proc fires an extra time | (inert) |
-| **count** | +N targets / projectiles | (inert) |
+| **count** | +N targets / projectiles / minions | (inert) |
 | **crit** | the proc may crit (+chance) | (inert) |
 | **rider** | the damage proc also applies a status | (inert) |
 | **potency** | the proc's riders deal ×more DoT and last longer (inert with no rider) | boosts a status-on-hit stat's ailment |
-| **conditional** | ×factor when the target is frozen / shocked / low-HP, per hit | (inert) |
+| **conditional** | ×factor when the target is frozen / shocked, per hit | (inert) |
 
 **scale / cooldown / repeat are universal** - never inert on a proc - so a
 support is rarely a dead draw. The damage-shaped knobs (count / crit / rider /
@@ -128,6 +128,9 @@ Each proc maps to one primitive (Graphics + a short tween in `battlefield.ts`):
 - **drifting orb** - travels to a target (spirit / homing).
 - **orbiting sprite** - rotates around the player (whirlblade).
 - **soft glow on player** - heal / buff / shield bubble.
+- **summoned minion** - an autonomous emoji that follows / orbits the player and
+  bites the nearest enemy on its own cadence (spirit wolf, swarm). Not a
+  transient flash: it lives on the field for its lifespan.
 
 ## Worked examples
 
@@ -168,18 +171,22 @@ layer a second DoT from your auto-attack.
 The pool is tuned so several distinct builds are reachable, and most *combine*:
 
 - **Auto-attack** - `Edge` / `Swiftness` / `Keen` / `Brutality` (crit mult) /
-  `Bloodthirst` (lifesteal) / `Cull` (execute). The weapon backbone.
+  `Bloodthirst` (lifesteal). The weapon backbone.
 - **Spellblade** - an `on-hit` proc (`Spellstrike`) turns auto-attacks into spell
   triggers; attack speed now scales spell frequency.
 - **Spells / procs** - `timer` procs (Chain Lightning, Meteor, Spirit Bolt) stacked
   with `scale` / `cooldown` / `count` / `crit` supports.
+- **Summoner** - `Spirit Wolf` / `Swarm` spawn autonomous familiars that pick
+  their own targets and bite on their own cadence; `Forking` adds bodies, `Echo`
+  re-summons, `Rapid` / `Lasting` speed the re-summon, and every damage support
+  (Overload / Igniting / Lethal / Shatter) rides each bite.
 - **Ailments / DoT** - reach all five statuses via riders (`Igniting`, `Chilling`,
   `Serrated`, `Conduction`, `Envenom`) or on-hit stats (`Gutting`, `Galvanize`),
   then scale them with `Virulent`. **Shock** doubles as a whole-build damage amp.
 - **Crit** - `Keen` + `Brutality` + `Lethal` (procs crit too).
-- **Combo / conditional** - `Shatter` (vs frozen), `Overcharge` (vs shocked),
-  `Ruthless` (vs low-HP) reward setting an ailment / executing - they pay off the
-  builds above instead of standing alone.
+- **Combo / conditional** - `Shatter` (vs frozen), `Overcharge` (vs shocked)
+  reward setting an ailment up - they pay off the builds above instead of
+  standing alone.
 - **Defense / sustain** - `Heart`, `Bulwark`, `Sanctuary`, `Retaliate`, plus the
   passive layer `Plating` (flat damage reduction = "armor") / `Evasion` (dodge) /
   `Regrowth` (regen) / `Berserker` / `Giant's Blood` (max HP -> auto-attack
@@ -190,7 +197,7 @@ The pool is tuned so several distinct builds are reachable, and most *combine*:
 
 - Multi-class gems; cross-item / global binding; trigger-chain execution
   (mana / multicast). v1 keeps a single per-item binding pass plus the proc
-  engine. (Conditional knobs - "×2 vs frozen / low-HP" - are now **in** as the
+  engine. (Conditional knobs - "×2 vs frozen / shocked" - are now **in** as the
   `conditional` support kind; see the knobs table.)
 
 ## See also

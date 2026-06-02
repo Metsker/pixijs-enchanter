@@ -23,8 +23,6 @@ export type EnchantEffect =
   | { kind: 'chain-add'; targets: number; damage: number }
   | { kind: 'multistrike-chance'; chance: number }
   | { kind: 'knockback-on-hit'; chance: number; durationSec: number }
-  | { kind: 'damage-vs-high-hp'; bonusFraction: number; threshold: number }
-  | { kind: 'damage-vs-low-hp'; bonusFraction: number; threshold: number }
   | { kind: 'damage-mul-low-hp'; perPercentMissing: number; cap: number }
   | { kind: 'speed-burst-on-kill'; bonusFraction: number; durationSec: number }
   | { kind: 'damage-from-max-hp'; fractionOfMaxHp: number }

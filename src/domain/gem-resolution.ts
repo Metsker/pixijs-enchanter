@@ -25,13 +25,12 @@ import { gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import { mag, cooldownAt } from './gem-level';
 
-// One conditional-scale a `condscale` support (Shatter / Overcharge / Ruthless)
-// stamped on a proc: multiply the hit by `factor` when the target meets
-// `condition` (low-hp also reads `threshold`). Evaluated per target at fire.
+// One conditional-scale a `condscale` support (Shatter / Overcharge) stamped on
+// a proc: multiply the hit by `factor` when the target meets `condition`.
+// Evaluated per target at fire.
 export interface CondScale {
   condition: ProcCondition;
   factor: number;
-  threshold?: number;
 }
 
 // A proc after its bound supports are applied: the ProcDef fields plus where it
@@ -88,6 +87,10 @@ function scalePayload(payload: ProcPayload, factor: number): ProcPayload {
   switch (payload.kind) {
     case 'damage':
       return { ...payload, damage: payload.damage * factor };
+    case 'summon':
+      // Overload / Amplify strengthen each minion's bite (its other knobs -
+      // interval / lifespan / count - are tuned, not scaled here).
+      return { ...payload, damage: payload.damage * factor };
     case 'attack-echo':
     case 'heal':
     case 'shield':
@@ -143,7 +146,6 @@ export function levelSupportMod(mod: SupportMod, level: number): SupportMod {
         kind: 'condscale',
         condition: mod.condition,
         factor: 1 + (mod.factor - 1) * mag(level),
-        threshold: mod.threshold,
       };
   }
 }
@@ -183,7 +185,7 @@ function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
     case 'condscale':
       proc.condScales = [
         ...proc.condScales,
-        { condition: mod.condition, factor: mod.factor, threshold: mod.threshold },
+        { condition: mod.condition, factor: mod.factor },
       ];
       break;
   }
@@ -243,13 +245,15 @@ function socketRole(slot: Gem | null | undefined): 'effect' | 'support' | null {
 // applyKnobToProc / applyKnobToStats: `scale` tweaks damage / heal / shield
 // magnitudes (and stat amounts); `count` / `crit` / `rider` only bite on a
 // damage proc; `cooldown` and `repeat` apply to any proc; nothing but `scale`
-// touches a stat gem.
-function supportAppliesToEffect(mod: SupportMod, effect: GemDef): boolean {
+// touches a stat gem. Exported so the gem inspector can list every effect gem a
+// support is compatible with (the binding rule, minus the placement).
+export function supportAppliesToEffect(mod: SupportMod, effect: GemDef): boolean {
   if ('proc' in effect) {
     const kind = effect.proc.payload.kind;
-    // attack-echo resolves to a damage hit, so every damage-oriented knob bites
-    // on it exactly as it does on a plain damage payload.
-    const dealsDamage = kind === 'damage' || kind === 'attack-echo';
+    // attack-echo and summon both resolve to damage hits, so every damage-
+    // oriented knob bites on them exactly as on a plain damage payload (a
+    // summoned minion inherits its proc's crit / riders / condscale).
+    const dealsDamage = kind === 'damage' || kind === 'attack-echo' || kind === 'summon';
     switch (mod.kind) {
       case 'cooldown':
       case 'repeat':
