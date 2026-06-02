@@ -1,7 +1,7 @@
 import type { EnemyDef } from './enemy';
 import { COMMONS, ELITES, LICH, MINOTAUR, SKELETON, GOBLIN, SLIME } from './enemy-catalogue';
 import type { Item } from './item';
-import { randomItem, randomWeapon } from './random';
+import { randomItem, rollStarterWeapons } from './random';
 
 // 'secret' is drawn as "?" on the map; its true content (an Item room or a
 // common / elite fight) is pre-rolled but hidden until the player enters it.
@@ -296,11 +296,7 @@ export function generateMap(seed: number = Date.now()): MapGraph {
         // weapons here before any fight. Item-select rooms can be
         // reused later with different offerItems.
         node.kind = 'item-select';
-        node.offerItems = [
-          randomWeapon(1, 'starter'),
-          randomWeapon(1, 'starter'),
-          randomWeapon(1, 'starter'),
-        ];
+        node.offerItems = rollStarterWeapons(3);
       } else if (floor === FLOORS) {
         node.kind = 'boss';
       } else if (floor === FLOORS - 1) {

@@ -194,6 +194,34 @@ export function randomWeapon(tier: number, idPrefix = 'weapon'): Item {
   return buildItem('weapon', tier, idPrefix);
 }
 
+// Roll `count` starter weapons whose pre-socketed gems are all DISTINCT, so the
+// opening Armory always offers three different gems to choose between (a
+// duplicate among three single-gem weapons would waste a pick). Each weapon is a
+// normal tier-1 weapon; on a gem collision we re-pick that weapon's gem from its
+// OWN socket-colour effect pool, excluding gems already used by an earlier
+// weapon - keeping the colour fit and the effect-only guarantee. If a colour's
+// pool can't supply enough distinct gems (e.g. all three roll the same scarce
+// colour) the leftover keeps its duplicate rather than failing.
+export function rollStarterWeapons(count = 3, idPrefix = 'starter'): Item[] {
+  const weapons: Item[] = [];
+  const used = new Set<string>();
+  for (let n = 0; n < count; n++) {
+    const weapon = randomWeapon(1, idPrefix);
+    const gem = weapon.sockets[0];
+    if (gem) {
+      if (used.has(gem.defId)) {
+        const fresh = EFFECT_GEM_IDS_BY_COLOR[weapon.socketColors[0]].filter(
+          (id) => !used.has(id),
+        );
+        if (fresh.length > 0) gem.defId = pick(fresh);
+      }
+      used.add(gem.defId);
+    }
+    weapons.push(weapon);
+  }
+  return weapons;
+}
+
 // Tier is the socket capacity (clamped to at least 1 so every item has
 // room for a gem).
 function buildItem(itemType: ItemType, tier: number, idPrefix: string): Item {
