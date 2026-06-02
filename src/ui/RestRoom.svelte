@@ -1,18 +1,22 @@
 <script lang="ts">
   import { paneEnter } from '../utils/paneTransition';
   import { completeRoom } from '../state/run';
-  import { canCraftGem, craftGem, CRAFT_COST } from '../state/rest';
+  import { canCraftGem, craftGem, CRAFT_COST, canCraftItem, craftItem, CRAFT_ITEM_COST } from '../state/rest';
   import { topbar } from '../state/topbar';
   import { gemDisplay, SOCKET_COLOR_HEX } from '../domain/gem-display';
   import { inspectGem, gemInspector } from '../state/gem-inspector';
+  import { inspectItem, inspector } from '../state/inspector';
   import { isGem, type Gem } from '../domain/gem';
-  import { isItem, type Item } from '../domain/item';
+  import { isItem, itemEmoji, tierOf, type Item } from '../domain/item';
+  import { EQUIPMENT_SLOT_ORDER } from '../domain/equipment';
   import { backpack } from '../state/backpack';
   import { equipped } from '../state/inventory';
   import {
     gemRefund,
+    itemRefund,
     disenchantGemFromBackpack,
     disenchantSocketedGem,
+    disenchantItemFromBackpack,
   } from '../state/disenchant';
   import { t } from '../i18n';
 
@@ -78,6 +82,64 @@
       }
     }
   }
+
+  // === Craft item (mirror of craft gem) ============================
+  const itemAffordable = $derived($topbar.crystals >= CRAFT_ITEM_COST);
+  // Items forged during THIS visit, newest first. Each also lands in the bag
+  // (craftItem adds it); listing them here lets the player inspect or scrap each.
+  let craftedItems = $state<Item[]>([]);
+
+  function onCraftItem(): void {
+    if (!canCraftItem()) return;
+    const item = craftItem();
+    if (item) craftedItems = [item, ...craftedItems];
+  }
+
+  // Item ids the player still OWNS - loose in the bag or equipped. A crafted item
+  // missing from this set was disenchanted, so its row greys out + goes inert.
+  const ownedItemIds = $derived.by((): Set<string> => {
+    const ids = new Set<string>();
+    for (const s of $backpack) if (isItem(s)) ids.add(s.id);
+    for (const it of Object.values($equipped)) if (it) ids.add(it.id);
+    return ids;
+  });
+  function isItemGone(item: Item): boolean {
+    return !ownedItemIds.has(item.id);
+  }
+  function isInspectingItem(item: Item): boolean {
+    return $inspector?.item.id === item.id;
+  }
+  function itemLabel(item: Item): string {
+    if (item.itemType === 'armor' && item.armorSlot) return t(`inventory.slot.${item.armorSlot}`);
+    return t(`item.type.${item.itemType}`);
+  }
+  function craftedItemInBag(item: Item): boolean {
+    return $backpack.some((s) => isItem(s) && s.id === item.id);
+  }
+
+  // Inspect a crafted item wherever it currently lives - loose in the bag or in
+  // an equipped slot (so the row still opens it after the player equips it).
+  function onInspectCraftedItem(item: Item): void {
+    const bagIdx = $backpack.findIndex((s) => isItem(s) && s.id === item.id);
+    if (bagIdx >= 0) {
+      inspectItem({ source: 'backpack', index: bagIdx, item: $backpack[bagIdx] as Item });
+      return;
+    }
+    for (const slotId of EQUIPMENT_SLOT_ORDER) {
+      const eq = $equipped[slotId];
+      if (eq && eq.id === item.id) {
+        inspectItem({ source: 'inventory', slotId, item: eq });
+        return;
+      }
+    }
+  }
+
+  // Disenchant a crafted item from the bag (its gems go too). Only bag items can
+  // be scrapped here; equip-and-swap, then disenchant from the Inspector.
+  function onDisenchantCraftedItem(item: Item): void {
+    const bagIdx = $backpack.findIndex((s) => isItem(s) && s.id === item.id);
+    if (bagIdx >= 0) disenchantItemFromBackpack(bagIdx);
+  }
 </script>
 
 <section class="rest" in:paneEnter|global>
@@ -100,6 +162,19 @@
         {t('rest.craft', { cost: CRAFT_COST })}
       </button>
       <p class="craft-hint">{t('rest.craft.hint')}</p>
+    </div>
+
+    <div class="group">
+      <button
+        type="button"
+        class="craft"
+        disabled={!itemAffordable}
+        title={itemAffordable ? t('rest.craftItem.hint') : t('rest.craft.notEnough')}
+        onclick={onCraftItem}
+      >
+        {t('rest.craftItem', { cost: CRAFT_ITEM_COST })}
+      </button>
+      <p class="craft-hint">{t('rest.craftItem.hint')}</p>
     </div>
 
     <!-- Gems crafted this visit, newest first - the same row a gem shows in the
@@ -145,6 +220,46 @@
                   title={t('gemInspector.disenchant', { refund: gemRefund(gem) })}
                   onclick={() => onDisenchantCrafted(gem)}
                 >✕ 💎 {gemRefund(gem)}</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
+    <!-- Items forged this visit (mirrors the gems list): tap a row to inspect,
+         ✕ to disenchant a bag item. A disenchanted item greys out + goes inert. -->
+    {#if craftedItems.length > 0}
+      <div class="group">
+        <div class="crafted-head">{t('rest.craftedItems')} ({craftedItems.length})</div>
+        <ul class="crafted-list" role="list">
+          {#each craftedItems as item (item.id)}
+            {@const gone = isItemGone(item)}
+            <li class="crafted-li">
+              <button
+                type="button"
+                class="gem-row"
+                class:inspecting={isInspectingItem(item)}
+                class:gone
+                disabled={gone}
+                style="--gem-color: {gone ? '#3a4448' : '#7a6aff'}"
+                title={gone ? t('rest.crafted.gone') : t('rest.craftedItem.inspect')}
+                onclick={() => onInspectCraftedItem(item)}
+              >
+                <span class="gem-emoji">{itemEmoji(item)}</span>
+                <span class="gem-main">
+                  <span class="gem-name">{itemLabel(item)}</span>
+                  <span class="gem-role tier">T{tierOf(item)}</span>
+                </span>
+              </button>
+              {#if !gone && craftedItemInBag(item)}
+                <button
+                  type="button"
+                  class="act danger disenchant"
+                  aria-label={t('gemInspector.disenchant', { refund: itemRefund(item) })}
+                  title={t('gemInspector.disenchant', { refund: itemRefund(item) })}
+                  onclick={() => onDisenchantCraftedItem(item)}
+                >✕ 💎 {itemRefund(item)}</button>
               {/if}
             </li>
           {/each}
@@ -430,5 +545,12 @@
     color: #cfe6ff;
     background: rgba(102, 170, 221, 0.18);
     border: 1px solid #6ad;
+  }
+  /* Tier badge on a forged-item row (reuses the gem-role pill shape). */
+  .gem-role.tier {
+    color: #c9b8ff;
+    background: rgba(124, 90, 200, 0.18);
+    border: 1px solid #8a6aff;
+    font-variant-numeric: lining-nums;
   }
 </style>

@@ -1,14 +1,18 @@
-// The Rest bench: Craft and Destroy gems (ADR 0008). Rest now has exactly two
-// actions - spend crystals to roll a random gem into the stash (Craft), or
-// delete a stash gem for a partial crystal refund (Destroy). Destroying gems
-// is the deliberate crystal scrap loop, the main faucet alongside the capped
-// shop crystal pack; crystals are NOT dropped anywhere else (ADR 0003).
+// The Forge bench (internally still 'rest'): Craft a gem, Craft a tier-1 item,
+// or Destroy a gem (ADR 0008). Craft spends crystals to roll a random gem into
+// the stash or a random T1 item into the bag; Destroy deletes a stash gem for a
+// partial crystal refund - the deliberate crystal scrap loop, the main faucet
+// alongside the capped shop crystal pack (crystals are NOT dropped elsewhere,
+// ADR 0003).
 
 import { get } from 'svelte/store';
 import { gemLevel } from '../domain/gem';
 import type { Gem, GemDef } from '../domain/gem';
+import type { Item } from '../domain/item';
 import { GEM_CATALOGUE } from '../domain/gem-catalogue';
+import { randomItem } from '../domain/random';
 import { addGemToStash, removeGemFromStashById } from './gem-stash';
+import { addItem } from './backpack';
 import { refundCrystals, spendCrystals, topbar } from './topbar';
 
 // Placeholder economy (tune in playtesting). Craft costs CRAFT_COST crystals;
@@ -16,6 +20,9 @@ import { refundCrystals, spendCrystals, topbar } from './topbar';
 // refund staying below the craft cost keeps the scrap loop a deliberate choice
 // rather than free deletion (ADR 0008).
 export const CRAFT_COST = 30;
+// Crafting a random tier-1 item costs more than a gem - it's a bigger get
+// (sockets + pre-rolled gems), so it shouldn't out-pace gem crafting.
+export const CRAFT_ITEM_COST = 50;
 export const DESTROY_REFUND = 25;
 
 // --- Craft weighting -----------------------------------------------------
@@ -83,6 +90,22 @@ export function craftGem(rng: () => number = Math.random): Gem | null {
   const gem: Gem = { id: nextCraftedGemId(), defId: rollDefId(rng) };
   addGemToStash(gem);
   return gem;
+}
+
+// True if the player can currently afford to craft an item.
+export function canCraftItem(): boolean {
+  return get(topbar).crystals >= CRAFT_ITEM_COST;
+}
+
+// Craft an item: spend CRAFT_ITEM_COST crystals, roll a random tier-1 item
+// (random type, one socket, pre-socketed like a drop) and drop it into the
+// backpack. Returns the crafted Item, or null when the player cannot afford it
+// (no crystals spent in that case).
+export function craftItem(): Item | null {
+  if (!spendCrystals(CRAFT_ITEM_COST)) return null;
+  const item = randomItem(1, 'forge');
+  addItem(item);
+  return item;
 }
 
 // Crystals refunded for scrapping a stash gem: DESTROY_REFUND per combine level

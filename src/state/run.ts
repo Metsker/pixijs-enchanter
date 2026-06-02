@@ -8,12 +8,9 @@ import { resetEquipped } from './inventory';
 import { resetStash } from './gem-stash';
 import { resetHeldGem } from './gem-move';
 import { resetTopbar } from './topbar';
-import { closeInspector, inspectItem } from './inspector';
+import { closeInspector } from './inspector';
 import { closeGemInspector } from './gem-inspector';
 import { closeItemsSplit, closeGemsSplit, closeStatsSplit, closeSettings } from './ui';
-import { equipped } from './inventory';
-import { EQUIPMENT_SLOT_ORDER, type EquipmentSlotId } from '../domain/equipment';
-import type { Item } from '../domain/item';
 import { closeItemOffer, openItemOffer } from './item-offer';
 import { settings, type Difficulty } from './settings';
 
@@ -61,23 +58,6 @@ function screenFor(kind: RoomKind): Screen {
   return 'rest';
 }
 
-// Walks the equipped slots and inspects the item with the most
-// sockets (ties broken by canonical slot order). Used to auto-pop
-// the Inspector on the player's "best" gear at room entry so the
-// fight / rest / shop opens with their key item already in focus.
-function inspectHighestTierEquipped(): void {
-  const eq = get(equipped);
-  let best: { slotId: EquipmentSlotId; item: Item } | null = null;
-  for (const slotId of EQUIPMENT_SLOT_ORDER) {
-    const item = eq[slotId];
-    if (!item) continue;
-    if (!best || item.sockets.length > best.item.sockets.length) {
-      best = { slotId, item };
-    }
-  }
-  if (best) inspectItem({ source: 'inventory', slotId: best.slotId, item: best.item });
-}
-
 export function enterRoom(roomId: string): void {
   const state = get(run);
   const node = nodeById(state.map, roomId);
@@ -101,15 +81,6 @@ export function enterRoom(roomId: string): void {
   }
   if (screen === 'item-select' && node.offerItems) {
     openItemOffer(node.offerItems);
-  }
-
-  // Auto-inspect the player's best equipped item only on Rest
-  // entry - the Workbench is where the player actually tinkers
-  // with gear, so an open Inspector saves a click. Fight / shop /
-  // item-select keep the Inspector closed so they don't pre-
-  // commandeer the screen.
-  if (screen === 'rest') {
-    inspectHighestTierEquipped();
   }
 }
 
