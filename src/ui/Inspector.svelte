@@ -144,41 +144,11 @@
   });
 
   // === Add socket ==================================================
-  // Available anywhere (decoupled from Rest): for any OWNED item (equipped /
-  // backpack) under the tier cap. Rest now only crafts / destroys gems. The
-  // button's cost + affordability read the live topbar so they re-derive as
-  // crystals change.
-  const canShowAddSocket = $derived(
-    subject !== null && socketsEditable && canAddSocket(subject.item),
-  );
-  const addSocketPrice = $derived(
-    subject ? addSocketCost(subject.item) : 0,
-  );
-  // Read $topbar.crystals directly so affordability re-derives on every spend.
-  const addSocketAffordable = $derived(
-    subject !== null && $topbar.crystals >= addSocketPrice,
-  );
-
-  // Colour of the NEXT socket the Add-socket button would add. Seeded by the
-  // item id + the next socket index, so it is PREDEFINED (deterministic): the
-  // same item always grows the same colour sequence, the previewed swatch never
-  // flickers, and it exactly matches what onAddSocket commits.
-  const pendingSocketColor = $derived.by((): SocketColor => {
-    const s = subject;
-    if (!s) return 'blue';
-    return seededSocketColorForType(
-      s.item.itemType,
-      s.item.id,
-      s.item.sockets.length,
-      s.item.armorSlot,
-    );
-  });
-
-  function onAddSocket(): void {
-    const subj = $inspector;
-    if (!subj) return;
-    addSocketToItem(subj.item, pendingSocketColor);
-  }
+  // Available anywhere (decoupled from Rest): any OWNED item (equipped /
+  // backpack) under the tier cap can take a socket for crystals. The button is
+  // rendered PER ITEM by the `addSocketButton` snippet below, so the compare
+  // view can grow the SELECTED or the EQUIPPED column independently; each button
+  // computes its own cost / preview-colour / affordability from the live topbar.
 
   // Whether the currently held gem fits a GIVEN socket of `colItem` (its colour
   // matches that socket's colour). Per-socket - a held gem can be a valid drop
@@ -612,6 +582,38 @@
       </button>
     {/snippet}
 
+    <!-- Add socket: appends one empty socket to an OWNED item (under the tier
+         cap) for crystals. Rendered per item so the compare view can grow the
+         SELECTED or the EQUIPPED column independently. Self-gates on ownership +
+         the cap, and computes its own cost / preview-colour / affordability. -->
+    {#snippet addSocketButton(targetItem: Item)}
+      {#if socketsEditable && canAddSocket(targetItem)}
+        {@const price = addSocketCost(targetItem)}
+        {@const color = seededSocketColorForType(
+          targetItem.itemType,
+          targetItem.id,
+          targetItem.sockets.length,
+          targetItem.armorSlot,
+        )}
+        <button
+          type="button"
+          class="add-socket"
+          disabled={$topbar.crystals < price}
+          title={$topbar.crystals >= price
+            ? t('inspector.addSocket.hint')
+            : t('rest.craft.notEnough')}
+          onclick={() => addSocketToItem(targetItem, color)}
+        >
+          <span
+            class="socket-swatch"
+            style="--swatch: {SOCKET_COLOR_HEX[color]}"
+            aria-hidden="true"
+          ></span>
+          {t('inspector.addSocket', { cost: price })}
+        </button>
+      {/if}
+    {/snippet}
+
     <!-- Compare: two compact columns (candidate vs equipped) side by side. Both
          are interactive (the equipped one is owned too), so you can compare AND
          tweak / fill either, then Swap. The gem picker drops below the columns. -->
@@ -634,6 +636,7 @@
               </div>
             {/each}
           </div>
+          {@render addSocketButton(item)}
         </div>
         <div class="compare-col equipped">
           <div class="cmp-head">
@@ -650,6 +653,7 @@
               </div>
             {/each}
           </div>
+          {@render addSocketButton(equipped)}
         </div>
       </div>
       {#if socketMenu}
@@ -662,29 +666,8 @@
         {@render compareColumns(comparison)}
       {:else}
         {@render socketColumn(item, socketsEditable, t('inspector.sockets'))}
+        {@render addSocketButton(item)}
       {/if}
-
-      <!-- Add socket (Rest only, owned item, under the tier cap). Improves the
-           item's tier by one empty socket for crystals. -->
-      {#if canShowAddSocket}
-        <button
-          type="button"
-          class="add-socket"
-          disabled={!addSocketAffordable}
-          title={addSocketAffordable
-            ? t('inspector.addSocket.hint')
-            : t('rest.craft.notEnough')}
-          onclick={onAddSocket}
-        >
-          <span
-            class="socket-swatch"
-            style="--swatch: {SOCKET_COLOR_HEX[pendingSocketColor]}"
-            aria-hidden="true"
-          ></span>
-          {t('inspector.addSocket', { cost: addSocketPrice })}
-        </button>
-      {/if}
-
     </div>
 
     {#if subject.source === 'backpack' || subject.source === 'inventory' || subject.source === 'shop' || subject.source === 'item-offer'}
