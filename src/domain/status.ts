@@ -71,6 +71,10 @@ export const STATUS_DEFS: Record<StatusType, StatusDef> = {
 export interface StatusInstance {
   remainingSec: number;
   nextTickIn: number;
+  // Potency multiplier on this instance's DoT, from a `potency` support
+  // (Virulent). Absent means 1 (no boost). Duration potency is folded into
+  // remainingSec at apply time, so only the damage multiplier persists here.
+  dmgMul?: number;
 }
 
 // Returned by tickStatuses so the Battlefield can paint a coloured

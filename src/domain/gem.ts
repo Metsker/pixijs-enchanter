@@ -36,8 +36,23 @@ export function colorForClass(gemClass: GemClass): SocketColor {
 // Effect gems carry the payload; support gems modify the effect they bind to.
 export type GemRole = 'effect' | 'support';
 
-// When a proc fires (see docs/gems.md § Triggers).
-export type ProcTrigger = 'timer' | 'continuous' | 'on-kill' | 'on-crit' | 'on-hit-taken';
+// When a proc fires (see docs/gems.md § Triggers). `on-hit` fires once per
+// auto-attack that lands - the spellblade bridge, so attack speed scales the
+// proc's frequency (it ignores its own cooldown, like the other reactive kinds).
+export type ProcTrigger =
+  | 'timer'
+  | 'continuous'
+  | 'on-kill'
+  | 'on-crit'
+  | 'on-hit'
+  | 'on-hit-taken';
+
+// A run-time condition a conditional-scale support (see SupportMod) tests
+// against each target the bound proc hits:
+//   frozen  - target currently has the Freeze status
+//   shocked - target currently has the Shock status
+//   low-hp  - target is at or below `threshold` of its max HP
+export type ProcCondition = 'frozen' | 'shocked' | 'low-hp';
 
 // How a firing proc picks its target(s).
 export type ProcTargeting = 'random' | 'all' | 'nearest';
@@ -50,12 +65,16 @@ export type ProcTargeting = 'random' | 'all' | 'nearest';
 //   shield - grant a shield worth `fraction` of the player's max HP.
 //   buff   - self-buff: +`attackSpeedAdd` attack speed for `durationSec`.
 //   gold   - on a kill, `chance` to drop bonus gold.
+//   attack-echo - deal `fraction` of the player's CURRENT auto-attack damage
+//                 (so it scales with your attack build, not a flat number).
+//                 Used by Vault Strike's on-crit echo.
 //
-// Support knobs that only make sense for damage (count / crit / rider) are
-// inert on the other kinds; `scale` multiplies the payload magnitude (damage,
-// or heal / shield fraction) for every kind that carries one.
+// Support knobs that only make sense for damage (count / crit / rider) also
+// apply to attack-echo (it resolves to a damage hit); `scale` multiplies the
+// payload magnitude (damage / fraction) for every kind that carries one.
 export type ProcPayload =
   | { kind: 'damage'; damage: number; damageType: DamageType }
+  | { kind: 'attack-echo'; fraction: number; damageType: DamageType }
   | { kind: 'heal'; fraction: number }
   | { kind: 'shield'; fraction: number }
   | { kind: 'buff'; attackSpeedAdd: number; durationSec: number }
@@ -89,13 +108,21 @@ export interface StatDef {
 // Two flavours of rider: a `rider` lands a status on the proc's target
 // (Igniting -> Burn, Chilling -> Freeze); a `repeat` makes the proc fire again
 // after a short delay (Echo -> fires twice).
+//
+// `potency` scales the DoT of the riders the bound proc applies (Virulent makes
+// a proc's Burn / Poison / Bleed hit harder and last longer); it is inert on a
+// proc with no riders. `condscale` multiplies the proc's damage against targets
+// that meet a condition at fire time (Shatter x2.5 vs frozen, Overcharge x2 vs
+// shocked, Ruthless x2 vs low-HP) - the combo payoff knobs.
 export type SupportMod =
   | { kind: 'scale'; factor: number }
   | { kind: 'count'; plus: number }
   | { kind: 'cooldown'; factor: number }
   | { kind: 'crit'; chanceAdd: number }
   | { kind: 'rider'; status: StatusType }
-  | { kind: 'repeat'; times: number; delaySec: number };
+  | { kind: 'repeat'; times: number; delaySec: number }
+  | { kind: 'potency'; dmgMul: number; durMul: number }
+  | { kind: 'condscale'; condition: ProcCondition; factor: number; threshold?: number };
 
 // A gem definition. Discriminated first on role, then (for effects) on whether
 // it carries a proc or a stat.

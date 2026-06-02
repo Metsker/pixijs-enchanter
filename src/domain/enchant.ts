@@ -16,8 +16,9 @@ export type EnchantEffect =
   | { kind: 'crit-chance-add'; amount: number }
   | { kind: 'crit-mul-add'; amount: number }
   | { kind: 'lifesteal-add'; fraction: number }
-  // Attack-side, not yet wired
-  | { kind: 'status-on-hit'; status: StatusType; chance: number }
+  // Attack-side. status-on-hit is wired in landDamage; dmgMul / durMul are an
+  // optional ailment potency a bound Virulent support stamps on (default 1).
+  | { kind: 'status-on-hit'; status: StatusType; chance: number; dmgMul?: number; durMul?: number }
   | { kind: 'splash-add'; fraction: number; flag?: 'grounded-only' }
   | { kind: 'chain-add'; targets: number; damage: number }
   | { kind: 'multistrike-chance'; chance: number }
@@ -28,14 +29,10 @@ export type EnchantEffect =
   | { kind: 'speed-burst-on-kill'; bonusFraction: number; durationSec: number }
   | { kind: 'damage-from-max-hp'; fractionOfMaxHp: number }
   | { kind: 'damage-per-max-hp'; perHundred: number }
-  // Type conversion
-  | { kind: 'convert-physical-rolled'; toType: DamageType; fraction: number }
-  | { kind: 'convert-physical-random'; fraction: number }
   // Defence-side, not yet wired into combat
   | { kind: 'hp-max-add'; amount: number }
   | { kind: 'hp-max-mul'; factor: number }
   | { kind: 'dodge-add'; amount: number }
-  | { kind: 'resist-add'; amount: number; type?: DamageType | 'rolled' }
   | { kind: 'damage-reduction'; amount: number }
   | { kind: 'damage-reduction-low-hp'; amount: number; threshold: number }
   | { kind: 'big-hit-reduction'; threshold: number; reductionFraction: number }

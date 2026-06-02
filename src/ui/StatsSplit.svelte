@@ -16,11 +16,6 @@
 
   const pct = (f: number): string => `${Math.round(f * 100)}%`;
   const num = (n: number): string => parseFloat(n.toFixed(2)).toString();
-
-  // Per-type resists that are actually present (non-empty), for the list below.
-  const resists = $derived(
-    Object.entries(defence.resists).filter(([, v]) => (v ?? 0) > 0) as [string, number][],
-  );
 </script>
 
 <aside
@@ -62,9 +57,6 @@
       {#if defence.thornsFlat > 0}
         <div class="row"><span class="k">🌵 {t('stats.thorns')}</span><span class="v">{Math.round(defence.thornsFlat)}</span></div>
       {/if}
-      {#each resists as [type, value] (type)}
-        <div class="row"><span class="k">🧪 {t('stats.resist')} {type}</span><span class="v">{pct(value)}</span></div>
-      {/each}
     </section>
   </div>
 </aside>
