@@ -17,7 +17,26 @@ import { equipped, updateEquippedAt } from './inventory';
 import { heldGem, writeItem } from './gem-move';
 import { DESTROY_REFUND } from './rest';
 import { refundCrystals } from './topbar';
+import { inspector } from './inspector';
+import { gemInspector } from './gem-inspector';
 import type { EquipmentSlotId } from '../domain/equipment';
+
+// Destroying an item / gem from ANYWHERE (bag row, equipment drag, an inspector
+// button, the destroy prompt) routes through the functions below, so closing the
+// matching inspector here covers every path at once: a pane never lingers showing
+// a thing that no longer exists.
+function closeItemInspectorIf(itemId: string): void {
+  if (get(inspector)?.item.id === itemId) inspector.set(null);
+}
+function closeGemInspectorIf(gemIds: Set<string>): void {
+  const showing = get(gemInspector)?.gem.id;
+  if (showing && gemIds.has(showing)) gemInspector.set(null);
+}
+// The ids of every gem socketed in `item` (for closing a gem inspector that is
+// showing one of them when the whole item is scrapped).
+function socketedGemIds(item: Item): Set<string> {
+  return new Set(item.sockets.filter((g): g is Gem => g !== null).map((g) => g.id));
+}
 
 // Crystal value of an item's bare tier (before its socketed gems are added).
 export const ITEM_REFUND_PER_TIER = 10;
@@ -41,6 +60,7 @@ export function disenchantGemFromBackpack(gemId: string): boolean {
   const removed = removeBackpackGemById(gemId);
   if (!removed) return false;
   refundCrystals(gemRefund(removed));
+  closeGemInspectorIf(new Set([gemId]));
   return true;
 }
 
@@ -55,6 +75,7 @@ export function disenchantSocketedGem(item: Item, index: number): boolean {
   sockets[index] = null;
   writeItem({ ...item, sockets });
   refundCrystals(gemRefund(gem));
+  closeGemInspectorIf(new Set([gem.id]));
   return true;
 }
 
@@ -66,6 +87,7 @@ export function disenchantHeldGem(): boolean {
   if (!held) return false;
   refundCrystals(gemRefund(held.gem));
   heldGem.set(null);
+  closeGemInspectorIf(new Set([held.gem.id]));
   return true;
 }
 
@@ -78,6 +100,8 @@ export function disenchantItemFromBackpack(index: number): boolean {
   const refund = itemRefund(slot);
   removeItem(index);
   refundCrystals(refund);
+  closeItemInspectorIf(slot.id);
+  closeGemInspectorIf(socketedGemIds(slot)); // its gems go too
   return true;
 }
 
@@ -103,6 +127,9 @@ export function destroyBackpackItemKeepGems(index: number): boolean {
   removeItem(index);
   detachGemsToBackpack(item);
   refundCrystals(bareFrameRefund(item));
+  closeItemInspectorIf(item.id);
+  // The gems are KEPT (detached to the bag), so a gem inspector showing one of
+  // them stays open - that gem still exists.
   return true;
 }
 
@@ -115,5 +142,7 @@ export function disenchantEquipped(slotId: EquipmentSlotId): boolean {
   const refund = itemRefund(item);
   updateEquippedAt(slotId, () => null);
   refundCrystals(refund);
+  closeItemInspectorIf(item.id);
+  closeGemInspectorIf(socketedGemIds(item)); // its gems go too
   return true;
 }

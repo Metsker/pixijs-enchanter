@@ -175,6 +175,7 @@ export const en: Record<string, string> = {
   'rest.craft.notEnough': 'Not enough crystals',
   'rest.craft.hint': 'Rolls a random gem into your stash. Socket it from the Inspector.',
   'rest.crafted': 'Crafted this visit',
+  'rest.crafted.gone': 'Disenchanted',
   'rest.stash.title': 'Gem stash',
   'rest.stash.empty': 'No loose gems yet. Craft one, or pull a gem from a socket.',
   'rest.destroy': 'Destroy',
