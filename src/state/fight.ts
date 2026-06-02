@@ -301,7 +301,15 @@ export function removeEnemy(id: string): void {
 // the dripping DoT accumulator. One instance per status per fighter
 // (no stacks); shock/freeze are non-DoT, just enable their multiplier
 // while the timer runs.
-function withStatus(f: Fighter, status: StatusType): Fighter {
+// `potency` (from a Virulent support) scales the applied DoT: durMul stretches
+// the duration up front, dmgMul rides on the instance and is read each tick.
+// Default {1, 1} - the vast majority of applications (auto-attack riders,
+// auras, base proc riders) carry no boost.
+function withStatus(
+  f: Fighter,
+  status: StatusType,
+  potency: { dmgMul: number; durMul: number } = { dmgMul: 1, durMul: 1 },
+): Fighter {
   const def = STATUS_DEFS[status];
   const existing = f.statuses?.[status];
   return {
@@ -309,19 +317,26 @@ function withStatus(f: Fighter, status: StatusType): Fighter {
     statuses: {
       ...f.statuses,
       [status]: {
-        remainingSec: def.durationSec,
+        remainingSec: def.durationSec * potency.durMul,
         // Preserve the existing countdown on a refresh so re-stacking
         // doesn't reset the next tick out by a full interval.
         nextTickIn: existing?.nextTickIn ?? def.tickIntervalSec,
+        // Keep the strongest potency seen, so a plain re-apply never downgrades
+        // an ailment a Virulent proc already boosted.
+        dmgMul: Math.max(existing?.dmgMul ?? 1, potency.dmgMul),
       },
     },
   };
 }
 
-export function applyStatusToEnemy(id: string, status: StatusType): void {
+export function applyStatusToEnemy(
+  id: string,
+  status: StatusType,
+  potency?: { dmgMul: number; durMul: number },
+): void {
   fight.update((state) => ({
     ...state,
-    enemies: state.enemies.map((e) => (e.id === id ? withStatus(e, status) : e)),
+    enemies: state.enemies.map((e) => (e.id === id ? withStatus(e, status, potency) : e)),
   }));
 }
 
@@ -372,14 +387,15 @@ function tickFighterStatuses(f: Fighter, dt: number, events: DoTEvent[]): Fighte
     // for 60 every 0.5s, etc. Catch up if dt overshot (unlikely at
     // 60fps but cheap to handle).
     if (def.dmgPerSec > 0 && def.tickIntervalSec > 0) {
+      const mul = inst.dmgMul ?? 1;
       while (nextTickIn <= 0 && hp > 0) {
-        const damage = Math.min(hp, Math.round(def.dmgPerSec * def.tickIntervalSec));
+        const damage = Math.min(hp, Math.round(def.dmgPerSec * def.tickIntervalSec * mul));
         hp -= damage;
         events.push({ targetId: f.id, status: key, amount: damage });
         nextTickIn += def.tickIntervalSec;
       }
     }
-    next[key] = { remainingSec, nextTickIn };
+    next[key] = { remainingSec, nextTickIn, dmgMul: inst.dmgMul };
     mutated = true;
   }
   if (!mutated && hp === f.hp) return f;

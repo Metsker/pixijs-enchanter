@@ -628,21 +628,11 @@ export class Battlefield {
     // source. Stacks multiplicatively with crit / bonuses.
     const shockMul = target.statuses?.shock ? STATUS_DEFS.shock.takeDamageMul ?? 1 : 1;
 
-    // Avatar of [Element] / Prism: each conversion fraction is the
-    // share of the player's physical damage that bypasses the
-    // enemy's flat physical resist. Enemy resist applies only to the
-    // unconverted physical portion.
-    let convertedFraction = 0;
-    for (const eff of effects) {
-      if (eff.kind === 'convert-physical-rolled' || eff.kind === 'convert-physical-random') {
-        convertedFraction += eff.fraction;
-      }
-    }
-    convertedFraction = Math.min(1, convertedFraction);
-    // Difficulty-scaled resist is baked onto the Fighter (makeFighters);
-    // fall back to the catalogue value for any unscaled enemy.
+    // Enemy resist: a flat fraction off the player's damage. Difficulty-scaled
+    // resist is baked onto the Fighter (makeFighters); fall back to the
+    // catalogue value for any unscaled enemy.
     const enemyResist = target.resist ?? ENEMY_CATALOGUE[target.name]?.resist ?? 0;
-    const resistMul = 1 - (1 - convertedFraction) * enemyResist;
+    const resistMul = 1 - enemyResist;
 
     const damage = Math.max(1, Math.round(dmg * shockMul * resistMul));
 
@@ -679,6 +669,11 @@ export class Battlefield {
       this.fireProcsForTrigger('on-crit', get(fight), { anchorId: target.id });
     }
 
+    // On-hit trigger: every landed auto-attack fires on-hit procs
+    // (Spellstrike bolts the struck enemy), so attack speed scales how
+    // often they go off - the spellblade bridge. Extra strikes count too.
+    this.fireProcsForTrigger('on-hit', get(fight), { anchorId: target.id });
+
     // Knockback: per-effect roll, on proc push the target's next
     // attack out by durationSec.
     for (const eff of effects) {
@@ -694,7 +689,13 @@ export class Battlefield {
     // float on the target so the proc reads.
     for (const eff of effects) {
       if (eff.kind === 'status-on-hit' && Math.random() < eff.chance) {
-        applyStatusToEnemy(target.id, eff.status);
+        // A bound Virulent stamps dmgMul / durMul onto the effect; pass it
+        // through so an auto-attack ailment scales just like a proc rider.
+        const potency =
+          eff.dmgMul || eff.durMul
+            ? { dmgMul: eff.dmgMul ?? 1, durMul: eff.durMul ?? 1 }
+            : undefined;
+        applyStatusToEnemy(target.id, eff.status, potency);
         const def = STATUS_DEFS[eff.status];
         this.spawnFloatNumber(view, def.emoji, def.color, 28);
         playStatusSfx(eff.status);
@@ -832,6 +833,11 @@ export class Battlefield {
       case 'damage':
         this.fireDamageProc(proc, proc.payload.damage, state, ctx);
         break;
+      case 'attack-echo':
+        // Echo a fraction of the CURRENT auto-attack damage (Vault Strike),
+        // so the proc scales with the attack build instead of a flat number.
+        this.fireDamageProc(proc, this.attack.damage * proc.payload.fraction, state, ctx);
+        break;
       case 'heal':
         this.fireHealProc(proc, proc.payload.fraction, state);
         break;
@@ -893,6 +899,33 @@ export class Battlefield {
     return picks;
   }
 
+  // Combined multiplier from a proc's conditional-scale supports against one
+  // target: each condition that holds right now contributes its factor (Shatter
+  // x2.5 vs Frozen, Overcharge x2 vs Shocked, Ruthless x2 vs a target at/below
+  // its HP threshold). No conditions / none holding -> 1.
+  private condScaleMul(proc: ResolvedProc, target: Fighter): number {
+    if (proc.condScales.length === 0) return 1;
+    let mul = 1;
+    for (const cs of proc.condScales) {
+      let holds = false;
+      switch (cs.condition) {
+        case 'frozen':
+          holds = !!target.statuses?.freeze;
+          break;
+        case 'shocked':
+          holds = !!target.statuses?.shock;
+          break;
+        case 'low-hp': {
+          const frac = target.maxHp > 0 ? target.hp / target.maxHp : 0;
+          holds = frac <= (cs.threshold ?? 0);
+          break;
+        }
+      }
+      if (holds) mul *= cs.factor;
+    }
+    return mul;
+  }
+
   // Damage payload: hit each selected target, rolling crit if the proc
   // is critable (Lethal), applying riders, and killing on a lethal
   // blow. Mirrors the Conduction chain in landDamage - spawnFloatNumber
@@ -920,7 +953,13 @@ export class Battlefield {
       // Crit roll: procs only crit when a crit support (Lethal) granted
       // canCrit. The auto-attack's crit multiplier is reused.
       const isCrit = proc.canCrit && proc.critChance > 0 && Math.random() < proc.critChance;
-      const damage = Math.max(1, Math.round(baseDamage * (isCrit ? this.attack.critMultiplier : 1)));
+      // Conditional-scale supports (Shatter / Overcharge / Ruthless) multiply
+      // the hit when this target meets their condition right now.
+      const condMul = this.condScaleMul(proc, target);
+      const damage = Math.max(
+        1,
+        Math.round(baseDamage * condMul * (isCrit ? this.attack.critMultiplier : 1)),
+      );
 
       this.spawnProcVisual(proc, view, originX, originY);
       this.spawnFloatNumber(
@@ -934,9 +973,10 @@ export class Battlefield {
       applyDamage(target.id, damage);
 
       // Riders: each accumulated status the proc carries lands on the
-      // target (e.g. Igniting's Burn, Chilling's Freeze).
+      // target (e.g. Igniting's Burn, Chilling's Freeze), scaled by any
+      // `potency` support (Virulent) bound to the proc.
       for (const status of proc.riders) {
-        applyStatusToEnemy(target.id, status);
+        applyStatusToEnemy(target.id, status, proc.riderPotency);
       }
 
       // Lethal blow handling is centralised in playDeath: applyDamage's
@@ -1131,15 +1171,6 @@ export class Battlefield {
       if (eff.kind === 'big-hit-reduction' && incoming > eff.threshold) {
         incoming = Math.max(1, Math.round(incoming * (1 - eff.reductionFraction)));
       }
-    }
-
-    // Per-element resist: enemies have a typed damageType in the
-    // catalogue; the player's stacked Warding gives a fraction per
-    // type. Final reduction is multiplicative with DR.
-    const dmgType = ENEMY_CATALOGUE[enemy.name]?.damageType;
-    const resistFrac = dmgType ? this.defence.resists[dmgType] ?? 0 : 0;
-    if (resistFrac > 0) {
-      incoming = Math.max(1, Math.round(incoming * (1 - resistFrac)));
     }
 
     // Stoic: split a fraction off the incoming hit into a delayed

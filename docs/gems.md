@@ -33,6 +33,7 @@ A gem has a **class** and a **role**.
 | `continuous` | always (orbital / aura) | a persistent damage zone |
 | `on-kill` | an enemy dies | |
 | `on-crit` | the auto-attack crits | |
+| `on-hit` | the auto-attack lands | reactive; fires every landed hit - the spellblade bridge, so attack speed scales the proc rate |
 | `on-hit-taken` | the player is hit | reactive defence |
 
 Procs do **not** crit by default; a crit support (`Lethal`) makes a proc critable.
@@ -63,11 +64,19 @@ When a support binds to an effect it does one of:
 
 | Kind | On a proc | On a stat |
 |---|---|---|
+| **damage / scale** | ×factor to **any** proc's magnitude (damage / heal / shield / buff / gold) | ×factor to the stat value |
+| **cooldown** | -% cooldown on **any** proc; +tick rate on continuous; +duration on shields/auras | (inert) |
+| **repeat** | **any** proc fires an extra time | (inert) |
 | **count** | +N targets / projectiles | (inert) |
-| **damage / scale** | ×factor to the proc's damage | ×factor to the stat value |
-| **cooldown** | -% cooldown; +tick rate on continuous; +duration on shields/auras | (inert) |
 | **crit** | the proc may crit (+chance) | (inert) |
-| **rider** | also apply a status / chain / fire twice | (inert) |
+| **rider** | the damage proc also applies a status | (inert) |
+| **potency** | the proc's riders deal ×more DoT and last longer (inert with no rider) | boosts a status-on-hit stat's ailment |
+| **conditional** | ×factor when the target is frozen / shocked / low-HP, per hit | (inert) |
+
+**scale / cooldown / repeat are universal** - never inert on a proc - so a
+support is rarely a dead draw. The damage-shaped knobs (count / crit / rider /
+conditional) need a damage proc; `potency` needs a rider (on a proc) or a
+status-on-hit (on a stat).
 
 A support whose kind doesn't apply to the effect it bound to simply does nothing
 for that part (e.g. `Forking` on a stat gem is inert). Generic scale (`Amplify`)
@@ -139,11 +148,50 @@ the auto-attack's crit multiplier, a lucky meteor one-shots an elite.
 `[Lasting] [🌵 Retaliate]` on a chest -> when you're hit, the retaliation blast
 fires with extended reach/longer rider. (Knobs that don't apply are ignored.)
 
-## Out of scope for v1 (noted, not built)
+**5. Spellblade (on-hit bridge).**
+`[Overload] [🌩️ Spellstrike] [Igniting]` on a weapon -> every auto-attack lands a
+boosted, Burning lightning bolt. Stack `Swiftness` (attack speed) and the bolt
+fires more often - the auto-attack and spell builds finally scale each other.
+
+**6. Shock combo.**
+`[🔌 Conduction]` on one proc applies Shock (+30% damage taken); `[⚙️ Overcharge]
+[☄️ Meteor]` then hits shocked targets for ×2. Or skip the support and run
+`🔋 Galvanize` (shock on auto-hit) to set the table for every proc you own.
+
+**7. Ramping ailment.**
+`[🧪 Envenom] [🧫 Virulent] [👻 Spirit Bolt]` -> the bolt applies Poison that
+Virulent makes hit ×2 and last +50% longer. Pair `🩸 Gutting` (bleed on-hit) to
+layer a second DoT from your auto-attack.
+
+## Build archetypes
+
+The pool is tuned so several distinct builds are reachable, and most *combine*:
+
+- **Auto-attack** - `Edge` / `Swiftness` / `Keen` / `Brutality` (crit mult) /
+  `Bloodthirst` (lifesteal) / `Cull` (execute). The weapon backbone.
+- **Spellblade** - an `on-hit` proc (`Spellstrike`) turns auto-attacks into spell
+  triggers; attack speed now scales spell frequency.
+- **Spells / procs** - `timer` procs (Chain Lightning, Meteor, Spirit Bolt) stacked
+  with `scale` / `cooldown` / `count` / `crit` supports.
+- **Ailments / DoT** - reach all five statuses via riders (`Igniting`, `Chilling`,
+  `Serrated`, `Conduction`, `Envenom`) or on-hit stats (`Gutting`, `Galvanize`),
+  then scale them with `Virulent`. **Shock** doubles as a whole-build damage amp.
+- **Crit** - `Keen` + `Brutality` + `Lethal` (procs crit too).
+- **Combo / conditional** - `Shatter` (vs frozen), `Overcharge` (vs shocked),
+  `Ruthless` (vs low-HP) reward setting an ailment / executing - they pay off the
+  builds above instead of standing alone.
+- **Defense / sustain** - `Heart`, `Bulwark`, `Sanctuary`, `Retaliate`, plus the
+  passive layer `Plating` (flat damage reduction = "armor") / `Evasion` (dodge) /
+  `Regrowth` (regen) / `Berserker` / `Giant's Blood` (max HP -> auto-attack
+  damage, bridging tank and DPS). Mitigation is deliberately simple - dodge +
+  flat damage reduction, **no per-element resist**.
+
+## Out of scope (noted, not built)
 
 - Multi-class gems; cross-item / global binding; trigger-chain execution
-  (mana / multicast); conditional knobs ("×2 below 25% HP"). v1 keeps a single
-  per-item binding pass plus the proc engine.
+  (mana / multicast). v1 keeps a single per-item binding pass plus the proc
+  engine. (Conditional knobs - "×2 vs frozen / low-HP" - are now **in** as the
+  `conditional` support kind; see the knobs table.)
 
 ## See also
 

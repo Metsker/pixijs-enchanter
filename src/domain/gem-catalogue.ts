@@ -1,4 +1,4 @@
-// The v1 gem pool (see docs/gem-catalogue.md). 26 gems: 13 procs, 4 stats, 9
+// The gem pool (see docs/gem-catalogue.md). 45 gems: 14 procs, 15 stats, 16
 // supports. Numbers are placeholders per the catalogue's own note - the
 // BEHAVIOURS are locked here, values tune in playtesting.
 //
@@ -16,7 +16,7 @@ import type { GemDef } from './gem';
 
 export const GEM_CATALOGUE: Record<string, GemDef> = {
   // ----------------------------------------------------------------------
-  // Weapon gems (11) - offense
+  // Weapon gems (19) - offense
   // ----------------------------------------------------------------------
 
   // Effect (proc) - timer 3s: bolt a random enemy for 200 lightning.
@@ -109,8 +109,9 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '💀',
     },
   },
-  // Effect (proc) - on-crit: echo your auto-attack for 50% extra. Damage is a
-  // placeholder flat value; the design intent is a fraction of the auto-attack.
+  // Effect (proc) - on-crit: echo your auto-attack for 60% of its damage. Uses
+  // the attack-echo payload so it scales with your real attack profile (Edge /
+  // Brutality / etc.) instead of a flat placeholder.
   'vault-strike': {
     id: 'vault-strike',
     emoji: '🌠',
@@ -119,7 +120,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     proc: {
       trigger: 'on-crit',
       cooldownSec: 0,
-      payload: { kind: 'damage', damage: 50, damageType: 'physical' },
+      payload: { kind: 'attack-echo', fraction: 0.6, damageType: 'physical' },
       targeting: 'nearest',
       count: 1,
       canCrit: false,
@@ -127,6 +128,95 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       visual: 'strike-line',
       emoji: '🌠',
     },
+  },
+  // Effect (proc) - on-hit: each auto-attack that lands bolts the struck enemy
+  // for 45 lightning. The spellblade bridge - attack speed (Swiftness) scales
+  // how often it fires, and weapon supports (Overload / Igniting / Forking)
+  // stack on it like any other proc.
+  spellstrike: {
+    id: 'spellstrike',
+    emoji: '🌩️',
+    class: 'weapon',
+    role: 'effect',
+    proc: {
+      trigger: 'on-hit',
+      cooldownSec: 0,
+      payload: { kind: 'damage', damage: 45, damageType: 'lightning' },
+      targeting: 'nearest',
+      count: 1,
+      canCrit: false,
+      riders: [],
+      visual: 'strike-line',
+      emoji: '🌩️',
+    },
+  },
+  // Effect (stat) - lifesteal: heal 8% of auto-attack damage dealt. Sustain for
+  // an attack build (the offense answer to Sanctuary).
+  bloodthirst: {
+    id: 'bloodthirst',
+    emoji: '🧛',
+    class: 'weapon',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'lifesteal-add', fraction: 0.08 }],
+    },
+  },
+  // Effect (stat) - execute: +100% auto-attack damage to enemies at or below
+  // 25% HP. The finisher passive; pairs with Ruthless on the proc side.
+  cull: {
+    id: 'cull',
+    emoji: '🪓',
+    class: 'weapon',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'damage-vs-low-hp', bonusFraction: 1.0, threshold: 0.25 }],
+    },
+  },
+  // Effect (stat) - status-on-hit: 30% of auto-attacks also cause Bleed. The
+  // melee entry to an ailment build (weapon / physical themed).
+  gutting: {
+    id: 'gutting',
+    emoji: '🩸',
+    class: 'weapon',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'status-on-hit', status: 'bleed', chance: 0.3 }],
+    },
+  },
+  // Support - rider: bound damage proc also applies Bleed.
+  serrated: {
+    id: 'serrated',
+    emoji: '🪒',
+    class: 'weapon',
+    role: 'support',
+    mod: { kind: 'rider', status: 'bleed' },
+  },
+  // Support - rider: bound damage proc also applies Shock (x1.3 damage taken).
+  // The only way to reach Shock - a force multiplier for the whole build.
+  conduction: {
+    id: 'conduction',
+    emoji: '🔌',
+    class: 'weapon',
+    role: 'support',
+    mod: { kind: 'rider', status: 'shock' },
+  },
+  // Support - condscale: bound proc deals x2 to targets below 30% HP. The proc
+  // -side execute, mirror of the Cull stat.
+  ruthless: {
+    id: 'ruthless',
+    emoji: '🔪',
+    class: 'weapon',
+    role: 'support',
+    mod: { kind: 'condscale', condition: 'low-hp', factor: 2, threshold: 0.3 },
+  },
+  // Support - condscale: bound proc deals x2 to Shocked targets. Closes the
+  // loop with Conduction / Galvanize (apply Shock, then cash it in).
+  overcharge: {
+    id: 'overcharge',
+    emoji: '⚙️',
+    class: 'weapon',
+    role: 'support',
+    mod: { kind: 'condscale', condition: 'shocked', factor: 2 },
   },
   // Effect (stat) - +150 physical to your auto-attack.
   edge: {
@@ -172,7 +262,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
   },
 
   // ----------------------------------------------------------------------
-  // Armor gems (7) - defense
+  // Armor gems (13) - defense
   // ----------------------------------------------------------------------
 
   // Effect (proc) - on-hit-taken: blast the attacker for 200.
@@ -275,9 +365,73 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'support',
     mod: { kind: 'rider', status: 'freeze' },
   },
+  // Support - condscale: bound proc deals x2.5 to Frozen targets. The shatter
+  // combo - pair on a green item beside Frost Nova / a Chilling proc.
+  shatter: {
+    id: 'shatter',
+    emoji: '💠',
+    class: 'armor',
+    role: 'support',
+    mod: { kind: 'condscale', condition: 'frozen', factor: 2.5 },
+  },
+  // Effect (stat) - Berserker: +8% auto-attack damage per 10% max HP missing,
+  // capped at +80%. Rewards (and pairs with) a low-HP / glass build.
+  berserker: {
+    id: 'berserker',
+    emoji: '😤',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'damage-mul-low-hp', perPercentMissing: 0.08, cap: 0.8 }],
+    },
+  },
+  // Effect (stat) - your auto-attack gains +3% of your max HP as damage. Links
+  // the defence backbone (Heart) into offense - a tank that hits hard.
+  'giants-blood': {
+    id: 'giants-blood',
+    emoji: '🗿',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'damage-from-max-hp', fractionOfMaxHp: 0.03 }],
+    },
+  },
+  // Effect (stat) - +12% dodge: a flat chance to avoid an incoming hit.
+  evasion: {
+    id: 'evasion',
+    emoji: '💨',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'dodge-add', amount: 0.12 }],
+    },
+  },
+  // Effect (stat) - regenerate 30 HP/s while below max. Passive sustain that
+  // stacks with Sanctuary / Bloodthirst.
+  regrowth: {
+    id: 'regrowth',
+    emoji: '🌿',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'regen', amount: 30 }],
+    },
+  },
+  // Effect (stat) - +10% flat damage reduction: every incoming hit is softened.
+  // This is "armor" - the only damage-mitigation stat now that per-element
+  // resist is gone.
+  plating: {
+    id: 'plating',
+    emoji: '🧱',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'damage-reduction', amount: 0.1 }],
+    },
+  },
 
   // ----------------------------------------------------------------------
-  // Jewelry gems (8) - utility / meta
+  // Jewelry gems (13) - utility / meta
   // ----------------------------------------------------------------------
 
   // Effect (proc) - timer 4s: homing orb to nearest enemy, 180 chaos.
@@ -378,5 +532,57 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     class: 'jewelry',
     role: 'support',
     mod: { kind: 'scale', factor: 1.5 },
+  },
+  // Effect (stat) - status-on-hit: 25% of auto-attacks also Shock the target,
+  // making it take +30% damage from every source. A whole-build multiplier on
+  // your jewelry.
+  galvanize: {
+    id: 'galvanize',
+    emoji: '🔋',
+    class: 'jewelry',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'status-on-hit', status: 'shock', chance: 0.25 }],
+    },
+  },
+  // Effect (stat) - +0.5 crit multiplier (crits hit for x2.5 instead of x2).
+  // The missing crit-build payoff - pairs with Keen / Lethal.
+  brutality: {
+    id: 'brutality',
+    emoji: '💪',
+    class: 'jewelry',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'crit-mul-add', amount: 0.5 }],
+    },
+  },
+  // Effect (stat) - +40% auto-attack damage to enemies above 75% HP. The
+  // opener / boss-burst passive; the mirror of Cull's execute.
+  hunter: {
+    id: 'hunter',
+    emoji: '🏹',
+    class: 'jewelry',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'damage-vs-high-hp', bonusFraction: 0.4, threshold: 0.75 }],
+    },
+  },
+  // Support - rider: bound damage proc also applies Poison (chaos DoT).
+  envenom: {
+    id: 'envenom',
+    emoji: '🧪',
+    class: 'jewelry',
+    role: 'support',
+    mod: { kind: 'rider', status: 'poison' },
+  },
+  // Support - potency: the riders the bound proc applies hit for x2 DoT and
+  // last +50% longer. The ailment-build payoff - inert unless the proc carries
+  // a status (its own, or one from an adjacent rider support).
+  virulent: {
+    id: 'virulent',
+    emoji: '🧫',
+    class: 'jewelry',
+    role: 'support',
+    mod: { kind: 'potency', dmgMul: 2, durMul: 1.5 },
   },
 };

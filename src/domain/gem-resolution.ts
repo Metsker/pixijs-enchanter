@@ -20,10 +20,19 @@
 //   A support flanked by empties / other supports is inert.
 
 import type { EnchantEffect } from './enchant';
-import type { Gem, ProcDef, ProcPayload, SupportMod, GemDef } from './gem';
+import type { Gem, ProcCondition, ProcDef, ProcPayload, SupportMod, GemDef } from './gem';
 import { gemLevel } from './gem';
 import { GEM_CATALOGUE } from './gem-catalogue';
 import { mag, cooldownAt } from './gem-level';
+
+// One conditional-scale a `condscale` support (Shatter / Overcharge / Ruthless)
+// stamped on a proc: multiply the hit by `factor` when the target meets
+// `condition` (low-hp also reads `threshold`). Evaluated per target at fire.
+export interface CondScale {
+  condition: ProcCondition;
+  factor: number;
+  threshold?: number;
+}
 
 // A proc after its bound supports are applied: the ProcDef fields plus where it
 // came from (sourceDefId), the resolved crit chance (0 unless a crit support
@@ -37,6 +46,12 @@ export interface ResolvedProc extends ProcDef {
   // (Echo: extraCasts 1). 0 means the proc fires once, as normal.
   extraCasts: number;
   repeatDelaySec: number;
+  // Multipliers a `potency` support (Virulent) applies to the DoT of every
+  // status this proc lands. {1, 1} means no boost.
+  riderPotency: { dmgMul: number; durMul: number };
+  // Conditional damage multipliers from `condscale` supports, all evaluated and
+  // multiplied together per target when the proc fires.
+  condScales: CondScale[];
 }
 
 export interface ResolvedItemGems {
@@ -73,12 +88,17 @@ function scalePayload(payload: ProcPayload, factor: number): ProcPayload {
   switch (payload.kind) {
     case 'damage':
       return { ...payload, damage: payload.damage * factor };
+    case 'attack-echo':
     case 'heal':
     case 'shield':
       return { ...payload, fraction: payload.fraction * factor };
+    // `scale` is the universal support: it also strengthens the self-buff
+    // (more attack speed) and the gold roll (capped at certain), so Overload /
+    // Amplify are never inert on a proc.
     case 'buff':
+      return { ...payload, attackSpeedAdd: payload.attackSpeedAdd * factor };
     case 'gold':
-      return payload;
+      return { ...payload, chance: Math.min(1, payload.chance * factor) };
   }
 }
 
@@ -110,6 +130,21 @@ export function levelSupportMod(mod: SupportMod, level: number): SupportMod {
       return { kind: 'cooldown', factor: Math.pow(mod.factor, level) };
     case 'rider':
       return mod;
+    case 'potency':
+      // The DoT / duration bonuses grow on the mag() curve, like `scale`.
+      return {
+        kind: 'potency',
+        dmgMul: 1 + (mod.dmgMul - 1) * mag(level),
+        durMul: 1 + (mod.durMul - 1) * mag(level),
+      };
+    case 'condscale':
+      // The conditional multiplier's bonus grows on the mag() curve.
+      return {
+        kind: 'condscale',
+        condition: mod.condition,
+        factor: 1 + (mod.factor - 1) * mag(level),
+        threshold: mod.threshold,
+      };
   }
 }
 
@@ -139,6 +174,18 @@ function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
       proc.extraCasts += mod.times;
       proc.repeatDelaySec = mod.delaySec;
       break;
+    case 'potency':
+      proc.riderPotency = {
+        dmgMul: proc.riderPotency.dmgMul * mod.dmgMul,
+        durMul: proc.riderPotency.durMul * mod.durMul,
+      };
+      break;
+    case 'condscale':
+      proc.condScales = [
+        ...proc.condScales,
+        { condition: mod.condition, factor: mod.factor, threshold: mod.threshold },
+      ];
+      break;
   }
 }
 
@@ -148,6 +195,15 @@ function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
 function applyKnobToStats(effects: EnchantEffect[], mod: SupportMod): EnchantEffect[] {
   if (mod.kind === 'scale') {
     return effects.map((e) => scaleEffect(e, mod.factor));
+  }
+  if (mod.kind === 'potency') {
+    // Virulent boosts the DoT a status-on-hit stat lands (Gutting / Galvanize),
+    // mirroring how it boosts a proc's riders. Other stat kinds are untouched.
+    return effects.map((e) =>
+      e.kind === 'status-on-hit'
+        ? { ...e, dmgMul: (e.dmgMul ?? 1) * mod.dmgMul, durMul: (e.durMul ?? 1) * mod.durMul }
+        : e,
+    );
   }
   return effects;
 }
@@ -191,20 +247,36 @@ function socketRole(slot: Gem | null | undefined): 'effect' | 'support' | null {
 function supportAppliesToEffect(mod: SupportMod, effect: GemDef): boolean {
   if ('proc' in effect) {
     const kind = effect.proc.payload.kind;
+    // attack-echo resolves to a damage hit, so every damage-oriented knob bites
+    // on it exactly as it does on a plain damage payload.
+    const dealsDamage = kind === 'damage' || kind === 'attack-echo';
     switch (mod.kind) {
       case 'cooldown':
       case 'repeat':
-        return true;
       case 'scale':
-        return kind === 'damage' || kind === 'heal' || kind === 'shield';
+        // The three universal knobs: every proc has a cooldown, can be repeated,
+        // and now carries a scalable magnitude (damage / heal / shield / buff /
+        // gold). None are ever inert on a proc.
+        return true;
       case 'count':
       case 'crit':
+      case 'condscale':
+        return dealsDamage;
       case 'rider':
-        return kind === 'damage';
+      case 'potency':
+        // rider lands a status on a damage hit; potency boosts those statuses.
+        // (potency with no rider present is harmless but reads as "bound".)
+        return dealsDamage;
     }
   }
-  // Stat gem: only a scale support changes anything.
-  return mod.kind === 'scale';
+  // Stat gem: `scale` changes any amount; `potency` also boosts a stat's
+  // status-on-hit ailment (Virulent next to Gutting / Galvanize), so the
+  // ailment build can pump auto-attack DoTs too.
+  if (mod.kind === 'scale') return true;
+  if (mod.kind === 'potency') {
+    return 'stat' in effect && effect.stat.effects.some((e) => e.kind === 'status-on-hit');
+  }
+  return false;
 }
 
 // The effect-gem defs in the two sockets directly beside `i`.
@@ -286,6 +358,8 @@ export function resolveItemGems(sockets: Array<Gem | null>): ResolvedItemGems {
         critChance: 0,
         extraCasts: 0,
         repeatDelaySec: 0,
+        riderPotency: { dmgMul: 1, durMul: 1 },
+        condScales: [],
       };
       for (const mod of supports) applyKnobToProc(resolved, mod);
       procs.push(resolved);

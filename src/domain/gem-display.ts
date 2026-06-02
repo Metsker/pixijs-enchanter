@@ -79,6 +79,26 @@ const GEM_NAMES: Record<string, string> = {
   lethal: 'Lethal',
   echo: 'Echo',
   amplify: 'Amplify',
+  // Spellblade + ailment + combo additions (docs/gem-catalogue.md).
+  spellstrike: 'Spellstrike',
+  bloodthirst: 'Bloodthirst',
+  cull: 'Cull',
+  gutting: 'Gutting',
+  serrated: 'Serrated',
+  conduction: 'Conduction',
+  ruthless: 'Ruthless',
+  overcharge: 'Overcharge',
+  shatter: 'Shatter',
+  berserker: 'Berserker',
+  'giants-blood': "Giant's Blood",
+  evasion: 'Evasion',
+  regrowth: 'Regrowth',
+  plating: 'Plating',
+  galvanize: 'Galvanize',
+  brutality: 'Brutality',
+  hunter: 'Hunter',
+  envenom: 'Envenom',
+  virulent: 'Virulent',
 };
 
 const DAMAGE_LABELS: Record<DamageType, string> = {
@@ -125,6 +145,8 @@ function triggerPhrase(trigger: ProcTrigger, cooldownSec: number): string {
       return 'On kill:';
     case 'on-crit':
       return 'On crit:';
+    case 'on-hit':
+      return 'On hit:';
     case 'on-hit-taken':
       return 'When hit:';
   }
@@ -134,6 +156,8 @@ function payloadPhrase(payload: ProcPayload, proc: ProcDef): string {
   switch (payload.kind) {
     case 'damage':
       return `${Math.round(payload.damage)} ${DAMAGE_LABELS[payload.damageType]} ${targetPhrase(proc)}`;
+    case 'attack-echo':
+      return `${pct(payload.fraction)} of your auto-attack ${targetPhrase(proc)}`;
     case 'heal':
       return `heal ${pct(payload.fraction)} max HP`;
     case 'shield':
@@ -168,6 +192,26 @@ function statEffectPhrase(effect: StatDef['effects'][number]): string {
       return `+${pct(effect.amount)} attack speed`;
     case 'crit-chance-add':
       return `+${pct(effect.amount)} crit chance`;
+    case 'crit-mul-add':
+      return `+${effect.amount.toFixed(1)} crit multiplier`;
+    case 'lifesteal-add':
+      return `lifesteal ${pct(effect.fraction)} of damage dealt`;
+    case 'status-on-hit':
+      return `${pct(effect.chance)} on hit: ${STATUS_LABELS[effect.status] ?? effect.status}`;
+    case 'damage-vs-low-hp':
+      return `+${pct(effect.bonusFraction)} vs enemies below ${pct(effect.threshold)} HP`;
+    case 'damage-vs-high-hp':
+      return `+${pct(effect.bonusFraction)} vs enemies above ${pct(effect.threshold)} HP`;
+    case 'damage-mul-low-hp':
+      return `+${pct(effect.perPercentMissing)} damage per 10% HP missing (max +${pct(effect.cap)})`;
+    case 'damage-from-max-hp':
+      return `+${pct(effect.fractionOfMaxHp)} of max HP as damage`;
+    case 'dodge-add':
+      return `+${pct(effect.amount)} dodge`;
+    case 'damage-reduction':
+      return `+${pct(effect.amount)} damage reduction`;
+    case 'regen':
+      return `+${Math.round(effect.amount)} HP/s`;
     default:
       return effect.kind;
   }
@@ -193,6 +237,24 @@ function supportSummary(mod: SupportMod): string {
       return `the bound proc also applies ${STATUS_LABELS[mod.status] ?? mod.status}`;
     case 'repeat':
       return `the bound proc fires ${mod.times + 1}x`;
+    case 'potency':
+      return `the bound proc's ailments deal x${mod.dmgMul} damage and last ${Math.round((mod.durMul - 1) * 100)}% longer`;
+    case 'condscale':
+      return `the bound proc deals x${+mod.factor.toFixed(2)} vs ${conditionPhrase(mod.condition, mod.threshold)}`;
+  }
+}
+
+// "frozen targets" / "Shocked targets" / "targets below 30% HP".
+function conditionPhrase(condition: string, threshold?: number): string {
+  switch (condition) {
+    case 'frozen':
+      return 'Frozen targets';
+    case 'shocked':
+      return 'Shocked targets';
+    case 'low-hp':
+      return `targets below ${pct(threshold ?? 0)} HP`;
+    default:
+      return condition;
   }
 }
 
@@ -204,12 +266,16 @@ function scalePayloadMag(payload: ProcPayload, factor: number): ProcPayload {
   switch (payload.kind) {
     case 'damage':
       return { ...payload, damage: payload.damage * factor };
+    case 'attack-echo':
     case 'heal':
     case 'shield':
       return { ...payload, fraction: payload.fraction * factor };
+    // Mirror gem-resolution.scalePayload so a leveled buff / gold proc shows the
+    // same numbers combat uses.
     case 'buff':
+      return { ...payload, attackSpeedAdd: payload.attackSpeedAdd * factor };
     case 'gold':
-      return payload;
+      return { ...payload, chance: Math.min(1, payload.chance * factor) };
   }
 }
 

@@ -1,4 +1,4 @@
-import type { DamageType, EnchantEffect } from './enchant';
+import type { EnchantEffect } from './enchant';
 
 // The "you take damage" half of the player's stat block. Mirrors
 // attack-profile.ts in shape so combat code can read both via the
@@ -7,13 +7,16 @@ import type { DamageType, EnchantEffect } from './enchant';
 // counter-attack, on-dodge-damage-buff, status-immune, etc.) are
 // catalogued so the Inspector shows them but pass through silently
 // here - they'll land in a follow-up combat-depth step.
+//
+// Mitigation is deliberately simple: a flat dodge chance (full miss) plus a
+// flat damage reduction. There is no per-element resist - "armor" is just the
+// damageReduction number.
 export interface DefenceProfile {
   maxHp: number;
   dodge: number; // 0..1
   hpRegenPerSec: number;
-  damageReduction: number; // 0..1 flat pre-resist
+  damageReduction: number; // 0..1 flat
   thornsFlat: number; // damage reflected per incoming hit
-  resists: Partial<Record<DamageType, number>>; // 0..1 per type
 }
 
 // Player baseline before any equipped enchant kicks in. The 1000 HP /
@@ -28,16 +31,14 @@ export const BASE_DEFENCE: DefenceProfile = {
   hpRegenPerSec: 0,
   damageReduction: 0,
   thornsFlat: 0,
-  resists: {},
 };
 
 // Stacking: same-stat effects sum additively; hp-max-mul applies after
-// the additive pass (one multiplier per Unique). Dodge / DR / resists
-// are clamped to [0, 0.95] so even fully-stacked builds can't make
-// the player unhittable.
+// the additive pass (one multiplier per Unique). Dodge / DR are clamped
+// to [0, 0.95] so even fully-stacked builds can't make the player
+// unhittable.
 const DODGE_CAP = 0.95;
 const DR_CAP = 0.95;
-const RESIST_CAP = 0.95;
 
 // Input is the flat list of gem-resolved stat effects (see
 // player-profile.ts § playerEffects) - one level flatter than the old
@@ -49,7 +50,6 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
   let regen = 0;
   let dr = 0;
   let thorns = 0;
-  const resists: Partial<Record<DamageType, number>> = {};
 
   for (const eff of effects) {
     switch (eff.kind) {
@@ -71,22 +71,10 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
       case 'thorns-flat':
         thorns += eff.amount;
         break;
-      case 'resist-add':
-        // "rolled" type is decided at item-gen time (not yet wired);
-        // treat unrolled as physical-only for now so the field at
-        // least stacks somewhere visible.
-        if (eff.type && eff.type !== 'rolled') {
-          resists[eff.type] = (resists[eff.type] ?? 0) + eff.amount;
-        }
-        break;
       // Conditional / reactive / status / unique kinds: silently
       // pass through. The Inspector still surfaces them via the
       // description text.
     }
-  }
-
-  for (const type of Object.keys(resists) as DamageType[]) {
-    resists[type] = Math.min(RESIST_CAP, Math.max(0, resists[type] ?? 0));
   }
 
   return {
@@ -95,6 +83,5 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
     hpRegenPerSec: Math.max(0, regen),
     damageReduction: Math.min(DR_CAP, Math.max(0, dr)),
     thornsFlat: Math.max(0, thorns),
-    resists,
   };
 }
