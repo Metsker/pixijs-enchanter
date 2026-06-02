@@ -2,8 +2,8 @@
   import { paneEnter, paneLeave } from '../utils/paneTransition';
   import { get } from 'svelte/store';
   import { closeInspector, inspector, type InspectorSubject } from '../state/inspector';
-  import { completeRoom, run } from '../state/run';
-  import { addSocketCost, addSocketToItem, canAddSocket } from '../state/rest';
+  import { completeRoom } from '../state/run';
+  import { addSocketCost, addSocketToItem, canAddSocket } from '../state/sockets';
   import { topbar } from '../state/topbar';
   import {
     equipFromBackpack,
@@ -143,15 +143,13 @@
     }
   });
 
-  // === Add socket (FEATURE 3) ======================================
-  // Only at Rest, only for an OWNED item (equipped / backpack), only while it
-  // is under the tier cap. The button's cost + affordability read the live
-  // topbar so they re-derive as crystals change.
+  // === Add socket ==================================================
+  // Available anywhere (decoupled from Rest): for any OWNED item (equipped /
+  // backpack) under the tier cap. Rest now only crafts / destroys gems. The
+  // button's cost + affordability read the live topbar so they re-derive as
+  // crystals change.
   const canShowAddSocket = $derived(
-    subject !== null &&
-      $run.screen === 'rest' &&
-      socketsEditable &&
-      canAddSocket(subject.item),
+    subject !== null && socketsEditable && canAddSocket(subject.item),
   );
   const addSocketPrice = $derived(
     subject ? addSocketCost(subject.item) : 0,
