@@ -115,7 +115,12 @@ void main() {
   vec2 cell = floor(sp);
   vec2 g = fract(sp) - 0.5;
   float r = hash(cell);
-  float twinkle = 0.55 + 0.45 * sin(uTime * 0.7 + r * 6.2831);
+  // A SECOND, independent hash drives each star's twinkle phase and rate. The
+  // existence test step(0.975, r) leaves every visible star with r in a tiny
+  // band near 1.0, so deriving the phase from r made them all breathe in unison;
+  // r2 spans the full 0..1 range, and a per-star rate keeps them from re-syncing.
+  float r2 = hash(cell + 41.7);
+  float twinkle = 0.55 + 0.45 * sin(uTime * (0.4 + r2 * 0.8) + r2 * 6.2831);
   float star = smoothstep(0.09, 0.0, length(g)) * step(0.975, r) * twinkle;
   star *= smoothstep(0.15, 0.85, uv.y);
   col += vec3(0.8, 0.92, 1.0) * star * 0.6;
@@ -296,22 +301,27 @@ void main() {
   // Violet base matching the scene's purple gradient (lighter toward the top).
   vec3 col = mix(uColorBottom, uColorTop, smoothstep(0.0, 1.0, uv.y));
 
-  // Turbulent energy haze rolling upward: a faster time scale + a flowing warp
-  // give it clearly more motion than the calm scenes.
+  // Turbulent energy haze sweeping mostly sideways with a slight downward bias:
+  // a faster time scale + a flowing warp give it clearly more motion than the
+  // calm scenes. The dominant drift is on X (energy streams across the fight);
+  // the small +Y term eases it downward too rather than running dead level.
   float t = uTime * 0.09;
   vec2 q = p * 1.8;
-  q.y -= t;
+  q.x -= t;
+  q.y += t * 0.3;
   float w = fbm(q + t);
   float n = fbm(q + vec2(w, w * 0.7));
   col += uEnergy * smoothstep(0.3, 1.0, n) * 0.30;
 
-  // A second, faster counter-rolling layer for churn.
-  float n2 = fbm(p * 3.4 + vec2(-t * 1.4, t * 0.8));
+  // A second, faster counter-streaming layer for churn (same mostly-X, a-bit-down drift).
+  float n2 = fbm(p * 3.4 + vec2(t * 1.5, t * 0.4 + w * 0.3));
   col += uEnergy * smoothstep(0.6, 1.0, n2) * 0.12;
 
-  // Rising sparks - faster and denser than the rest-camp embers (two layers).
-  col += uSpark * particles(p, 22.0, 0.55, 0.07, 0.95, 3.0) * 0.8;
-  col += uSpark * particles(p, 40.0, 0.85, 0.05, 0.972, 9.0) * 0.55;
+  // Sparks streaking sideways - faster and denser than the rest-camp embers.
+  // Passing p.yx transposes the particle field so its drift axis lands on screen
+  // X (the helper always moves along its second coord), matching the haze.
+  col += uSpark * particles(p.yx, 22.0, 0.55, 0.07, 0.95, 3.0) * 0.8;
+  col += uSpark * particles(p.yx, 40.0, 0.85, 0.05, 0.972, 9.0) * 0.55;
 
   // Slow ambient pulse so the arena breathes with the fight.
   col *= 0.93 + 0.07 * sin(uTime * 0.9);
