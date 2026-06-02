@@ -422,41 +422,6 @@
         {/if}
       </section>
 
-      <!-- Compatible gems (support only): every owned effect gem - loose in the
-           bag or socketed in gear - this support's knob actually modifies. Tapping
-           a ROW opens that gem's own inspector (navigation only, no action), so
-           the player can jump straight to a gem worth pairing this support with. -->
-      {#if def?.role === 'support'}
-        <section class="gi-sec">
-          <div class="gi-sec-head">{t('gemInspector.pairs')}</div>
-          {#if compatibleGems.length === 0}
-            <p class="gi-none">{t('gemInspector.pairsNone')}</p>
-          {:else}
-            <p class="gi-subhint">{t('gemInspector.pairsHint')}</p>
-            <ul class="gi-list">
-              {#each compatibleGems.slice(0, LIST_CAP) as cg (cg.gem.id)}
-                {@const cd = gemDisplay(cg.gem)}
-                <li class="gi-fit-li">
-                  <button
-                    type="button"
-                    class="gi-item gi-item-btn"
-                    title={t('gemInspector.viewGem')}
-                    onclick={() => inspectGem(cg.gem)}
-                  >
-                    <span class="gi-item-emoji">{cd?.emoji ?? '💎'}</span>
-                    <span class="gi-item-main">{cd?.name ?? cg.gem.defId}{#if (cd?.level ?? 1) > 1}<span class="gi-mini-lv"> Lv{cd?.level}</span>{/if}</span>
-                    <span class="gi-item-src"><span class="gi-src-icon">{cg.icon}</span>{cg.where}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-            {#if compatibleGems.length > LIST_CAP}
-              <div class="gi-more">{t('gemInspector.more', { n: compatibleGems.length - LIST_CAP })}</div>
-            {/if}
-          {/if}
-        </section>
-      {/if}
-
       <!-- Compatible owned gear: items whose socket colours include this gem's.
            Tapping a ROW opens that item's inspector; the Insert button is the
            only thing that sockets the gem (shown only when the item has room).
@@ -504,6 +469,42 @@
           {/if}
         {/if}
       </section>
+
+      <!-- Compatible gems (support only): every owned effect gem - loose in the
+           bag or socketed in gear - this support's knob actually modifies. Sits
+           under Compatible gear. Tapping a ROW opens that gem's own inspector
+           (navigation only, no action), so the player can jump straight to a gem
+           worth pairing this support with. -->
+      {#if def?.role === 'support'}
+        <section class="gi-sec">
+          <div class="gi-sec-head">{t('gemInspector.pairs')}</div>
+          {#if compatibleGems.length === 0}
+            <p class="gi-none">{t('gemInspector.pairsNone')}</p>
+          {:else}
+            <p class="gi-subhint">{t('gemInspector.pairsHint')}</p>
+            <ul class="gi-list">
+              {#each compatibleGems.slice(0, LIST_CAP) as cg (cg.gem.id)}
+                {@const cd = gemDisplay(cg.gem)}
+                <li class="gi-fit-li">
+                  <button
+                    type="button"
+                    class="gi-item gi-item-btn"
+                    title={t('gemInspector.viewGem')}
+                    onclick={() => inspectGem(cg.gem)}
+                  >
+                    <span class="gi-item-emoji">{cd?.emoji ?? '💎'}</span>
+                    <span class="gi-item-main">{cd?.name ?? cg.gem.defId}{#if (cd?.level ?? 1) > 1}<span class="gi-mini-lv"> Lv{cd?.level}</span>{/if}</span>
+                    <span class="gi-item-src"><span class="gi-src-icon">{cg.icon}</span>{cg.where}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+            {#if compatibleGems.length > LIST_CAP}
+              <div class="gi-more">{t('gemInspector.more', { n: compatibleGems.length - LIST_CAP })}</div>
+            {/if}
+          {/if}
+        </section>
+      {/if}
     </div>
 
     <!-- Actions live in a footer at the bottom of the panel, matching the item
