@@ -7,6 +7,7 @@ import { addRewardGem, addRewardGold, addRewardItem, resetPendingRewards } from 
 import { playerEffects, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
+import { jitterDamage } from '../domain/damage';
 import {
   multipliersFor,
   type Difficulty,
@@ -389,7 +390,7 @@ function tickFighterStatuses(f: Fighter, dt: number, events: DoTEvent[]): Fighte
     if (def.dmgPerSec > 0 && def.tickIntervalSec > 0) {
       const mul = inst.dmgMul ?? 1;
       while (nextTickIn <= 0 && hp > 0) {
-        const damage = Math.min(hp, Math.round(def.dmgPerSec * def.tickIntervalSec * mul));
+        const damage = Math.min(hp, jitterDamage(def.dmgPerSec * def.tickIntervalSec * mul));
         hp -= damage;
         events.push({ targetId: f.id, status: key, amount: damage });
         nextTickIn += def.tickIntervalSec;

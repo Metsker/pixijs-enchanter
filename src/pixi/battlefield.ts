@@ -28,6 +28,7 @@ import { simSpeed } from '../state/sim-speed';
 import type { AttackProfile } from '../domain/attack-profile';
 import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
+import { jitterDamage } from '../domain/damage';
 import type { Fighter } from '../domain/fighter';
 import type { StatusType } from '../domain/enchant';
 import type { ProcTrigger } from '../domain/gem';
@@ -645,7 +646,7 @@ export class Battlefield {
     const enemyResist = target.resist ?? ENEMY_CATALOGUE[target.name]?.resist ?? 0;
     const resistMul = 1 - enemyResist;
 
-    const damage = Math.max(1, Math.round(dmg * shockMul * resistMul));
+    const damage = jitterDamage(dmg * shockMul * resistMul);
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
@@ -733,7 +734,7 @@ export class Battlefield {
     // enemies like Harpy.
     for (const eff of effects) {
       if (eff.kind !== 'splash-add') continue;
-      const splash = Math.max(1, Math.round(damage * eff.fraction));
+      const splash = jitterDamage(damage * eff.fraction);
       for (const other of state.enemies) {
         if (other.id === target.id || other.hp <= 0) continue;
         if (eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying') {
@@ -763,9 +764,10 @@ export class Battlefield {
         const ev = this.views.get(e.id);
         if (!ev || ev.container.destroyed) continue;
         if (this.tryDodge(e, ev)) continue;
-        this.spawnFloatNumber(ev, `⚡-${eff.damage}`, '#ffd84a', 26);
+        const chained = jitterDamage(eff.damage);
+        this.spawnFloatNumber(ev, `⚡-${chained}`, '#ffd84a', 26);
         this.playHitFlash(ev);
-        applyDamage(e.id, eff.damage);
+        applyDamage(e.id, chained);
       }
     }
 
@@ -972,10 +974,7 @@ export class Battlefield {
       // Conditional-scale supports (Shatter / Overcharge / Ruthless) multiply
       // the hit when this target meets their condition right now.
       const condMul = this.condScaleMul(proc, target);
-      const damage = Math.max(
-        1,
-        Math.round(baseDamage * condMul * (isCrit ? this.attack.critMultiplier : 1)),
-      );
+      const damage = jitterDamage(baseDamage * condMul * (isCrit ? this.attack.critMultiplier : 1));
 
       this.spawnProcVisual(proc, view, originX, originY);
       this.spawnFloatNumber(
@@ -1111,8 +1110,10 @@ export class Battlefield {
     def: { damage: number; appliesStatus?: StatusType },
   ): void {
     // Difficulty-scaled damage is baked onto the Fighter (makeFighters);
-    // fall back to the catalogue value for any unscaled enemy.
-    const damage = enemy.damage ?? def.damage;
+    // fall back to the catalogue value for any unscaled enemy. The spread is
+    // rolled on the raw swing, so mitigation (DR / shield / stoic) applies to
+    // the varied hit and the floated number matches what lands.
+    const damage = jitterDamage(enemy.damage ?? def.damage);
     const state = get(fight);
     if (state.player.hp <= 0) return;
     // Re-check the enemy against the LIVE store: the snapshot in onTick may
@@ -1159,7 +1160,7 @@ export class Battlefield {
           !enemyView.container.destroyed &&
           !this.tryDodge(enemy, enemyView)
         ) {
-          const reflect = Math.max(1, Math.round(this.attack.damage * eff.fraction));
+          const reflect = jitterDamage(this.attack.damage * eff.fraction);
           this.spawnDamageNumber(enemyView, reflect);
           this.playHitFlash(enemyView);
           applyDamage(enemy.id, reflect);
@@ -1288,7 +1289,7 @@ export class Battlefield {
       !enemyView.container.destroyed &&
       !this.tryDodge(enemy, enemyView)
     ) {
-      const reflect = this.defence.thornsFlat;
+      const reflect = jitterDamage(this.defence.thornsFlat);
       this.spawnDamageNumber(enemyView, reflect);
       this.playHitFlash(enemyView);
       applyDamage(enemy.id, reflect);
