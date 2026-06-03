@@ -23,4 +23,12 @@ export interface EnemyDef {
   // override suppressed during the lock). Minotaur's signature
   // mechanic per docs/enemies.md.
   taunt?: { intervalSec: number; durationSec: number };
+  // Threat identity (docs/decisions-that-matter.md). resistType softens
+  // incoming damage of that type (RESIST_TYPE_MUL); weakType sharpens it
+  // (WEAK_TYPE_MUL) - both bite on damage whose DamageType is known (the
+  // player's auto-attack and DoT ticks). ailmentImmune lists statuses that
+  // never apply to this enemy (bone Skeletons shrug off bleed / poison).
+  resistType?: DamageType;
+  weakType?: DamageType;
+  ailmentImmune?: StatusType[];
 }
