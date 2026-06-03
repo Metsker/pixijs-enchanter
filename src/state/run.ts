@@ -1,6 +1,8 @@
 import { get, writable } from 'svelte/store';
 import { generateMap, nodeById, resolvedKind, type MapGraph, type RoomKind } from '../domain/map';
 import { endFight, fight, grantGuaranteedDrop, startFightWith, type RoomKindLoot } from './fight';
+import { publishBreakdown } from './fight-stats';
+import { recordEncounter } from './bestiary';
 import { closeShop, openShopForFloor } from './shop';
 import { resetPendingRewards, claimVictoryHaul, clearVictoryHaul } from './rewards';
 import { resetBackpack } from './backpack';
@@ -10,7 +12,13 @@ import { resetHeldGem } from './gem-move';
 import { resetTopbar } from './topbar';
 import { closeInspector } from './inspector';
 import { closeGemInspector } from './gem-inspector';
-import { closeItemsSplit, closeGemsSplit, closeStatsSplit, closeSettings } from './ui';
+import {
+  closeItemsSplit,
+  closeGemsSplit,
+  closeStatsSplit,
+  closeBestiarySplit,
+  closeSettings,
+} from './ui';
 import { closeItemOffer, openItemOffer } from './item-offer';
 import { settings, type Difficulty } from './settings';
 
@@ -135,6 +143,7 @@ export function startNewRun(): void {
   closeItemsSplit();
   closeGemsSplit();
   closeStatsSplit();
+  closeBestiarySplit();
   closeSettings();
   closeShop();
   closeItemOffer();
@@ -157,7 +166,13 @@ fight.subscribe((state) => {
     if (kind === 'common' || kind === 'elite' || kind === 'boss') {
       grantGuaranteedDrop(kind as RoomKindLoot);
     }
+    // Record the cleared room's roster in the Bestiary - you learn a foe by
+    // facing it (recorded after the fight, not at its start; the defeat path
+    // records too, so a loss still teaches you the enemy).
+    if (node?.enemies) recordEncounter(node.enemies.map((e) => e.id));
     run.update((s) => ({ ...s, fightWon: true }));
+    // Snapshot the damage attribution for the victory panel's breakdown.
+    publishBreakdown();
     // Auto-claim the whole haul straight into the bag (gold credited, items +
     // gems stashed) and snapshot it for the victory screen's interactive
     // summary - no more "Take" step.
@@ -168,6 +183,13 @@ fight.subscribe((state) => {
   // = 0.3s, same one enemies use) can play out before "Defeated."
   // covers the screen.
   if (r.screen === 'fight' && state.inFight && prevPlayerHp > 0 && state.player.hp <= 0) {
+    // Losing still counts as facing the foe: record the room's roster in the
+    // Bestiary (it persists across runs, so the knowledge survives the wipe).
+    const lostNode = r.currentRoomId ? nodeById(r.map, r.currentRoomId) : null;
+    if (lostNode?.enemies) recordEncounter(lostNode.enemies.map((e) => e.id));
+    // Snapshot the breakdown now (the accumulators are intact) so the defeat
+    // overlay can answer "what killed me?" the moment it appears.
+    publishBreakdown();
     setTimeout(() => {
       if (get(run).screen === 'fight') {
         run.update((s) => ({ ...s, screen: 'run-lost' }));

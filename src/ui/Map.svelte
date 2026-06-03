@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enterRoom, run } from '../state/run';
   import { reachableFrom, type MapNode, type RoomKind } from '../domain/map';
+  import { encounteredEnemies } from '../state/bestiary';
   import { t } from '../i18n';
   import ShaderBackground from './ShaderBackground.svelte';
 
@@ -80,6 +81,43 @@
     enterRoom(node.id);
   }
 
+  // Enemy telegraph (docs/decisions-that-matter.md): show WHICH enemies an
+  // upcoming fight holds (deduped, with ×N for repeats) so path choice is
+  // informed. Only REACHABLE fight nodes reveal their roster - the rest of the
+  // map stays a silhouette until you can pick it. Secret rooms never reveal
+  // (their content is a surprise by design). What each enemy DOES lives in the
+  // Bestiary pane, once encountered.
+  interface EnemyIcon {
+    emoji: string;
+    nameKey: string;
+    count: number;
+    known: boolean;
+  }
+  function nodeEnemies(node: MapNode): EnemyIcon[] {
+    if (node.kind === 'secret' || !reachable.has(node.id) || !node.enemies?.length) return [];
+    const byId = new Map<string, EnemyIcon>();
+    for (const e of node.enemies) {
+      const seen = byId.get(e.id);
+      if (seen) seen.count += 1;
+      else
+        byId.set(e.id, {
+          emoji: e.emoji,
+          nameKey: e.nameKey,
+          count: 1,
+          known: $encounteredEnemies.has(e.id),
+        });
+    }
+    return [...byId.values()];
+  }
+  function nodeTooltip(node: MapNode, enemies: EnemyIcon[]): string {
+    const kind = t(`map.kind.${node.kind}`);
+    // Only KNOWN enemies are named; unknown ones (shown as "?") reveal nothing.
+    const named = enemies
+      .filter((e) => e.known)
+      .map((e) => (e.count > 1 ? `${t(e.nameKey)} ×${e.count}` : t(e.nameKey)));
+    return named.length > 0 ? `${kind} - ${named.join(', ')}` : kind;
+  }
+
   function nodeFill(node: MapNode): string {
     if (node.id === $run.lastCompletedRoomId) return '#444';
     if (reachable.has(node.id)) return '#121d20';
@@ -124,6 +162,7 @@
     <!-- Nodes -->
     {#each $run.map.nodes as node (node.id)}
       {@const p = positions.get(node.id)}
+      {@const enemies = nodeEnemies(node)}
       {#if p}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <g
@@ -134,12 +173,24 @@
           onclick={() => onNodeClick(node)}
           role={reachable.has(node.id) ? 'button' : undefined}
           tabindex={reachable.has(node.id) ? 0 : undefined}
-          aria-label={t(`map.kind.${node.kind}`)}
+          aria-label={nodeTooltip(node, enemies)}
         >
+          <title>{nodeTooltip(node, enemies)}</title>
           <circle r={NODE_R} fill={nodeFill(node)} stroke={nodeStroke(node)} stroke-width="2.5" />
           <foreignObject x={-NODE_R} y={-NODE_R} width={NODE_R * 2} height={NODE_R * 2}>
             <div class="emoji-host">{ROOM_EMOJI[node.kind]}</div>
           </foreignObject>
+          {#if enemies.length > 0}
+            <foreignObject x={-40} y={NODE_R + 2} width={80} height={22}>
+              <div class="enemy-icons">
+                {#each enemies as e}
+                  <span class="enemy-icon">
+                    {#if e.known}<span class="enemy-emoji">{e.emoji}</span>{:else}<span class="enemy-unknown">?</span>{/if}{#if e.count > 1}<span class="enemy-count">×{e.count}</span>{/if}
+                  </span>
+                {/each}
+              </div>
+            </foreignObject>
+          {/if}
         </g>
       {/if}
     {/each}
@@ -214,6 +265,45 @@
     font-size: 1.8rem;
     line-height: 1;
     pointer-events: none;
+  }
+
+  /* Enemy telegraph: a compact row of enemy icons under a reachable fight node
+     (with ×N for repeats). Pointer events off so the whole node stays
+     clickable; the <title> on the group supplies the hover tooltip with the
+     enemy names. What each enemy DOES lives in the Bestiary pane. */
+  .enemy-icons {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    line-height: 1;
+    pointer-events: none;
+  }
+  .enemy-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .enemy-emoji {
+    font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+    font-size: 0.8rem;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85));
+  }
+  /* Unknown (not-yet-defeated) enemy: a clean muted "?" glyph, sized to sit in
+     the row like the enemy emojis. No name is revealed. */
+  .enemy-unknown {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #cdd9d9;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+  }
+  .enemy-count {
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #cbd5d5;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.9);
   }
 
   .legend {
