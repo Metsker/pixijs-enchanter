@@ -274,10 +274,11 @@ void main() {
 }
 `;
 
-// --- Battle: turbulent violet energy haze with rising sparks - the one scene
-// that wants MOVEMENT, so faster time scales, a churning second layer, denser
-// rising sparks, and a slow ambient pulse. Still vignetted + held dark enough
-// that HP bars, status icons, and damage numbers stay legible over it.
+// --- Battle: a teal energy mist drifting steadily in ONE direction over a FIXED
+// field of twinkling stars, with a slow ambient pulse. The mist is the only
+// continuously moving layer - the background stars hold their positions. Still
+// vignetted + held dark enough that HP bars, status icons, and damage numbers
+// stay legible.
 const BATTLE_FRAGMENT = /* glsl */ `#version 300 es
 precision highp float;
 
@@ -289,7 +290,7 @@ uniform vec2 uResolution;
 uniform vec3 uColorTop;
 uniform vec3 uColorBottom;
 uniform vec3 uEnergy;
-uniform vec3 uSpark;
+uniform vec3 uStar;
 ${NOISE_GLSL}
 ${PARTICLES_GLSL}
 void main() {
@@ -301,27 +302,24 @@ void main() {
   // Violet base matching the scene's purple gradient (lighter toward the top).
   vec3 col = mix(uColorBottom, uColorTop, smoothstep(0.0, 1.0, uv.y));
 
-  // Turbulent energy haze sweeping mostly sideways with a slight downward bias:
-  // a faster time scale + a flowing warp give it clearly more motion than the
-  // calm scenes. The dominant drift is on X (energy streams across the fight);
-  // the small +Y term eases it downward too rather than running dead level.
+  // Teal energy mist drifting steadily in ONE direction (sideways across the
+  // arena) - the only continuously moving layer. Two fbm layers at different
+  // scales drift the SAME way (a slow base + a finer, faster overlay for depth)
+  // so the mist reads as a single coherent current rather than churn.
   float t = uTime * 0.09;
-  vec2 q = p * 1.8;
-  q.x -= t;
-  q.y += t * 0.3;
-  float w = fbm(q + t);
+  vec2 drift = vec2(-t, 0.0);
+  vec2 q = p * 1.8 + drift;
+  float w = fbm(q + drift * 0.5);
   float n = fbm(q + vec2(w, w * 0.7));
   col += uEnergy * smoothstep(0.3, 1.0, n) * 0.30;
-
-  // A second, faster counter-streaming layer for churn (same mostly-X, a-bit-down drift).
-  float n2 = fbm(p * 3.4 + vec2(t * 1.5, t * 0.4 + w * 0.3));
+  float n2 = fbm(p * 3.4 + drift * 1.6);
   col += uEnergy * smoothstep(0.6, 1.0, n2) * 0.12;
 
-  // Sparks streaking sideways - faster and denser than the rest-camp embers.
-  // Passing p.yx transposes the particle field so its drift axis lands on screen
-  // X (the helper always moves along its second coord), matching the haze.
-  col += uSpark * particles(p.yx, 22.0, 0.55, 0.07, 0.95, 3.0) * 0.8;
-  col += uSpark * particles(p.yx, 40.0, 0.85, 0.05, 0.972, 9.0) * 0.55;
+  // Background stars: a FIXED field of small specks twinkling in place (speed 0,
+  // so they hold position while the mist drifts past). Coarse + finer/dimmer grid.
+  float stars = particles(p, 26.0, 0.0, 0.06, 0.965, 13.0)
+              + particles(p, 40.0, 0.0, 0.045, 0.975, 27.0) * 0.8;
+  col += uStar * stars * 0.8;
 
   // Slow ambient pulse so the arena breathes with the fight.
   col *= 0.93 + 0.07 * sin(uTime * 0.9);
@@ -396,11 +394,12 @@ export const BACKGROUNDS = {
     fragment: BATTLE_FRAGMENT,
     fps: 60,
     uniforms: {
-      // Cold teal gradient, a churning teal energy glow, and cool cyan sparks.
+      // Cold teal gradient and a churning teal energy mist.
       uColorTop: rgb(0.055, 0.11, 0.137),
       uColorBottom: rgb(0.02, 0.039, 0.047),
       uEnergy: rgb(0.12, 0.42, 0.47),
-      uSpark: rgb(0.5, 0.9, 1.0),
+      // Pale cool-white stars - both the fixed background field and the streaks.
+      uStar: rgb(0.8, 0.92, 1.0),
     },
   },
 } satisfies Record<string, BackgroundDef>;
