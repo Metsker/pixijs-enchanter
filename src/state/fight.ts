@@ -2,8 +2,10 @@ import { get, writable } from 'svelte/store';
 import type { Fighter } from '../domain/fighter';
 import type { EnemyDef } from '../domain/enemy';
 import { ENEMY_CATALOGUE, LICH, SKELETON } from '../domain/enemy-catalogue';
+import { isAilmentImmune, typeDamageMul } from '../domain/enemy-threat';
 import { randomItem, randomGem } from '../domain/random';
 import { addRewardGem, addRewardGold, addRewardItem, resetPendingRewards } from './rewards';
+import { resetFightStats, clearBreakdown } from './fight-stats';
 import { playerEffects, playerProfile } from './player-profile';
 import type { StatusType } from '../domain/enchant';
 import { STATUS_DEFS, type DoTEvent } from '../domain/status';
@@ -136,6 +138,10 @@ export function startFightWith(enemies: EnemyDef[], difficulty: Difficulty = 'no
   // Loot from a previous fight that the player never claimed is gone -
   // a fresh fight always starts with an empty chest.
   resetPendingRewards();
+  // Fresh damage-attribution accumulators + clear the previous fight's
+  // breakdown so the panel can't show stale numbers.
+  resetFightStats();
+  clearBreakdown();
   phoenixUsedThisFight = false;
   itemDroppedThisFight = false;
   dropsThisFight = 0;
@@ -337,7 +343,14 @@ export function applyStatusToEnemy(
 ): void {
   fight.update((state) => ({
     ...state,
-    enemies: state.enemies.map((e) => (e.id === id ? withStatus(e, status, potency) : e)),
+    enemies: state.enemies.map((e) => {
+      if (e.id !== id) return e;
+      // Ailment immunity (bone Skeletons shrug off bleed / poison): the status
+      // simply never lands. Caller still floats its icon, so the player sees
+      // the attempt fizzle - which teaches the immunity.
+      if (isAilmentImmune(ENEMY_CATALOGUE[e.name], status)) return e;
+      return withStatus(e, status, potency);
+    }),
   }));
 }
 
@@ -389,8 +402,20 @@ function tickFighterStatuses(f: Fighter, dt: number, events: DoTEvent[]): Fighte
     // 60fps but cheap to handle).
     if (def.dmgPerSec > 0 && def.tickIntervalSec > 0) {
       const mul = inst.dmgMul ?? 1;
+      // DoT respects the same type matchup as direct damage: a fire-weak
+      // Skeleton burns harder, a physical-resistant Slime bleeds less.
+      const typeMul =
+        f.kind === 'enemy' ? typeDamageMul(ENEMY_CATALOGUE[f.name], def.damageType) : 1;
+      // Shaped Glass's global outgoing-damage multiplier covers DoT too, but only
+      // for ailments the PLAYER inflicts (ticks on enemies). Ticks on the player
+      // are enemy ailment damage and must NOT be boosted by the player's gem.
+      const allDamageMul =
+        f.kind === 'enemy' ? get(playerProfile).attack.allDamageMul : 1;
       while (nextTickIn <= 0 && hp > 0) {
-        const damage = Math.min(hp, jitterDamage(def.dmgPerSec * def.tickIntervalSec * mul));
+        const damage = Math.min(
+          hp,
+          jitterDamage(def.dmgPerSec * def.tickIntervalSec * mul * typeMul * allDamageMul),
+        );
         hp -= damage;
         events.push({ targetId: f.id, status: key, amount: damage });
         nextTickIn += def.tickIntervalSec;

@@ -24,13 +24,15 @@ import {
   type FightState,
 } from '../state/fight';
 import { playerEffects, playerProcs, playerProfile } from '../state/player-profile';
+import { recordDealt, recordTaken } from '../state/fight-stats';
 import { simSpeed } from '../state/sim-speed';
 import type { AttackProfile } from '../domain/attack-profile';
 import type { DefenceProfile } from '../domain/defence-profile';
 import { ENEMY_CATALOGUE } from '../domain/enemy-catalogue';
+import { typeDamageMul, MELEE_VS_FLYING_MISS } from '../domain/enemy-threat';
 import { jitterDamage } from '../domain/damage';
 import type { Fighter } from '../domain/fighter';
-import type { StatusType } from '../domain/enchant';
+import type { DamageType, StatusType } from '../domain/enchant';
 import type { ProcPayload, ProcTrigger } from '../domain/gem';
 import { type ResolvedProc } from '../domain/gem-resolution';
 import { STATUS_DEFS } from '../domain/status';
@@ -59,6 +61,27 @@ const HP_BAR_WIDTH = 120;
 const HP_BAR_HEIGHT = 10;
 const DEATH_DURATION = 0.3;
 const DAMAGE_NUMBER_DURATION = 0.8;
+
+// Unit vector for (dx, dy), used by the 2D lunge / knockback tweens in the
+// top-down arena. Returns [0, -1] (straight up, toward the enemy ranks) for a
+// zero vector so a degenerate case still reads sensibly.
+function unit(dx: number, dy: number): [number, number] {
+  const len = Math.hypot(dx, dy);
+  return len < 1e-6 ? [0, -1] : [dx / len, dy / len];
+}
+
+// AoE damage falloff. A multi-target hit (a nova / aura / splash / chain) deals
+// FULL damage to its nearest target and geometrically less to each farther one,
+// floored so the back of a horde still takes a meaningful chip. This caps a
+// single AoE's total output at ~1/(1-rate) of its base instead of N x base, so
+// a big army is SOFTENED, never deleted in one tick - the lever that makes army
+// size matter (bring sustained clear, not one nuke). Status riders are applied
+// separately at full strength, so AoE crowd-control / ailments are unaffected.
+const AOE_FALLOFF_RATE = 0.72; // each successive (farther) target: x0.72
+const AOE_FALLOFF_FLOOR = 0.2; // never below 20% of the base hit
+function aoeFalloff(rank: number): number {
+  return Math.max(AOE_FALLOFF_FLOOR, AOE_FALLOFF_RATE ** rank);
+}
 
 interface FighterView {
   fighter: Fighter;
@@ -380,8 +403,14 @@ export class Battlefield {
     this.updateMinions(dt, state);
 
     // Regeneration: drip player HP back over time (sub-1 hp/tick
-    // accumulates so 50hp/sec at 60fps still ticks correctly).
-    if (this.defence.hpRegenPerSec > 0 && state.player.hp > 0 && state.player.hp < state.player.maxHp) {
+    // accumulates so 50hp/sec at 60fps still ticks correctly). Covenant's
+    // no-heal flag stops regen dead - sustain is off the table entirely.
+    if (
+      this.defence.hpRegenPerSec > 0 &&
+      !this.defence.noHeal &&
+      state.player.hp > 0 &&
+      state.player.hp < state.player.maxHp
+    ) {
       this.regenAccum += this.defence.hpRegenPerSec * dt;
       if (this.regenAccum >= 1) {
         const heal = Math.floor(this.regenAccum);
@@ -399,6 +428,10 @@ export class Battlefield {
       if (!view || view.container.destroyed) continue;
       const def = STATUS_DEFS[ev.status];
       this.spawnFloatNumber(view, `${def.emoji} -${ev.amount}`, def.color, 22);
+      // Attribute DoT: ticks on the player are damage taken (enemy ailments
+      // like Slime poison); ticks on enemies are the player's ailment damage.
+      if (ev.targetId === state.player.id) recordTaken('ailment', ev.amount);
+      else recordDealt('ailment', ev.amount);
     }
 
     // Stoic: drip queued delayed damage onto the player. Each entry
@@ -587,6 +620,19 @@ export class Battlefield {
       return;
     }
 
+    // Flying enemies (Harpy) shrug off most melee swings - procs / projectiles
+    // are the answer (they don't route through this basic-attack path, so they
+    // bypass the whiff). Rolls on top of the enemy's own dodge.
+    if (
+      ENEMY_CATALOGUE[target.name]?.loc === 'flying' &&
+      Math.random() < MELEE_VS_FLYING_MISS
+    ) {
+      this.spawnFloatNumber(view, 'Miss', '#aaaaaa', 28);
+      sfx.dodge();
+      this.spawnSlash(view);
+      return;
+    }
+
     this.landDamage(state, target, view, /* isExtraStrike */ false);
 
     // Multistrike: each effect rolls independently; on a proc the
@@ -616,6 +662,20 @@ export class Battlefield {
     }
     sfx.dodge();
     return true;
+  }
+
+  // Prism (convert-damage-type unique): if equipped, EVERY outgoing player hit
+  // (auto-attack, procs, minion bites) is forced to a single element before the
+  // resist / weak matchup is rolled. Returns the source's own type unchanged
+  // when no Prism is equipped. First matching effect wins (same rule as
+  // all-crit-replace-mul). This is the only place the override lives, so the
+  // three combat-hit sites stay in sync. The DoT / ailment path (fight.ts) is
+  // intentionally left on the ailment's own element - Prism is a hit-type tool.
+  private convertedType(sourceType: DamageType): DamageType {
+    for (const eff of get(playerEffects)) {
+      if (eff.kind === 'convert-damage-type') return eff.targetType;
+    }
+    return sourceType;
   }
 
   // Applies a single landed hit: rolls crit, runs the equipped
@@ -688,7 +748,22 @@ export class Battlefield {
     const enemyResist = target.resist ?? ENEMY_CATALOGUE[target.name]?.resist ?? 0;
     const resistMul = 1 - enemyResist;
 
-    const damage = jitterDamage(dmg * shockMul * resistMul);
+    // Damage-type matchup: the auto-attack carries the build's dominant type
+    // (resolveProfile), so an enemy that resists / is weak to that type takes
+    // less / more. This is the lever the threat telegraph asks the player to
+    // read (docs/decisions-that-matter.md). Prism (convertedType) can override
+    // the build's element here, turning the matchup answer into a swappable tool.
+    const typeMul = typeDamageMul(
+      ENEMY_CATALOGUE[target.name],
+      this.convertedType(this.attack.type),
+    );
+
+    // Global outgoing-damage multiplier (Shaped Glass x2): applied on top of all
+    // other auto-attack math. Splash below derives from `damage`, so it inherits
+    // the multiplier automatically.
+    const damage = jitterDamage(
+      dmg * shockMul * resistMul * typeMul * this.attack.allDamageMul,
+    );
 
     if (isCrit) {
       this.spawnFloatNumber(view, `-${damage}!`, '#ffd84a', 40);
@@ -700,6 +775,7 @@ export class Battlefield {
     this.spawnSlash(view);
 
     applyDamage(target.id, damage);
+    recordDealt('auto', damage);
     // Pick the swing's sound based on what the hit did. Killing
     // blow gets the heavier sfx.kill; sfx.death from playDeath
     // still layers in to wail for the corpse.
@@ -759,7 +835,8 @@ export class Battlefield {
     // Vampiric / Lifedrain: heal the player by a fraction of damage
     // dealt. Numbers float green above the player so the heal is
     // visible in the chaos.
-    if (this.attack.lifesteal > 0 && state.player.hp > 0) {
+    // Covenant suppresses ALL healing, lifesteal included.
+    if (this.attack.lifesteal > 0 && state.player.hp > 0 && !this.defence.noHeal) {
       const heal = Math.round(damage * this.attack.lifesteal);
       if (heal > 0) {
         healPlayer(heal);
@@ -771,23 +848,36 @@ export class Battlefield {
       }
     }
 
-    // Splash (Sweeping Edge): a fraction of the landed damage hits
-    // every other alive enemy. The grounded-only flag skips flying
-    // enemies like Harpy.
+    // Splash (Sweeping Edge): a fraction of the landed damage hits every other
+    // alive enemy, nearest-first with AoE falloff so a packed front rank eats
+    // the most and the back of a horde only gets chipped. The grounded-only
+    // flag skips flying enemies like Harpy.
     for (const eff of effects) {
       if (eff.kind !== 'splash-add') continue;
-      const splash = jitterDamage(damage * eff.fraction);
-      for (const other of state.enemies) {
-        if (other.id === target.id || other.hp <= 0) continue;
-        if (eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying') {
-          continue;
-        }
+      const tx = this.views.get(target.id)?.homeX ?? 0;
+      const ty = this.views.get(target.id)?.homeY ?? 0;
+      const others = state.enemies
+        .filter((other) => other.id !== target.id && other.hp > 0)
+        .filter(
+          (other) =>
+            !(eff.flag === 'grounded-only' && ENEMY_CATALOGUE[other.name]?.loc === 'flying'),
+        )
+        .map((other) => {
+          const v = this.views.get(other.id);
+          return { other, d: ((v?.homeX ?? 0) - tx) ** 2 + ((v?.homeY ?? 0) - ty) ** 2 };
+        })
+        .sort((a, b) => a.d - b.d);
+      let splashRank = 0;
+      for (const { other } of others) {
         const otherView = this.views.get(other.id);
         if (!otherView || otherView.container.destroyed) continue;
         if (this.tryDodge(other, otherView)) continue;
+        const splash = jitterDamage(damage * eff.fraction * aoeFalloff(splashRank));
+        splashRank += 1;
         this.spawnFloatNumber(otherView, `-${splash}`, '#cbd5ff', 26);
         this.playHitFlash(otherView);
         applyDamage(other.id, splash);
+        recordDealt('proc', splash);
       }
     }
 
@@ -796,20 +886,33 @@ export class Battlefield {
     // distance from the target's home position.
     for (const eff of effects) {
       if (eff.kind !== 'chain-add') continue;
-      const targetHomeX = this.views.get(target.id)?.homeX ?? 0;
+      const tv = this.views.get(target.id);
+      const tx = tv?.homeX ?? 0;
+      const ty = tv?.homeY ?? 0;
+      // Bolt jumps to the nearest OTHER enemies by 2D distance from the struck
+      // target (the top-down grid spreads them across rows, not just columns).
       const candidates = state.enemies
         .filter((e) => e.id !== target.id && e.hp > 0)
-        .map((e) => ({ e, dx: Math.abs((this.views.get(e.id)?.homeX ?? 0) - targetHomeX) }))
-        .sort((a, b) => a.dx - b.dx)
+        .map((e) => {
+          const v = this.views.get(e.id);
+          return { e, d: ((v?.homeX ?? 0) - tx) ** 2 + ((v?.homeY ?? 0) - ty) ** 2 };
+        })
+        .sort((a, b) => a.d - b.d)
         .slice(0, eff.targets);
+      let chainRank = 0;
       for (const { e } of candidates) {
         const ev = this.views.get(e.id);
         if (!ev || ev.container.destroyed) continue;
         if (this.tryDodge(e, ev)) continue;
-        const chained = jitterDamage(eff.damage);
+        // Flat bolt that weakens with each jump (per-hop falloff), still a
+        // player-sourced hit so it honours the global all-damage-mul (Shaped
+        // Glass) like every other source.
+        const chained = jitterDamage(eff.damage * aoeFalloff(chainRank) * this.attack.allDamageMul);
+        chainRank += 1;
         this.spawnFloatNumber(ev, `⚡-${chained}`, '#ffd84a', 26);
         this.playHitFlash(ev);
         applyDamage(e.id, chained);
+        recordDealt('proc', chained);
       }
     }
 
@@ -889,11 +992,15 @@ export class Battlefield {
     switch (proc.payload.kind) {
       case 'damage':
         this.fireDamageProc(proc, proc.payload.damage, state, ctx);
+        // Blood Pact: pay the HP cost once per fire, after the hit lands. Read
+        // fresh state so the cost is a fraction of the post-hit current HP.
+        this.applyProcFireCost(proc, get(fight));
         break;
       case 'attack-echo':
         // Echo a fraction of the CURRENT auto-attack damage (Vault Strike),
         // so the proc scales with the attack build instead of a flat number.
         this.fireDamageProc(proc, this.attack.damage * proc.payload.fraction, state, ctx);
+        this.applyProcFireCost(proc, get(fight));
         break;
       case 'heal':
         this.fireHealProc(proc, proc.payload.fraction, state);
@@ -909,6 +1016,9 @@ export class Battlefield {
         break;
       case 'summon':
         this.fireSummonProc(proc, proc.payload, state);
+        // Blood Pact binds to summon procs too (a summon is a damage source):
+        // pay the HP cost once when the pack is conjured.
+        this.applyProcFireCost(proc, get(fight));
         break;
     }
 
@@ -933,19 +1043,19 @@ export class Battlefield {
     const alive = state.enemies.filter((e) => e.hp > 0);
     if (alive.length === 0) return [];
 
-    const anchorX =
-      (ctx.anchorId ? this.views.get(ctx.anchorId)?.homeX : undefined) ??
-      this.views.get(state.player.id)?.homeX ??
-      0;
+    const anchorView = ctx.anchorId ? this.views.get(ctx.anchorId) : undefined;
+    const playerView = this.views.get(state.player.id);
+    const anchorX = anchorView?.homeX ?? playerView?.homeX ?? 0;
+    const anchorY = anchorView?.homeY ?? playerView?.homeY ?? 0;
+    const dist2 = (id: string): number => {
+      const v = this.views.get(id);
+      return ((v?.homeX ?? 0) - anchorX) ** 2 + ((v?.homeY ?? 0) - anchorY) ** 2;
+    };
 
     if (proc.targeting === 'all') return alive;
     if (proc.targeting === 'nearest') {
       return [...alive]
-        .sort(
-          (a, b) =>
-            Math.abs((this.views.get(a.id)?.homeX ?? 0) - anchorX) -
-            Math.abs((this.views.get(b.id)?.homeX ?? 0) - anchorX),
-        )
+        .sort((a, b) => dist2(a.id) - dist2(b.id))
         .slice(0, Math.max(1, proc.count));
     }
     // random: distinct uniform picks.
@@ -1000,12 +1110,32 @@ export class Battlefield {
     const originX = playerView?.homeX ?? 0;
     const originY = (playerView?.homeY ?? 0) - EMOJI_SIZE * 0.5;
 
-    for (const target of targets) {
+    // For a multi-target hit, order targets nearest-first from the player so the
+    // AoE falloff (below) lands full damage on the closest body and tapers
+    // toward the back of the pack. Single-target procs are unaffected.
+    const ordered =
+      targets.length > 1
+        ? [...targets].sort(
+            (a, b) =>
+              ((this.views.get(a.id)?.homeX ?? 0) - originX) ** 2 +
+              ((this.views.get(a.id)?.homeY ?? 0) - originY) ** 2 -
+              (((this.views.get(b.id)?.homeX ?? 0) - originX) ** 2 +
+                ((this.views.get(b.id)?.homeY ?? 0) - originY) ** 2),
+          )
+        : targets;
+
+    let rank = 0;
+    for (const target of ordered) {
       const view = this.views.get(target.id);
       if (!view || view.container.destroyed) continue;
 
       // A dodgy target (Harpy) evades the proc outright - no damage, no riders.
       if (this.tryDodge(target, view)) continue;
+
+      // Distance-ranked AoE falloff: full on the nearest, weaker on each farther
+      // body. rank only advances on bodies that actually take the hit.
+      const falloff = aoeFalloff(rank);
+      rank += 1;
 
       // Crit roll: procs only crit when a crit support (Lethal) granted
       // canCrit. The auto-attack's crit multiplier is reused.
@@ -1013,7 +1143,24 @@ export class Battlefield {
       // Conditional-scale supports (Shatter / Overcharge) multiply
       // the hit when this target meets their condition right now.
       const condMul = this.condScaleMul(proc, target);
-      const damage = jitterDamage(baseDamage * condMul * (isCrit ? this.attack.critMultiplier : 1));
+      // Enemy resist / weak matchup vs the proc's element (parity with the
+      // auto-attack + DoT typing): a fire proc answers a physical-resistant
+      // Slime, a cold proc is halved on a cold-resistant foe, etc. Both
+      // damage and attack-echo payloads carry a damageType; non-damage
+      // payloads never reach here. Prism (convertedType) overrides the proc's
+      // own element so a converted build answers resistant foes uniformly.
+      const typeMul =
+        proc.payload.kind === 'damage' || proc.payload.kind === 'attack-echo'
+          ? typeDamageMul(ENEMY_CATALOGUE[target.name], this.convertedType(proc.payload.damageType))
+          : 1;
+      const damage = jitterDamage(
+        baseDamage *
+          falloff *
+          condMul *
+          typeMul *
+          (isCrit ? this.attack.critMultiplier : 1) *
+          this.attack.allDamageMul,
+      );
 
       this.spawnProcVisual(proc, view, originX, originY);
       this.spawnFloatNumber(
@@ -1025,6 +1172,7 @@ export class Battlefield {
       this.playHitFlash(view);
 
       applyDamage(target.id, damage);
+      recordDealt('proc', damage);
 
       // Riders: each accumulated status the proc carries lands on the
       // target (e.g. Igniting's Burn, Chilling's Freeze), scaled by any
@@ -1044,7 +1192,8 @@ export class Battlefield {
   // Heal payload (Sanctuary): restore a fraction of the player's max HP
   // and float a green number + soft glow on the player.
   private fireHealProc(proc: ResolvedProc, fraction: number, state: FightState): void {
-    if (state.player.hp <= 0) return;
+    // Covenant suppresses healing entirely - the Sanctuary heal proc fizzles.
+    if (state.player.hp <= 0 || this.defence.noHeal) return;
     const heal = Math.round(state.player.maxHp * fraction);
     if (heal <= 0) return;
     healPlayer(heal);
@@ -1053,6 +1202,28 @@ export class Battlefield {
       this.spawnGlow(playerView, 0x7fe57f);
       this.spawnFloatNumber(playerView, `${proc.emoji}+${heal}`, '#7fe57f', 30);
       sfx.heal();
+    }
+  }
+
+  // Blood Pact: pay the bound proc's HP cost after it fires. The cost is a
+  // fraction of CURRENT HP, so it bites hard early and tapers off - it can
+  // hurt but never directly kills (capped to leave >=1 HP; this is a deliberate
+  // cap, see rule 5, so your own support can't lose you the run on its own).
+  // Deliberately NOT gated on Covenant's no-heal: the cost is in-combat damage,
+  // not healing, and gating it would make Covenant a strictly-better partner
+  // for Blood Pact (free damage, no cost) - which breaks the trade-off rule.
+  private applyProcFireCost(proc: ResolvedProc, state: FightState): void {
+    if (!proc.procCostHp || proc.procCostHp <= 0) return;
+    if (state.player.hp <= 1) return;
+    const cost = Math.min(
+      state.player.hp - 1,
+      Math.max(1, Math.floor(state.player.hp * proc.procCostHp)),
+    );
+    if (cost <= 0) return;
+    applyDamageToPlayer(cost);
+    const playerView = this.views.get(state.player.id);
+    if (playerView && !playerView.container.destroyed) {
+      this.spawnFloatNumber(playerView, `🩸-${cost}`, '#ff5252', 26);
     }
   }
 
@@ -1181,7 +1352,9 @@ export class Battlefield {
 
       // Orbiting bees pick (and circle) their target from their smoothed orbit
       // centre; roaming wolves pick from their own position.
-      const target = this.nearestEnemyTo(m.orbit ? m.cx : m.sprite.x, alive);
+      const target = m.orbit
+        ? this.nearestEnemyTo(m.cx, m.cy, alive)
+        : this.nearestEnemyTo(m.sprite.x, m.sprite.y, alive);
       const targetView = target ? this.views.get(target.id) : undefined;
 
       // Movement. Bees orbit their target enemy (idling around the player if
@@ -1199,12 +1372,13 @@ export class Battlefield {
         m.sprite.x = m.cx + Math.cos(m.angle) * 70;
         m.sprite.y = m.cy + Math.sin(m.angle) * 34;
       } else {
-        // Fan a forked pack out by slot so the wolves render as separate bodies
-        // instead of converging on one point: each sits a little further back
-        // (x) and on its own row (y) around the ground line.
+        // Lope to just in front of the target (between it and the player, i.e.
+        // a little below it in the top-down arena), fanning a forked pack out by
+        // slot so the wolves render as separate bodies instead of stacking. With
+        // no target they idle around the player.
         const slot = m.index - (m.batch - 1) / 2;
-        const destX = (targetView ? targetView.homeX - 56 : px + 80) - m.index * 24;
-        const destY = py + slot * 28;
+        const destX = (targetView ? targetView.homeX : px) + slot * 30;
+        const destY = targetView ? targetView.homeY + EMOJI_SIZE * 0.45 : py;
         m.sprite.x += (destX - m.sprite.x) * ease;
         m.sprite.y += (destY - m.sprite.y) * ease;
       }
@@ -1227,13 +1401,17 @@ export class Battlefield {
     }
   }
 
-  // The alive enemy whose view sits closest (by x) to a minion's position.
-  private nearestEnemyTo(x: number, alive: Fighter[]): Fighter | undefined {
+  // The alive enemy whose view sits closest (2D) to a minion's position. Uses
+  // squared distance over the top-down arena so a roaming minion homes on the
+  // genuinely nearest body, not just the nearest column.
+  private nearestEnemyTo(x: number, y: number, alive: Fighter[]): Fighter | undefined {
     let best: Fighter | undefined;
     let bestDist = Infinity;
     for (const e of alive) {
-      const ex = this.views.get(e.id)?.homeX ?? 0;
-      const d = Math.abs(ex - x);
+      const view = this.views.get(e.id);
+      const ex = view?.homeX ?? 0;
+      const ey = view?.homeY ?? 0;
+      const d = (ex - x) ** 2 + (ey - y) ** 2;
       if (d < bestDist) {
         bestDist = d;
         best = e;
@@ -1249,7 +1427,25 @@ export class Battlefield {
     if (this.tryDodge(target, view)) return;
     const isCrit = m.proc.canCrit && m.proc.critChance > 0 && Math.random() < m.proc.critChance;
     const condMul = this.condScaleMul(m.proc, target);
-    const damage = jitterDamage(m.damage * condMul * (isCrit ? this.attack.critMultiplier : 1));
+    // Minion bites respect the enemy resist / weak matchup too (a physical wolf
+    // is suboptimal vs a physical-resistant foe; chaos bees fare better). The
+    // minion's proc always carries the original summon payload, so we read the
+    // damageType off it; a non-summon proc falls back to physical (sensible
+    // default - minions are physical bodies). Prism (convertedType) overrides
+    // this too - your summons answer resistant foes alongside everything else.
+    const typeMul = typeDamageMul(
+      ENEMY_CATALOGUE[target.name],
+      this.convertedType(
+        m.proc.payload.kind === 'summon' ? m.proc.payload.damageType : 'physical',
+      ),
+    );
+    const damage = jitterDamage(
+      m.damage *
+        condMul *
+        typeMul *
+        (isCrit ? this.attack.critMultiplier : 1) *
+        this.attack.allDamageMul,
+    );
     this.spawnFloatNumber(
       view,
       `${m.emoji}-${damage}${isCrit ? '!' : ''}`,
@@ -1258,6 +1454,7 @@ export class Battlefield {
     );
     this.playHitFlash(view);
     applyDamage(target.id, damage);
+    recordDealt('proc', damage);
     for (const status of m.proc.riders) {
       applyStatusToEnemy(target.id, status, m.proc.riderPotency);
     }
@@ -1343,14 +1540,16 @@ export class Battlefield {
     if (!playerView || playerView.container.destroyed) return;
     const enemyView = this.views.get(enemy.id);
 
-    // Enemy lunges toward the player (symmetric to player lunge).
+    // Enemy lunges toward the player (symmetric to the player's 2D lunge): it
+    // dives down-and-in from its rank, then settles back into formation.
     if (enemyView && !enemyView.container.destroyed) {
-      const originalX = enemyView.container.x;
-      const dx = enemyView.container.x > playerView.container.x ? -28 : 28;
-      gsap.killTweensOf(enemyView.container, 'x');
+      const originalX = enemyView.homeX;
+      const originalY = enemyView.homeY;
+      const [ux, uy] = unit(playerView.homeX - originalX, playerView.homeY - originalY);
+      gsap.killTweensOf(enemyView.container, 'x,y');
       const tl = gsap.timeline();
-      tl.to(enemyView.container, { x: originalX + dx, duration: 0.08, ease: 'power2.out' });
-      tl.to(enemyView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
+      tl.to(enemyView.container, { x: originalX + ux * 28, y: originalY + uy * 28, duration: 0.08, ease: 'power2.out' });
+      tl.to(enemyView.container, { x: originalX, y: originalY, duration: 0.18, ease: 'power2.inOut' });
     }
 
     const effects = get(playerEffects);
@@ -1453,7 +1652,10 @@ export class Battlefield {
     this.playHitFlash(playerView);
     this.playHitReact(playerView);
     this.spawnSlash(playerView);
-    if (incoming > 0) applyDamageToPlayer(incoming);
+    if (incoming > 0) {
+      applyDamageToPlayer(incoming);
+      recordTaken(enemy.name, incoming);
+    }
     sfx.hit();
     this.shakeKick(14);
 
@@ -1539,12 +1741,15 @@ export class Battlefield {
   private playAttackSwing(targetView: FighterView): void {
     const playerView = this.views.get(get(fight).player.id);
     if (!playerView || playerView.container.destroyed) return;
-    const originalX = playerView.container.x;
-    const dx = targetView.container.x > originalX ? 28 : -28;
-    gsap.killTweensOf(playerView.container, 'x');
+    const originalX = playerView.homeX;
+    const originalY = playerView.homeY;
+    // Lunge toward the target in 2D (the player sits below, enemies above), so
+    // a swing reads as a step into the foe instead of a sideways twitch.
+    const [ux, uy] = unit(targetView.homeX - originalX, targetView.homeY - originalY);
+    gsap.killTweensOf(playerView.container, 'x,y');
     const tl = gsap.timeline();
-    tl.to(playerView.container, { x: originalX + dx, duration: 0.08, ease: 'power2.out' });
-    tl.to(playerView.container, { x: originalX, duration: 0.18, ease: 'power2.inOut' });
+    tl.to(playerView.container, { x: originalX + ux * 28, y: originalY + uy * 28, duration: 0.08, ease: 'power2.out' });
+    tl.to(playerView.container, { x: originalX, y: originalY, duration: 0.18, ease: 'power2.inOut' });
   }
 
   // Brief red tint on the target's emoji via a ColorMatrixFilter whose
@@ -1567,21 +1772,22 @@ export class Battlefield {
     });
   }
 
-  // Horizontal knockback to telegraph the hit: the emoji jolts a few
-  // pixels away from the player, then springs back with an elastic
-  // ease. Operates on view.emojiText.x so the HP bar (a sibling
-  // Graphics in view.container) doesn't move with it.
+  // Knockback to telegraph the hit: the emoji jolts a few pixels away from the
+  // player (in 2D, so a hit from below shoves the body up-and-out), then springs
+  // back with an elastic ease. Operates on view.emojiText x/y so the HP bar (a
+  // sibling Graphics in view.container) doesn't move with it.
   private playHitReact(view: FighterView): void {
     if (view.container.destroyed) return;
     const playerView = this.views.get(get(fight).player.id);
     if (!playerView) return;
-    const dx = view.container.x > playerView.container.x ? 14 : -14;
+    const [ux, uy] = unit(view.homeX - playerView.homeX, view.homeY - playerView.homeY);
 
-    gsap.killTweensOf(view.emojiText, 'x');
+    gsap.killTweensOf(view.emojiText, 'x,y');
     view.emojiText.x = 0;
+    view.emojiText.y = 0;
     const tl = gsap.timeline();
-    tl.to(view.emojiText, { x: dx, duration: 0.08, ease: 'power2.out' });
-    tl.to(view.emojiText, { x: 0, duration: 0.3, ease: 'elastic.out(1, 0.5)' });
+    tl.to(view.emojiText, { x: ux * 14, y: uy * 14, duration: 0.08, ease: 'power2.out' });
+    tl.to(view.emojiText, { x: 0, y: 0, duration: 0.3, ease: 'elastic.out(1, 0.5)' });
   }
 
   // Vertical slash: the line redraws each tween tick growing from the
@@ -1985,32 +2191,54 @@ export class Battlefield {
     this.drawTargetRing(state);
   }
 
+  // Top-down arena: the player stands at the bottom-centre and the enemies fill
+  // the open space above, gridded into centred ranks. This trades the old
+  // side-scroller line (which capped the pack at what fit one row) for a 2D
+  // formation that holds a real army - the deep-act hordes - without overlap.
   private layout(state: FightState): void {
     const w = this.app.screen.width;
     const h = this.app.screen.height;
-    const groundY = h * 0.68;
 
     const player = this.views.get(state.player.id);
     if (player) {
-      player.homeX = w * 0.2;
-      player.homeY = groundY;
+      player.homeX = w * 0.5;
+      player.homeY = h * 0.86;
       player.container.x = player.homeX;
       player.container.y = player.homeY;
     }
 
-    const enemyCount = state.enemies.length;
-    const startX = w * 0.55;
-    const endX = w * 0.9;
+    // Enemy zone: the upper band, leaving headroom at the very top for the
+    // tallest emoji + its HP bar and a clear gap above the player at the bottom.
+    const topY = h * 0.2;
+    const botY = h * 0.58;
+    const leftX = w * 0.1;
+    const rightX = w * 0.9;
+    const n = state.enemies.length;
+
+    // Columns per rank: a slightly-wider-than-tall block (so a horde reads as
+    // ranks advancing), capped by how many bodies fit the width without HP bars
+    // colliding (~150px per cell).
+    const CELL = 150;
+    const maxCols = Math.max(1, Math.floor((rightX - leftX) / CELL));
+    const perRow = Math.max(1, Math.min(n, maxCols, Math.ceil(Math.sqrt(n * 1.7))));
+    const rows = Math.max(1, Math.ceil(n / perRow));
+    const spacingX = Math.min(CELL, (rightX - leftX) / perRow);
+
     state.enemies.forEach((enemy, i) => {
       const view = this.views.get(enemy.id);
       if (!view) return;
-      view.homeX =
-        enemyCount === 1
-          ? (startX + endX) / 2
-          : startX + ((endX - startX) / (enemyCount - 1)) * i;
-      view.homeY = groundY;
-      view.container.x = view.homeX;
-      view.container.y = view.homeY;
+      const row = Math.floor(i / perRow);
+      const rowStart = row * perRow;
+      const rowCount = Math.min(perRow, n - rowStart);
+      const col = i - rowStart;
+      // Centre each rank on the arena's midline; short last rank stays centred.
+      const x = w * 0.5 + (col - (rowCount - 1) / 2) * spacingX;
+      // Stack ranks top -> bottom; the front rank sits closest to the player.
+      const y = rows === 1 ? (topY + botY) / 2 : topY + ((botY - topY) * row) / (rows - 1);
+      view.homeX = x;
+      view.homeY = y;
+      view.container.x = x;
+      view.container.y = y;
     });
 
     for (const view of this.views.values()) {

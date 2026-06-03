@@ -78,36 +78,92 @@ function pickKind(rng: () => number, forbidden: ReadonlySet<RoomKind> = new Set(
   return weights[weights.length - 1].kind;
 }
 
-// Encounter size: the first half of the act is solo fights (one common, or a
-// lone elite); the second half RAMPS with depth, growing past the old 2-3 cap
-// toward MAX_ENEMIES on the deepest floors. The boss is always just the Lich.
-const MAX_ENEMIES = 3;
-function encounterSize(rng: () => number, floor: number): number {
-  const half = Math.floor(FLOORS / 2);
-  if (floor <= half) return 1; // first half: solo
-  const depth = floor - half; // 1.. into the second half
-  const centre = Math.min(MAX_ENEMIES, 2 + Math.floor(depth / 2));
-  return Math.max(2, Math.min(MAX_ENEMIES, centre + (rng() < 0.5 ? 0 : 1)));
+// Encounter composition (per the "building blocks" model): enemy STATS are
+// flat - difficulty grows through AMOUNT and QUALITY of bodies, not depth
+// scaling. Each common carries a threat weight (weak/normal/hard); a room is
+// filled to a depth-scaled "threat budget" by drawing affordable commons at
+// random. So floor 2 is a lone goblin, the mid-act is mixed packs ("2 goblins
+// + a skeleton"), and the deep act is a real army - all from the same three
+// archetypes. The boss is always just the Lich. The cap is a layout ceiling
+// for the top-down arena (battlefield.ts grids enemies into ranks); the threat
+// budget is the real limiter and rarely approaches it.
+const MAX_ENEMIES = 12;
+
+// Threat weight per common. Goblin (weak) is the cheap filler body; Slime and
+// Skeleton (normal / hard) cost more, so a budget buys many goblins OR a few
+// heavy hitters - the lever that mixes amount and quality.
+const COMMON_THREAT: Record<string, number> = { goblin: 1, slime: 2, skeleton: 2 };
+const ELITE_THREAT = 4;
+function threatOf(def: EnemyDef): number {
+  return COMMON_THREAT[def.id] ?? 1;
+}
+
+// Threat budget for a fight on `floor`. Grows ~linearly with depth (a lone
+// weak body early, a 5-6 strong army by the deep act) with a small random
+// wobble so sibling rooms on a floor feel distinct.
+function encounterBudget(rng: () => number, floor: number): number {
+  const base = 1 + (floor - 2) * 0.6;
+  const wobble = (rng() - 0.5); // +/-0.5
+  return Math.max(1, base + wobble);
+}
+
+// Fill a threat budget with random commons from `pool`, capped at `max` bodies.
+// Greedy: repeatedly draw a uniformly-random AFFORDABLE common (one whose
+// weight fits the remaining budget) until nothing is affordable or the cap is
+// hit. Guarantees at least one body (a sub-1 budget still yields a single
+// random common, so an early room can be a lone slime / skeleton, not only a
+// goblin).
+function fillCommons(
+  rng: () => number,
+  budget: number,
+  max: number,
+  pool: EnemyDef[] = COMMONS,
+): EnemyDef[] {
+  const out: EnemyDef[] = [];
+  let remaining = budget;
+  // Bigger fights lean on the cheap rank-and-file: the goblin's pick weight
+  // climbs with the budget, so a deep-act fight cashes out as a HORDE of weak
+  // bodies (+ the odd heavy) rather than a handful of slimes / skeletons. Small
+  // early fights stay ~uniform, so a lone slime / skeleton still shows up to
+  // teach its threat. AoE falloff (battlefield.ts) is what keeps the horde a
+  // fight instead of a one-nuke clear.
+  const goblinBias = 1 + Math.max(0, budget - 3) * 0.6;
+  const weightOf = (d: EnemyDef): number => (d.id === GOBLIN.id ? goblinBias : 1);
+  while (out.length < max) {
+    const affordable = pool.filter((d) => threatOf(d) <= remaining + 1e-6);
+    if (affordable.length === 0) break;
+    const total = affordable.reduce((s, d) => s + weightOf(d), 0);
+    let r = rng() * total;
+    let pick = affordable[affordable.length - 1];
+    for (const d of affordable) {
+      if (r < weightOf(d)) {
+        pick = d;
+        break;
+      }
+      r -= weightOf(d);
+    }
+    out.push(pick);
+    remaining -= threatOf(pick);
+  }
+  if (out.length === 0) out.push(pool[Math.floor(rng() * pool.length)]);
+  return out;
 }
 
 function rollEnemies(kind: RoomKind, rng: () => number, floor: number): EnemyDef[] {
   if (kind === 'boss') return [LICH];
-  const total = encounterSize(rng, floor);
+  const budget = encounterBudget(rng, floor);
   if (kind === 'common') {
-    return Array.from({ length: total }, () => COMMONS[Math.floor(rng() * COMMONS.length)]);
+    return fillCommons(rng, budget, MAX_ENEMIES);
   }
   if (kind === 'elite') {
     const elite = ELITES[Math.floor(rng() * ELITES.length)];
-    const escortCount = total - 1;
-    if (escortCount <= 0) return [elite]; // solo (first half)
-    // Minotaur keeps its skeleton/goblin/slime escort signature; others pull
-    // commons. Either way the escort fills out to the floor's encounter size.
+    // The elite eats most of the budget; whatever is left buys an escort.
+    // Minotaur keeps its skeleton/goblin/slime escort signature and always
+    // brings at least one body (its taunt wants something to hide behind).
     const pool = elite.id === MINOTAUR.id ? [SKELETON, GOBLIN, SLIME] : COMMONS;
-    const escort: EnemyDef[] = Array.from(
-      { length: escortCount },
-      () => pool[Math.floor(rng() * pool.length)],
-    );
-    return [elite, ...escort];
+    const escort = fillCommons(rng, budget - ELITE_THREAT, MAX_ENEMIES - 1, pool);
+    const keepEscort = elite.id === MINOTAUR.id || budget - ELITE_THREAT >= 1;
+    return keepEscort ? [elite, ...escort] : [elite];
   }
   return [];
 }
@@ -176,10 +232,13 @@ export function generateMap(seed: number = Date.now()): MapGraph {
   const byFloor: MapNode[][] = [];
 
   for (let floor = 1; floor <= FLOORS; floor++) {
+    // Mid floors give real route choice among telegraphed threats without
+    // becoming a mesh: 2-3 nodes, mostly 3. Forced single-node floors stay 1:
+    // floor 1 (item-select), floor N-1 (Rest funnel), floor N (Lich boss).
     const count =
       floor === 1 || floor === FLOORS - 1 || floor === FLOORS
         ? 1
-        : 2 + Math.floor(rng() * 2); // 2 or 3
+        : 2 + (rng() < 0.7 ? 1 : 0); // 3 (~70%) or 2
 
     const floorNodes: MapNode[] = [];
     for (let i = 0; i < count; i++) {
@@ -194,11 +253,14 @@ export function generateMap(seed: number = Date.now()): MapGraph {
     nodes.push(...floorNodes);
   }
 
-  // Wire edges: each parent picks 1-2 children on the NEXT floor, constrained
-  // to children within ~1 column of the parent's x position so the rendered
-  // graph has no long horizontal jumps. Then any orphan child gets adopted
-  // by its closest parent.
-  const CLOSENESS = 0.3; // normalized x distance (0..1)
+  // Wire edges: each parent picks its NEAREST children on the next floor,
+  // constrained to children within ~1 column of the parent's x position so the
+  // rendered graph has no long horizontal jumps. Each parent deals out 1-2
+  // children (mostly 2) so the map forks without turning into a fully-connected
+  // mesh, and because parents pick INDEPENDENTLY a popular child naturally gains
+  // multiple parents (path merging / crossing routes). Then any still-unclaimed
+  // child gets adopted by its closest parent so no node is ever stranded.
+  const CLOSENESS = 0.34; // normalized x distance (0..1)
 
   function relX(idx: number, count: number): number {
     return (idx + 1) / (count + 1);
@@ -215,13 +277,20 @@ export function generateMap(seed: number = Date.now()): MapGraph {
         .sort((a, b) => a.dist - b.dist);
 
       const within = ranked.filter((r) => r.dist <= CLOSENESS);
-      const pool = within.length > 0 ? within : ranked.slice(0, 1);
-      // Favour 2 children so the map forks often (the branch-guarantee pass
-      // below tops up any stretch that still went flat).
+      // Fallback widened to 3 so a parent never disconnects when nothing is
+      // within CLOSENESS (e.g. funnelling into the single-node rest/boss floor,
+      // where children.length === 1 caps this naturally).
+      const pool = within.length > 0 ? within : ranked.slice(0, 2);
+      // 1-2 children per parent (60% chance for 2). Capped by the pool so
+      // single-node floors (rest / boss funnel) still resolve to exactly 1.
       const numChildren = Math.min(pool.length, 1 + (rng() < 0.6 ? 1 : 0));
       parents[pi].children = pool.slice(0, numChildren).map((r) => children[r.ci].id);
     }
 
+    // Orphan adoption: every child needs >=1 parent. After the independent
+    // picks above, any child nobody reached is adopted by its closest parent.
+    // (Children reached by 2+ parents stay merged - that is the point.) We
+    // iterate the children array in order so adoption stays deterministic.
     const claimed = new Set<string>();
     for (const parent of parents) for (const cid of parent.children) claimed.add(cid);
     for (let ci = 0; ci < children.length; ci++) {
@@ -239,25 +308,34 @@ export function generateMap(seed: number = Date.now()): MapGraph {
       }
       if (!parents[bestPi].children.includes(child.id)) {
         parents[bestPi].children.push(child.id);
+        claimed.add(child.id);
       }
     }
   }
 
-  // Branch guarantee: no path should run more than 2 floors without a fork.
-  // Walk the floors; once two have gone by with no node offering a choice
-  // (>=2 children), force the next eligible floor to branch by giving a
-  // single-child node its nearest unused second child. The funnel into the
-  // forced rest + boss (single-node floors) is exempt - nothing to branch to.
+  // Branch guarantee: no path should run a flat stretch without a real choice.
+  // Walk the floors; if a floor offers no node with a choice (>=2 children),
+  // force the next eligible floor to branch by giving a single-child node its
+  // nearest unused second child. Threshold tightened to 1 (was 2) so forks
+  // appear sooner and route diversity stays high even when the random wiring
+  // happened to go flat. The funnel into the forced rest + boss (single-node
+  // floors) is exempt - there is nothing to branch to.
   let sinceBranch = 0;
   for (let floor = 1; floor < FLOORS; floor++) {
     const parents = byFloor[floor - 1];
     const next = byFloor[floor];
-    if (parents.some((n) => n.children.length >= 2)) {
+
+    // A floor offers a "real choice" only if some parent has >=2 children.
+    const hasChoice = parents.some((n) => n.children.length >= 2);
+    if (hasChoice) {
       sinceBranch = 0;
       continue;
     }
+
     sinceBranch += 1;
-    if (sinceBranch <= 2 || next.length < 2) continue;
+    // Force a branch if we've gone even 1 flat floor (tighter than before).
+    // Skip when the next floor is single-node (rest/boss) - nowhere to branch.
+    if (sinceBranch <= 1 || next.length < 2) continue;
 
     const pi = parents.findIndex((n) => n.children.length === 1);
     if (pi === -1) continue;
