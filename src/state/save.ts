@@ -107,7 +107,12 @@ function backfillBackpack(slots: BackpackSlot[]): BackpackSlot[] {
   return slots.map((s) => (isItem(s) ? backfillItemColors(s) : s));
 }
 
+// When a full reset is in progress, stop the beforeunload / debounced writers
+// from re-persisting the in-memory state over the files we just cleared.
+let suppressed = false;
+
 function writeSave(): void {
+  if (suppressed) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot()));
   } catch {
@@ -174,6 +179,21 @@ export function clearSave(): void {
   } catch {
     // ignore
   }
+}
+
+// Hard reset: wipe EVERY persisted enchanter key (run save, settings, bestiary,
+// sim speed, audio) and reload to a pristine state. Suppresses further saves
+// first so the beforeunload flush can't resurrect the run save we just cleared.
+export function resetAllSaveData(): void {
+  suppressed = true;
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('enchanter.')) localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+  location.reload();
 }
 
 // Debounced auto-save so the high-frequency fight ticks (status

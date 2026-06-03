@@ -6,7 +6,7 @@
   import { requestConfirm } from '../state/confirm';
   import { audioPrefs, toggleMute } from '../audio/sfx';
   import { simSpeed, SIM_SPEEDS, setSimSpeed } from '../state/sim-speed';
-  import { clearSave } from '../state/save';
+  import { clearSave, resetAllSaveData } from '../state/save';
   import { t } from '../i18n';
 
   // The difficulty choices, in ascending order. Each carries its own
@@ -40,6 +40,19 @@
         clearSave();
         startNewRun();
       },
+    });
+  }
+
+  // Full reset: wipe EVERY save file (run, settings, bestiary, prefs) and reload
+  // to a pristine state. Confirm first - this is more destructive than Restart.
+  function onResetSave(): void {
+    closeSettings();
+    requestConfirm({
+      title: t('settings.resetSave.title'),
+      body: t('settings.resetSave.body'),
+      confirmLabel: t('settings.resetSave.confirm'),
+      tone: 'danger',
+      onConfirm: () => resetAllSaveData(),
     });
   }
 
@@ -142,6 +155,14 @@
           <span class="opt-text">
             <span class="opt-name">{t('settings.restartRun')}</span>
             <span class="opt-desc">{t('settings.restartRun.desc')}</span>
+          </span>
+        </button>
+
+        <button type="button" class="option danger" onclick={onResetSave}>
+          <span class="opt-emoji">🗑️</span>
+          <span class="opt-text">
+            <span class="opt-name">{t('settings.resetSave')}</span>
+            <span class="opt-desc">{t('settings.resetSave.desc')}</span>
           </span>
         </button>
       </div>
