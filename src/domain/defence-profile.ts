@@ -17,6 +17,11 @@ export interface DefenceProfile {
   hpRegenPerSec: number;
   damageReduction: number; // 0..1 flat
   thornsFlat: number; // damage reflected per incoming hit
+  // Covenant trade-off: when true, the player can no longer heal AT ALL
+  // (lifesteal, the Sanctuary heal proc, and regen are all gated on this).
+  // Honoured everywhere the player would GAIN HP. (Shields and Blood Pact's
+  // HP cost are unaffected - neither is healing.)
+  noHeal: boolean;
 }
 
 // Player baseline before any equipped enchant kicks in. The 1000 HP /
@@ -31,6 +36,7 @@ export const BASE_DEFENCE: DefenceProfile = {
   hpRegenPerSec: 0,
   damageReduction: 0,
   thornsFlat: 0,
+  noHeal: false,
 };
 
 // Stacking: same-stat effects sum additively; hp-max-mul applies after
@@ -50,6 +56,8 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
   let regen = 0;
   let dr = 0;
   let thorns = 0;
+  // Covenant: any no-heal effect flips this on for the whole build.
+  let noHeal = false;
 
   for (const eff of effects) {
     switch (eff.kind) {
@@ -71,6 +79,10 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
       case 'thorns-flat':
         thorns += eff.amount;
         break;
+      case 'no-heal':
+        // Covenant: suppress all player healing (gated in battlefield.ts).
+        noHeal = true;
+        break;
       // Conditional / reactive / status / unique kinds: silently
       // pass through. The Inspector still surfaces them via the
       // description text.
@@ -83,5 +95,6 @@ export function resolveDefence(effects: EnchantEffect[]): DefenceProfile {
     hpRegenPerSec: Math.max(0, regen),
     damageReduction: Math.min(DR_CAP, Math.max(0, dr)),
     thornsFlat: Math.max(0, thorns),
+    noHeal,
   };
 }

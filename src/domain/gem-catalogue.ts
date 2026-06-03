@@ -1,6 +1,8 @@
-// The gem pool (see docs/gem-catalogue.md). 44 gems: 16 procs, 13 stats, 15
-// supports. Numbers are placeholders per the catalogue's own note - the
-// BEHAVIOURS are locked here, values tune in playtesting.
+// The gem pool (see docs/gem-catalogue.md). 49 gems: 16 procs, 17 stats, 16
+// supports. Milestone B added the trade-off trio (Shaped Glass, Covenant,
+// Blood Pact); Milestone C added the build-around uniques (Deadeye, Prism).
+// Numbers are placeholders per the catalogue's own note - the BEHAVIOURS are
+// locked here, values tune in playtesting.
 //
 // Visual primitive ids (docs/gems.md § Visual primitives):
 //   strike-line · expanding-ring · falling-body · drifting-orb ·
@@ -16,7 +18,7 @@ import type { GemDef } from './gem';
 
 export const GEM_CATALOGUE: Record<string, GemDef> = {
   // ----------------------------------------------------------------------
-  // Weapon gems (18) - offense
+  // Weapon gems (21) - offense
   // ----------------------------------------------------------------------
 
   // Effect (proc) - timer 3s: bolt a random enemy for 200 lightning.
@@ -73,7 +75,10 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       emoji: '❄️',
     },
   },
-  // Effect (proc) - continuous: orbiting blade, 120 physical on contact.
+  // Effect (proc) - continuous: orbiting blade, 90 physical on contact every 1s.
+  // Reliable single-target chip; tuned to sit near the timer procs' value
+  // (Chain ~67 dps) now that the innate auto-attack carries real weight - 120
+  // dps continuous on top of a 130-dps base was outrunning the other effects.
   whirlblade: {
     id: 'whirlblade',
     emoji: '🗡️',
@@ -82,7 +87,7 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     proc: {
       trigger: 'continuous',
       cooldownSec: 1,
-      payload: { kind: 'damage', damage: 120, damageType: 'physical' },
+      payload: { kind: 'damage', damage: 90, damageType: 'physical' },
       targeting: 'nearest',
       count: 1,
       canCrit: false,
@@ -269,9 +274,22 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'support',
     mod: { kind: 'rider', status: 'burn' },
   },
+  // Support - TRADE-OFF (Milestone B): Blood Pact makes the bound DAMAGE proc
+  // hit for x1.8, but every fire costs 4% of your CURRENT HP. Binds to as many
+  // damage procs as possible (damage / attack-echo / summon) per the support-
+  // compatibility rule; inert on heal / shield / buff / gold procs and on stats.
+  // The HP cost lands DURING the fight (not respec friction): a self-damaging
+  // overcharge for a build that can sustain or end fights fast.
+  'blood-pact': {
+    id: 'blood-pact',
+    emoji: '🫀',
+    class: 'weapon',
+    role: 'support',
+    mod: { kind: 'proc-cost-hp', damageFactor: 1.8, hpFraction: 0.04 },
+  },
 
   // ----------------------------------------------------------------------
-  // Armor gems (13) - defense
+  // Armor gems (15) - defense
   // ----------------------------------------------------------------------
 
   // Effect (proc) - on-hit-taken: blast the attacker for 200.
@@ -394,15 +412,17 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
       effects: [{ kind: 'damage-mul-low-hp', perPercentMissing: 0.08, cap: 0.8 }],
     },
   },
-  // Effect (stat) - your auto-attack gains +3% of your max HP as damage. Links
-  // the defence backbone (Heart) into offense - a tank that hits hard.
+  // Effect (stat) - your auto-attack gains +4% of your max HP as damage. Links
+  // the defence backbone (Heart) into offense - a tank that hits hard. Bumped
+  // 3% -> 4% so it stays a real damage line beside flat Edge (+150) once a
+  // Heart-stacked build pushes max HP past ~2000 (+80 damage there).
   'giants-blood': {
     id: 'giants-blood',
     emoji: '🗿',
     class: 'armor',
     role: 'effect',
     stat: {
-      effects: [{ kind: 'damage-from-max-hp', fractionOfMaxHp: 0.03 }],
+      effects: [{ kind: 'damage-from-max-hp', fractionOfMaxHp: 0.04 }],
     },
   },
   // Effect (stat) - +12% dodge: a flat chance to avoid an incoming hit.
@@ -436,6 +456,39 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     role: 'effect',
     stat: {
       effects: [{ kind: 'damage-reduction', amount: 0.1 }],
+    },
+  },
+  // Effect (stat) - TRADE-OFF (Milestone B): Shaped Glass halves your max HP but
+  // DOUBLES all your outgoing damage (auto-attack, procs, minions, DoT). The
+  // glass-cannon keystone: every point of HP traded for raw output. Pairs with
+  // Berserker (lower HP = more bonus) and begs for Bloodthirst / a shield to
+  // survive. The all-damage-mul is global; hp-max-mul reuses the existing kind.
+  'shaped-glass': {
+    id: 'shaped-glass',
+    emoji: '💎',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [
+        { kind: 'hp-max-mul', factor: 0.5 },
+        { kind: 'all-damage-mul', factor: 2 },
+      ],
+    },
+  },
+  // Effect (stat) - TRADE-OFF (Milestone B): Covenant grants +300 physical to
+  // your auto-attack but you can NO LONGER HEAL - lifesteal, heal procs and
+  // regen are all switched off (shields still work; they aren't healing). The
+  // anti-sustain gem: massive damage if you can win before you bleed out.
+  covenant: {
+    id: 'covenant',
+    emoji: '\u{26E7}',
+    class: 'armor',
+    role: 'effect',
+    stat: {
+      effects: [
+        { kind: 'no-heal' },
+        { kind: 'damage-add', amount: 300, type: 'physical' },
+      ],
     },
   },
 
@@ -611,5 +664,33 @@ export const GEM_CATALOGUE: Record<string, GemDef> = {
     class: 'jewelry',
     role: 'support',
     mod: { kind: 'potency', dmgMul: 2, durMul: 1.5 },
+  },
+  // Build-around unique - stat: 100% crit chance, but the crit multiplier drops
+  // to x1.5 (vs the base x2.0). Trade variance for certainty - every hit is a
+  // crit, so on-crit procs (Lethal builds) always fire, but each crit hits
+  // softer. Reuses the all-crit-replace-mul machinery already wired in
+  // landDamage. Numbers are placeholders.
+  deadeye: {
+    id: 'deadeye',
+    emoji: '🎯',
+    class: 'weapon',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'all-crit-replace-mul', replacedMul: 1.5 }],
+    },
+  },
+  // Build-around unique - stat: converts ALL outgoing damage (auto-attack,
+  // procs, minion bites) to chaos. A powerful, swappable answer to resistant
+  // enemies - free respec means you equip it for the right fight and pull it
+  // for the wrong one (a chaos-resistant foe punishes it). Synergizes directly
+  // with the threat / resist telegraph. Numbers / element are placeholders.
+  prism: {
+    id: 'prism',
+    emoji: '🔷',
+    class: 'weapon',
+    role: 'effect',
+    stat: {
+      effects: [{ kind: 'convert-damage-type', targetType: 'chaos' }],
+    },
   },
 };

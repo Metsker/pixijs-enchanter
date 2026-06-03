@@ -51,6 +51,10 @@ export interface ResolvedProc extends ProcDef {
   // Conditional damage multipliers from `condscale` supports, all evaluated and
   // multiplied together per target when the proc fires.
   condScales: CondScale[];
+  // Blood Pact: fraction of the player's CURRENT HP this proc costs each time it
+  // fires (its damage is already scaled up by the support). undefined / 0 means
+  // the proc is free, as normal. Paid in battlefield.ts after the proc lands.
+  procCostHp?: number;
 }
 
 export interface ResolvedItemGems {
@@ -147,6 +151,15 @@ export function levelSupportMod(mod: SupportMod, level: number): SupportMod {
         condition: mod.condition,
         factor: 1 + (mod.factor - 1) * mag(level),
       };
+    case 'proc-cost-hp':
+      // Blood Pact: the damage bonus grows on the mag() curve like `scale`; the
+      // HP cost stays flat (a higher level pays the SAME % of current HP but hits
+      // harder, so leveling is a pure upside - in keeping with the other knobs).
+      return {
+        kind: 'proc-cost-hp',
+        damageFactor: 1 + (mod.damageFactor - 1) * mag(level),
+        hpFraction: mod.hpFraction,
+      };
   }
 }
 
@@ -187,6 +200,12 @@ function applyKnobToProc(proc: ResolvedProc, mod: SupportMod): void {
         ...proc.condScales,
         { condition: mod.condition, factor: mod.factor },
       ];
+      break;
+    case 'proc-cost-hp':
+      // Blood Pact: scale the payload damage up and stamp the HP cost. Two Blood
+      // Pacts on one proc compound the damage and stack the HP fraction.
+      proc.payload = scalePayload(proc.payload, mod.damageFactor);
+      proc.procCostHp = (proc.procCostHp ?? 0) + mod.hpFraction;
       break;
   }
 }
@@ -270,6 +289,11 @@ export function supportAppliesToEffect(mod: SupportMod, effect: GemDef): boolean
       case 'potency':
         // rider lands a status on a damage hit; potency boosts those statuses.
         // (potency with no rider present is harmless but reads as "bound".)
+        return dealsDamage;
+      case 'proc-cost-hp':
+        // Blood Pact binds to ANY damage-dealing proc (damage / attack-echo /
+        // summon) - the widest possible reach, per the support-compatibility
+        // rule. Inert on heal / shield / buff / gold procs (nothing to amplify).
         return dealsDamage;
     }
   }

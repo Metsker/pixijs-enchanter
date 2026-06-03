@@ -50,4 +50,17 @@ export type EnchantEffect =
   | { kind: 'on-kill-aura'; durationSec: number }
   | { kind: 'revive-on-death'; hpFraction: number; once: true }
   | { kind: 'all-crit-replace-mul'; replacedMul: number }
-  | { kind: 'mirror-charge'; intervalSec: number; maxCharges: number };
+  // Prism (build-around unique): converts EVERY outgoing player hit
+  // (auto-attack, procs, minion bites) to a single element. Resolved at combat
+  // time in battlefield.ts - it overrides the type fed to typeDamageMul so a
+  // resistant enemy can be answered by swapping this gem in (free respec makes
+  // it a tool). First matching effect wins when several are equipped.
+  | { kind: 'convert-damage-type'; targetType: DamageType }
+  | { kind: 'mirror-charge'; intervalSec: number; maxCharges: number }
+  // Trade-off / anti-synergy kinds (Milestone B). A GLOBAL outgoing-damage
+  // multiplier applied to every source the player deals (auto-attack, procs,
+  // minion bites, DoT) - Shaped Glass pumps damage at the cost of max HP.
+  // no-heal suppresses ALL player healing (lifesteal, heal/regen procs, regen,
+  // proc HP costs) - Covenant trades sustain for raw damage.
+  | { kind: 'all-damage-mul'; factor: number }
+  | { kind: 'no-heal' };

@@ -98,6 +98,13 @@ const GEM_NAMES: Record<string, string> = {
   brutality: 'Brutality',
   envenom: 'Envenom',
   virulent: 'Virulent',
+  // Trade-off / anti-synergy gems (Milestone B).
+  'shaped-glass': 'Shaped Glass',
+  covenant: 'Covenant',
+  'blood-pact': 'Blood Pact',
+  // Build-around uniques (Milestone C).
+  deadeye: 'Deadeye',
+  prism: 'Prism',
 };
 
 const DAMAGE_LABELS: Record<DamageType, string> = {
@@ -220,6 +227,21 @@ function statEffectPhrase(effect: StatDef['effects'][number]): string {
       return `+${pct(effect.amount)} damage reduction`;
     case 'regen':
       return `+${Math.round(effect.amount)} HP/s`;
+    case 'hp-max-mul':
+      // Shaped Glass: a max-HP multiplier, e.g. x0.5 = "max HP halved".
+      return effect.factor === 0.5 ? 'max HP halved' : `max HP x${num(effect.factor)}`;
+    case 'all-damage-mul':
+      // Shaped Glass: the global outgoing-damage multiplier.
+      return `all your damage x${num(effect.factor)}`;
+    case 'no-heal':
+      // Covenant: the heal-suppression trade-off.
+      return 'you can no longer heal';
+    case 'all-crit-replace-mul':
+      // Deadeye: every hit crits, but at this reduced multiplier.
+      return `always crit, but crit multiplier becomes x${num(effect.replacedMul)}`;
+    case 'convert-damage-type':
+      // Prism: forces every outgoing hit to one element.
+      return `convert all your damage to ${DAMAGE_LABELS[effect.targetType]}`;
     default:
       return effect.kind;
   }
@@ -249,6 +271,9 @@ function supportSummary(mod: SupportMod): string {
       return `the bound proc's ailments deal x${mod.dmgMul} damage and last ${Math.round((mod.durMul - 1) * 100)}% longer`;
     case 'condscale':
       return `the bound proc deals x${+mod.factor.toFixed(2)} vs ${conditionPhrase(mod.condition)}`;
+    case 'proc-cost-hp':
+      // Blood Pact: the damage bonus + the current-HP cost per fire.
+      return `the bound proc deals x${num(mod.damageFactor)}, but costs ${pct(mod.hpFraction)} current HP per fire`;
   }
 }
 

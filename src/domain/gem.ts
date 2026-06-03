@@ -137,7 +137,12 @@ export type SupportMod =
   | { kind: 'rider'; status: StatusType }
   | { kind: 'repeat'; times: number; delaySec: number }
   | { kind: 'potency'; dmgMul: number; durMul: number }
-  | { kind: 'condscale'; condition: ProcCondition; factor: number };
+  | { kind: 'condscale'; condition: ProcCondition; factor: number }
+  // Blood Pact (Milestone B trade-off support): the bound damage proc fires for
+  // `damageFactor` more damage, but each fire costs `hpFraction` of your CURRENT
+  // HP. Binds to as many DAMAGE procs as possible (see supportAppliesToEffect);
+  // the HP cost lands during combat, so it never touches respec friction.
+  | { kind: 'proc-cost-hp'; damageFactor: number; hpFraction: number };
 
 // A gem definition. Discriminated first on role, then (for effects) on whether
 // it carries a proc or a stat.
