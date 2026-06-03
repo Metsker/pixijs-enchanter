@@ -14,6 +14,7 @@
   import { isGem, type Gem } from '../domain/gem';
   import ItemCard from './ItemCard.svelte';
   import GemCard from './GemCard.svelte';
+  import FightBreakdown from './FightBreakdown.svelte';
   import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
 
@@ -164,6 +165,8 @@
         </div>
       </div>
     {/if}
+
+    <FightBreakdown />
   </div>
 </aside>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { run, startNewRun } from '../state/run';
   import { resetPendingRewards } from '../state/rewards';
+  import FightBreakdown from './FightBreakdown.svelte';
   import { sfx } from '../audio/sfx';
   import { t } from '../i18n';
 
@@ -29,6 +30,7 @@
   <div class="overlay">
     <div class="card lost">
       <h2>{t('room.runLost')}</h2>
+      <FightBreakdown />
       <button type="button" class="cta" onclick={onNewRun}>{t('room.newRun')}</button>
     </div>
   </div>
