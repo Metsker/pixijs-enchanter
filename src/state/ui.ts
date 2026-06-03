@@ -43,6 +43,16 @@ export function toggleStatsSplit(): void {
   statsSplitOpen.update((open) => !open);
 }
 
+// Read-only bestiary panel: dossiers for encountered enemies. Like Stats, it has
+// no drop targets, so it's tracked separately from the bag splits.
+export const bestiarySplitOpen = writable(false);
+export function closeBestiarySplit(): void {
+  bestiarySplitOpen.set(false);
+}
+export function toggleBestiarySplit(): void {
+  bestiarySplitOpen.update((open) => !open);
+}
+
 // Toggle the whole bag: if either split is open, close both; otherwise open both.
 export function toggleBag(): void {
   const anyOpen = get(itemsSplitOpen) || get(gemsSplitOpen);

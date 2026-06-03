@@ -7,9 +7,11 @@
     itemsSplitOpen,
     gemsSplitOpen,
     statsSplitOpen,
+    bestiarySplitOpen,
     toggleItemsSplit,
     toggleGemsSplit,
     toggleStatsSplit,
+    toggleBestiarySplit,
     settingsOpen,
     openSettings,
   } from '../state/ui';
@@ -117,6 +119,17 @@
       title={t('topbar.toggleStats')}
     >
       <span class="emoji">📊</span>
+    </button>
+    <button
+      type="button"
+      class="backpack-toggle"
+      class:active={$bestiarySplitOpen}
+      aria-label={t('topbar.toggleBestiary')}
+      aria-pressed={$bestiarySplitOpen}
+      onclick={toggleBestiarySplit}
+      title={t('topbar.toggleBestiary')}
+    >
+      <span class="emoji">📖</span>
     </button>
     <button
       type="button"

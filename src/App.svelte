@@ -4,6 +4,7 @@
   import Battlefield from './ui/Battlefield.svelte';
   import BagSplit from './ui/BagSplit.svelte';
   import StatsSplit from './ui/StatsSplit.svelte';
+  import BestiaryPanel from './ui/BestiaryPanel.svelte';
   import VictoryPanel from './ui/VictoryPanel.svelte';
   import Inspector from './ui/Inspector.svelte';
   import GemInspector from './ui/GemInspector.svelte';
@@ -16,7 +17,13 @@
   import ConfirmModal from './ui/ConfirmModal.svelte';
   import DestroyPrompt from './ui/DestroyPrompt.svelte';
   import Settings from './ui/Settings.svelte';
-  import { toggleBag, itemsSplitOpen, gemsSplitOpen, statsSplitOpen } from './state/ui';
+  import {
+    toggleBag,
+    itemsSplitOpen,
+    gemsSplitOpen,
+    statsSplitOpen,
+    bestiarySplitOpen,
+  } from './state/ui';
   import { run } from './state/run';
   import { inspector } from './state/inspector';
   import { gemInspector } from './state/gem-inspector';
@@ -83,8 +90,8 @@
   // Victory is NOT a movable panel: like the room panes (shop / armory / rest) it
   // is pinned at the rail's start and rendered outside panelOrder (see isVictory
   // + the rail markup), so it can't be dragged or reordered.
-  type PanelKey = 'inspector' | 'gem' | 'items' | 'gems' | 'stats';
-  const PANEL_KEYS: PanelKey[] = ['inspector', 'gem', 'items', 'gems', 'stats'];
+  type PanelKey = 'inspector' | 'gem' | 'items' | 'gems' | 'stats' | 'bestiary';
+  const PANEL_KEYS: PanelKey[] = ['inspector', 'gem', 'items', 'gems', 'stats', 'bestiary'];
 
   const panelOpen = $derived<Record<PanelKey, boolean>>({
     inspector: $inspector !== null,
@@ -92,6 +99,7 @@
     items: $itemsSplitOpen,
     gems: $gemsSplitOpen,
     stats: $statsSplitOpen,
+    bestiary: $bestiarySplitOpen,
   });
 
   // The shop and the Armory are themselves part of the pane layout (left-aligned
@@ -513,6 +521,8 @@
             <BagSplit kind="gems" />
           {:else if key === 'stats'}
             <StatsSplit />
+          {:else if key === 'bestiary'}
+            <BestiaryPanel />
           {/if}
         {/each}
       </div>
